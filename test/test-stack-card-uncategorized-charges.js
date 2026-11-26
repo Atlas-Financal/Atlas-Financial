@@ -14,7 +14,7 @@ const candidate = (label, extra = {}) => ['card', 37, null, 'purchase', {
   payee: 'Invented merchant', category_name: label, ...extra,
 }];
 
-async function render(rows, { Forecast, kindHint, editObservation, paymentAmount = 25 } = {}) {
+async function render(rows, { Forecast, kindHint, editObservation, paymentAmount = 25, periodStart } = {}) {
   const x = world([grocery, ...rows, ['bills', paymentAmount, null, 'cash', { notes: 'card payment: Travel Visa' }]], {
     edit(x) {
       x.data.plan.budget.excluded = [{ from: 'Invented business' }];
@@ -27,12 +27,14 @@ async function render(rows, { Forecast, kindHint, editObservation, paymentAmount
   if (kindHint) transactions.find(tx => tx.displayedPayee === 'Invented merchant').kindHint = kindHint;
   const page = await loadStackPage({ data, Forecast });
   assert.equal(page.status(), 'rendered');
+  if (periodStart) assert.equal(page.selectPeriod(periodStart), periodStart);
   const ctx = page.context();
-  const { stackSummary } = ctx.recommendation.payPeriodViews.find(view => view.start === page.selectedKey());
+  const { stackSummary, role } = ctx.recommendation.payPeriodViews.find(view => view.start === page.selectedKey());
   const credit = page.blockHtml('credit');
   const waterfall = page.sandbox.StackWaterfall.html(ctx, { creditOpen: true });
   return {
     summary: stackSummary,
+    role,
     transactions,
     line: stackSummary.credit.lines.find(line => line.id === cardId),
     sheet: page.sandbox.StackSheet.html(ctx, `card:${cardId}`),
@@ -42,15 +44,31 @@ async function render(rows, { Forecast, kindHint, editObservation, paymentAmount
   };
 }
 
-function assertUnknownRepayment({ line, sheet, tile }) {
+function assertChargesWithheld({ line, sheet, tile }) {
   assert.equal(line.spent.amount, null);
-  assert.equal(line.stillToPayBack.amount, null);
-  assert.equal(line.stillToPayBack.trust, 'unavailable');
-  assert.ok(line.stillToPayBack.reasons.includes('new-charges-unavailable'));
   assert.equal(line.targetCovered.value, 'unknown');
+  assert.equal(line.targetCovered.trust, 'unavailable');
+  assert.ok(line.targetCovered.reasons.includes('new-charges-unavailable'));
   assert.doesNotMatch(tile, /stack-credit-x is-good/);
   assert.doesNotMatch(sheet, /<dt>(?:New charges|Target)<\/dt>/);
-  assert.match(sheet, /Repayment coverage<\/dt><dd[^>]*>Not yet known/);
+}
+
+function assertUnknownRepayment(page) {
+  assertChargesWithheld(page);
+  assert.equal(page.line.stillToPayBack.amount, null);
+  assert.equal(page.line.stillToPayBack.trust, 'unavailable');
+  assert.ok(page.line.stillToPayBack.reasons.includes('new-charges-unavailable'));
+  assert.match(page.sheet, /Repayment coverage<\/dt><dd[^>]*>Not yet known/);
+}
+
+function assertPublishedRemainder(page, amount, displayed) {
+  assertChargesWithheld(page);
+  assert.equal(page.line.stillToPayBack.amount, amount);
+  assert.equal(page.line.stillToPayBack.trust, 'estimated');
+  assert.deepEqual(Array.from(page.line.stillToPayBack.reasons), []);
+  assert.equal(page.summary.creditBreakdown.rows.find(row => row.debtId === cardId).amount, amount);
+  assert.match(page.waterfall, new RegExp(`data-source="stackSummary\\.creditBreakdown\\.rows\\.\\d+\\.amount">\\$${displayed}</span>`));
+  assert.doesNotMatch(page.waterfall + page.sheet, /Not yet known|At least|As of/i);
 }
 
 function assertPaidMinimum({ summary, line, sheet, tile, credit, waterfall }, paid) {
@@ -61,6 +79,10 @@ function assertPaidMinimum({ summary, line, sheet, tile, credit, waterfall }, pa
   assert.equal(summary.credit.totals.minimumsDueCount, 1);
   assert.equal(summary.credit.totals.minimumsCoveredCount, 1);
   assert.match(credit, /stack-credit-bar"[^>]*><i style="width:100\.0%">/);
+  assert.match(waterfall, /aria-label="Minimum paid">✓<\/span>/);
+}
+
+function assertUnknownRemainderWithPaidMinimum({ summary, waterfall }) {
   assert.equal(summary.creditBreakdown.rows.find(row => row.debtId === cardId).amount, null);
   assert.match(waterfall, /Not yet known<br><span class="wf-check"[^>]*aria-label="Minimum paid">✓<\/span> <span[^>]*>Minimum paid<\/span>/);
   assert.doesNotMatch(waterfall, /\$0\b/);
@@ -150,6 +172,7 @@ function withOldChargeWithhold() {
     if (scenario === 'manual balance update') {
       assert.equal(line.paidBack.amount, 25, 'the Bills payment remains visible');
       assertPaidMinimum(page, 25);
+      assertUnknownRemainderWithPaidMinimum(page);
     } else {
       assert.doesNotMatch(tile, /stack-credit-tick is-on/, 'the stale coverage leaves the payment unconfirmed too');
     }
@@ -169,6 +192,7 @@ function withOldChargeWithhold() {
     assert.equal(line.target.newCharges, null);
     assertUnknownRepayment(page);
     assertPaidMinimum(page, 25);
+    assertUnknownRemainderWithPaidMinimum(page);
   }
 
   const aboveMinimum = await render([candidate('Transfer')], { paymentAmount: 41, editObservation(payload, data) {
@@ -176,15 +200,42 @@ function withOldChargeWithhold() {
     data.debts.find(debt => debt.id === cardId).limit = 400;
   } });
   assert.equal(aboveMinimum.line.target.amount, 117, 'the over-limit lower bound stays available to Forecast');
-  assertUnknownRepayment(aboveMinimum);
+  assertPublishedRemainder(aboveMinimum, 76, 76);
   assertPaidMinimum(aboveMinimum, 41);
   const belowMinimum = await render([candidate('Transfer')], { paymentAmount: 12 });
-  assertUnknownRepayment(belowMinimum);
+  assertPublishedRemainder(belowMinimum, 13, 13);
   assert.equal(belowMinimum.line.minimumCovered.value, false);
   assert.doesNotMatch(belowMinimum.tile, /stack-credit-tick is-on/);
   assert.match(belowMinimum.credit, /stack-credit-bar"[^>]*><i style="width:0\.0%">/);
-  assert.match(belowMinimum.waterfall, /Not yet known/);
   assert.doesNotMatch(belowMinimum.waterfall, /Minimum paid|\$0\b/);
+
+  const roundsToZero = await render([candidate('Transfer')], { paymentAmount: 24.51 });
+  assert.equal(roundsToZero.line.paidBack.amount, 24.51);
+  assert.equal(roundsToZero.line.target.amount, 25);
+  assertUnknownRepayment(roundsToZero);
+  assert.match(roundsToZero.waterfall, /Not yet known/);
+  assert.doesNotMatch(roundsToZero.waterfall, /Minimum paid|\$0\b/);
+  const halfDollar = await render([candidate('Transfer')], { paymentAmount: 24.50 });
+  assertPublishedRemainder(halfDollar, 0.50, 1);
+
+  const periodStart = '2026-10-02';
+  const noFutureMinimum = await render([], { periodStart });
+  assert.equal(noFutureMinimum.role, 'future');
+  assert.equal(noFutureMinimum.line.target.amount, 0);
+  assert.ok(noFutureMinimum.line.minimum.reasons.includes('no-minimum-due-in-period'));
+  assertUnknownRepayment(noFutureMinimum);
+  assert.equal(noFutureMinimum.waterfall, undefined, 'the dropdown omits cards with no scheduled amount');
+  assert.doesNotMatch(noFutureMinimum.tile, /stack-credit-tick is-on/);
+
+  const futureMinimum = await render([], { periodStart, editObservation(_payload, data) {
+    const [minimum] = data.plan.obligations;
+    data.plan.obligations.push({ ...minimum, id: 'invented-future-minimum', date: '2026-10-05', amount: 32 });
+  } });
+  assert.equal(futureMinimum.role, 'future');
+  assert.equal(futureMinimum.line.minimum.amount, 32);
+  assertPublishedRemainder(futureMinimum, 32, 32);
+  assert.doesNotMatch(futureMinimum.waterfall, /Minimum paid/);
+  assert.doesNotMatch(futureMinimum.tile, /stack-credit-tick is-on/);
 
   const mutant = await render([candidate(null)], { Forecast: withOldChargeWithhold() });
   assert.throws(() => assertCharge(mutant), /the card sheet shows both charges/);

@@ -223,7 +223,7 @@
         : rowHtml('Minimum', r.notDue ? 'Not due this period' : dash))
       + (!heloc && r.x != null ? rowHtml('Paid back', soft(formatMoney(r.x), est(view, trustOf(line.paidBack)))) : '')
       + (heloc ? '' : overLimitRow(line, view, rowHtml, soft, formatMoney) + (r.chargesUnavailable ? '' : targetRow(line, view, rowHtml, soft, formatMoney)))
-      + (r.chargesUnavailable ? rowHtml('Repayment coverage', 'Not yet known') : '')
+      + (r.chargesUnavailable && line.stillToPayBack?.amount === null ? rowHtml('Repayment coverage', 'Not yet known') : '')
       + '</dl>'
       + (heloc ? '' : '<h4 class="stack-sheet-txh" aria-label="Card transactions">Transactions</h4>' + (tx.length
         ? '<ul class="stack-sheet-tx">' + tx.map(t => {

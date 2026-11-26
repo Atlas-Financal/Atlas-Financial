@@ -860,15 +860,18 @@
         ? { amount: null, trust: 'unavailable', reasons: [...new Set(paidBack.reasons.concat('payment-direction-unresolved'))] }
         : paidBack;
       const towardCents = cents(progress.amount);
-      // A lower-bound target cannot establish a remaining amount or full repayment.
+      // A lower-bound target cannot establish full repayment. With unknown charges, withhold a remainder
+      // below half a dollar because the Stack displays whole dollars and would print it as $0.
       const chargesUnavailable = target.reasons.includes('new-charges-unavailable');
-      const shortOf = targetCents === null || towardCents === null || chargesUnavailable;
-      const stillToPayBack = shortOf
-        ? { amount: null, trust: 'unavailable', reasons: [...new Set((targetCents === null ? target.reasons : [])
-          .concat(towardCents === null ? progress.reasons : [], chargesUnavailable ? ['new-charges-unavailable'] : []))] }
-        : { amount: Math.max(0, targetCents - towardCents) / 100, trust: weakest(target.trust, progress.trust), reasons: [] };
-      const targetCovered = shortOf
-        ? { value: 'unknown', trust: 'unavailable', reasons: stillToPayBack.reasons.slice() }
+      const remainderCents = targetCents === null || towardCents === null ? null : Math.max(0, targetCents - towardCents);
+      const remainderUnavailable = remainderCents === null || (chargesUnavailable && remainderCents < 50);
+      const coverageReasons = [...new Set((targetCents === null ? target.reasons : [])
+        .concat(towardCents === null ? progress.reasons : [], chargesUnavailable ? ['new-charges-unavailable'] : []))];
+      const stillToPayBack = remainderUnavailable
+        ? { amount: null, trust: 'unavailable', reasons: coverageReasons }
+        : { amount: remainderCents / 100, trust: weakest(target.trust, progress.trust), reasons: [] };
+      const targetCovered = remainderUnavailable || chargesUnavailable
+        ? { value: 'unknown', trust: 'unavailable', reasons: coverageReasons.slice() }
         : { value: targetCents > 0 && towardCents >= targetCents, trust: weakest(target.trust, progress.trust), reasons: [] };
       // Covered reads posted payments only: a pending payment never by itself makes a minimum covered (lead ruling, 2026-11-22).
       const paidForMinimum = progress;

@@ -161,10 +161,16 @@ function proveStackCredit(view, credit, breakdown, surplus) {
       const t = line.target.amount, w = line.paidBack.amount;
       assert.ok(line.stillToPayBack && line.targetCovered, 'authorized addition: each Credit line carries stillToPayBack and targetCovered');
       const chargesWithheld = line.id !== 'heloc' && t !== null && line.spent.amount === null;
-      if (t === null || w === null || chargesWithheld) {
-        assert.equal(line.stillToPayBack.amount, null, 'authorized addition: an unknown side leaves Still to pay back unknown, never $0');
+      const remainder = t === null || w === null ? null : Math.max(0, cents(t) - cents(w));
+      const displaysZero = chargesWithheld && remainder !== null && Math.round(remainder / 100) === 0;
+      if (remainder === null || displaysZero) {
+        assert.equal(line.stillToPayBack.amount, null, 'authorized addition: an unknown side or a zero-displaying lower bound leaves Still to pay back unknown');
+        if (chargesWithheld) {
+          assert.equal(line.stillToPayBack.trust, 'unavailable', 'authorized addition: an unknown remainder has unavailable trust');
+          assert.ok(line.stillToPayBack.reasons.includes('new-charges-unavailable'), 'authorized addition: a withheld remainder names the missing charges');
+        }
       } else {
-        assert.equal(cents(line.stillToPayBack.amount), Math.max(0, cents(t) - cents(w)), 'authorized addition: Still to pay back is target − paid back, floored at 0');
+        assert.equal(line.stillToPayBack.amount, remainder / 100, 'authorized addition: Still to pay back is target − paid back, floored at 0');
         assert.ok(line.stillToPayBack.amount <= t, 'authorized addition: Still to pay back never exceeds the target');
       }
       assert.equal(line.targetCovered.value, t === null || w === null || chargesWithheld ? 'unknown' : cents(t) > 0 && cents(w) >= cents(t),
@@ -172,8 +178,6 @@ function proveStackCredit(view, credit, breakdown, surplus) {
       if (chargesWithheld) {
         assert.equal(line.target.newCharges, null, 'authorized addition: a lower bound publishes no new-charges amount');
         assert.ok(line.target.reasons.includes('new-charges-unavailable'), 'authorized addition: a lower bound names the missing charges');
-        assert.equal(line.stillToPayBack.trust, 'unavailable', 'authorized addition: an unknown remainder has unavailable trust');
-        assert.ok(line.stillToPayBack.reasons.includes('new-charges-unavailable'), 'authorized addition: a withheld remainder names the missing charges');
         assert.equal(line.targetCovered.trust, 'unavailable', 'authorized addition: lower-bound coverage has unavailable trust');
         assert.ok(line.targetCovered.reasons.includes('new-charges-unavailable'), 'authorized addition: withheld coverage names the missing charges');
       }

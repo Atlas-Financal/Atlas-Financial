@@ -12,8 +12,9 @@ const { CASE_NAMES, runCase } = require('../scripts/live-refresh-benchmark');
 // and restoring the prior reasons on paidToward, paidBack, stillToPayBack, targetCovered and minimumCovered
 // reproduces the d70784b1 Forecast digests. The budget case also requires the previous totals.minimumsPaid.reasons
 // and totals.minimumsCoveredTrust (now unavailable where payer evidence is missing). No amount or data digest changed.
-// Re-pinned for #1664: restoring the previous coverage, remainder and corresponding dropdown cells on lines with
-// new-charges-unavailable reproduces all three pre-PR Forecast digests exactly. The refresh-publication digests are identical.
+// Re-pinned for #1664: coverage stays unknown where charges are withheld and only zero-displaying remainders are withheld.
+// Restoring the prior head's blanket withholding on four positive budget remainders and their dropdown cells reproduces
+// its full Forecast digest exactly. Other Forecast cases and all refresh-publication digests are identical to that head.
 const snapshots = {
   budget: {
     data: '05b6f393c7b83e81d8bba130f9d6d7834b7c850e9b0dc942093834e60a8cf8bd',
@@ -40,7 +41,7 @@ const snapshots = {
     // Re-pinned for Dale's Bills account transactions decision (#821; lead brief #1620 7181064255): stackSummary.billsAccount
     // retires comingIn/comingOut/householdToMove/alreadyOut and publishes transactions (the Bills account's own current-period
     // ledger rows); stripping stackSummary.billsAccount reproduces main 5f8d00aa byte for byte, and data is unchanged.
-    forecast: '37ada162e240b9155945a094c45d8488380b4a6d56a979377062d5405cd9df98',
+    forecast: '5aee67f98e066c2f27d6b67dc3663033a83dcf726dcf6b78f08ba679263921ec',
   },
   cards: {
     data: 'a94fdc3c78fb627a805f6dd90c23cbb578d5dddc26d0badc09057ec449185e4a',
