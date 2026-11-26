@@ -160,18 +160,20 @@ function proveStackCredit(view, credit, breakdown, surplus) {
         'authorized addition: Paid back is never negative, and where published it is the line\'s paidToward');
       const t = line.target.amount, w = line.paidBack.amount;
       assert.ok(line.stillToPayBack && line.targetCovered, 'authorized addition: each Credit line carries stillToPayBack and targetCovered');
-      if (t === null || w === null) {
+      const chargesWithheld = line.id !== 'heloc' && t !== null && line.spent.amount === null;
+      if (t === null || w === null || chargesWithheld) {
         assert.equal(line.stillToPayBack.amount, null, 'authorized addition: an unknown side leaves Still to pay back unknown, never $0');
       } else {
         assert.equal(cents(line.stillToPayBack.amount), Math.max(0, cents(t) - cents(w)), 'authorized addition: Still to pay back is target − paid back, floored at 0');
         assert.ok(line.stillToPayBack.amount <= t, 'authorized addition: Still to pay back never exceeds the target');
       }
-      const chargesWithheld = line.id !== 'heloc' && t !== null && line.spent.amount === null;
       assert.equal(line.targetCovered.value, t === null || w === null || chargesWithheld ? 'unknown' : cents(t) > 0 && cents(w) >= cents(t),
         'authorized addition: targetCovered compares a known payment with a positive target, withholds when charges make it a lower bound');
       if (chargesWithheld) {
         assert.equal(line.target.newCharges, null, 'authorized addition: a lower bound publishes no new-charges amount');
         assert.ok(line.target.reasons.includes('new-charges-unavailable'), 'authorized addition: a lower bound names the missing charges');
+        assert.equal(line.stillToPayBack.trust, 'unavailable', 'authorized addition: an unknown remainder has unavailable trust');
+        assert.ok(line.stillToPayBack.reasons.includes('new-charges-unavailable'), 'authorized addition: a withheld remainder names the missing charges');
         assert.equal(line.targetCovered.trust, 'unavailable', 'authorized addition: lower-bound coverage has unavailable trust');
         assert.ok(line.targetCovered.reasons.includes('new-charges-unavailable'), 'authorized addition: withheld coverage names the missing charges');
       }

@@ -75,13 +75,13 @@
   // are compared or printed; nothing is added or subtracted here:
   //   * X is Forecast's published paidBack: posted paying-account transfers naming this card for the period,
   //     or the HELOC's own posted payments; a dash when Forecast withholds it;
-  //   * after the slash, the published target (OD-028); nothing after it when the target is $0, a dash when withheld;
+  //   * after the slash, the target (OD-028), or the published minimum when charges are withheld;
   //   * X is green only when Forecast publishes targetCovered true and the period is not upcoming; otherwise plain ink;
-  //   * the ✓ is the minimum covered when new charges are known (Dale: "once that minimum is paid I want a check mark").
+  //   * the ✓ is the minimum covered (Dale: "once that minimum is paid I want a check mark").
   // Every figure displays the same way whatever its trust word (OD-034).
   function readLine(line, view) {
     const chargesUnavailable = line.targetCovered?.reasons?.includes('new-charges-unavailable') === true;
-    const paid = amountOf(line.paid), spent = amountOf(line.spent), cv = chargesUnavailable ? null : coverage(line);
+    const paid = amountOf(line.paid), spent = amountOf(line.spent), cv = coverage(line);
     // A published $0 minimum is nothing owed: it reads as "not due" (X alone), like Forecast's explicit
     // no-minimum-due-in-period. Any other null minimum (the bills split withheld, an unqualified amount, an absent field) is an
     // unavailable minimum, which prints a dash, never reassurance.
@@ -89,13 +89,12 @@
     const min = published === 0 ? null : published;
     const minReasons = line.minimum && Array.isArray(line.minimum.reasons) ? line.minimum.reasons : [];
     const notDue = published === 0 || (published == null && minReasons.includes('no-minimum-due-in-period'));
-    // The figure after the slash is the card's repayment target (Dale, 2026-11-23, OD-028), Forecast's published
-    // line.target: a published $0 is nothing to repay (X alone); a withheld target is a dash, never reassurance.
-    const target = amountOf(line.target);
+    // A withheld charge total leaves only the minimum as a comparison. Zero omits the divisor, and null shows a dash.
+    const target = chargesUnavailable ? (notDue ? 0 : published) : amountOf(line.target);
     const out = { paid, spent, min, notDue, minOff: published == null && !notDue, target: target === 0 ? null : target,
       targetOff: target == null, x: null, tone: '', ok: false, xSoft: '', minSoft: est(view, trustOf(line.minimum)),
-      targetSoft: est(view, trustOf(line.target)), tickSoft: '', chargesUnavailable };
-    // The ✓ means "minimum covered" when the card's charges are known. Withheld charges leave the row's coverage open.
+      targetSoft: est(view, trustOf(chargesUnavailable ? line.minimum : line.target)), tickSoft: '', chargesUnavailable };
+    // The ✓ shares the minimum-coverage evidence used by the header and the waterfall.
     if (min != null && cv === true) {
       out.ok = true;
       out.tickSoft = est(view, trustOf(line.minimumCovered), trustOf(line.minimum), trustOf(line.paidBack));
@@ -121,8 +120,9 @@
     const tone = r.tone ? ` is-${r.tone}` : '';
     const xSoft = r.x == null ? '' : r.xSoft;
     const targetSoft = r.targetSoft;
+    const minimumName = r.chargesUnavailable && r.target != null ? ` role="img" aria-label="Minimum ${esc(money(r.target))}"` : '';
     return `<span class="stack-credit-x${tone}${xSoft}"${r.x == null ? '' : ` role="img" aria-label="${esc(xName(r))}"`}>${r.x == null ? dash : esc(signed(r))}</span>`
-      + (r.target != null ? `<i class="stack-credit-of${targetSoft}"> / ${esc(money(r.target))}</i>` : r.targetOff ? `<i class="stack-credit-of"> / ${dash}</i>` : '');
+      + (r.target != null ? `<i class="stack-credit-of${targetSoft}"${minimumName}> / ${esc(money(r.target))}</i>` : r.targetOff ? `<i class="stack-credit-of"> / ${dash}</i>` : '');
   };
   const paidOfSpent = line => (amountOf(line.paid) != null && amountOf(line.spent) != null
     ? `${money(amountOf(line.paid))} of ${money(amountOf(line.spent))}` : '');
@@ -135,8 +135,7 @@
 
   function lineHtml(line, view) {
     const r = readLine(line, view);
-    const tick = r.ok ? ` is-on${r.tickSoft}" role="img" aria-label="Minimum covered${r.tickSoft ? ', estimated' : ''}"`
-      : r.chargesUnavailable ? '" role="img" aria-label="Repayment coverage not yet known"' : '"';
+    const tick = r.ok ? ` is-on${r.tickSoft}" role="img" aria-label="Minimum covered${r.tickSoft ? ', estimated' : ''}"` : '"';
     return `<li><button class="stack-credit-line" type="button" data-stack-sheet="card:${esc(line.id)}">`
       + `<span class="stack-credit-tick${tick}>${TICK}</span>`
       + `<span class="stack-credit-name"><span class="stack-credit-top"><b>${esc(line.label)}</b></span>`
@@ -223,7 +222,7 @@
         ? rowHtml('Minimum', soft(formatMoney(r.min), r.minSoft) + (r.ok ? ' ' + soft('✓', r.tickSoft) : ''))
         : rowHtml('Minimum', r.notDue ? 'Not due this period' : dash))
       + (!heloc && r.x != null ? rowHtml('Paid back', soft(formatMoney(r.x), est(view, trustOf(line.paidBack)))) : '')
-      + (heloc ? '' : overLimitRow(line, view, rowHtml, soft, formatMoney) + targetRow(line, view, rowHtml, soft, formatMoney))
+      + (heloc ? '' : overLimitRow(line, view, rowHtml, soft, formatMoney) + (r.chargesUnavailable ? '' : targetRow(line, view, rowHtml, soft, formatMoney)))
       + (r.chargesUnavailable ? rowHtml('Repayment coverage', 'Not yet known') : '')
       + '</dl>'
       + (heloc ? '' : '<h4 class="stack-sheet-txh" aria-label="Card transactions">Transactions</h4>' + (tx.length

@@ -14,12 +14,12 @@ const candidate = (label, extra = {}) => ['card', 37, null, 'purchase', {
   payee: 'Invented merchant', category_name: label, ...extra,
 }];
 
-async function render(rows, { Forecast, kindHint, editObservation } = {}) {
-  const x = world([grocery, ...rows, ['bills', 25, null, 'cash', { notes: 'card payment: Travel Visa' }]], {
+async function render(rows, { Forecast, kindHint, editObservation, paymentAmount = 25 } = {}) {
+  const x = world([grocery, ...rows, ['bills', paymentAmount, null, 'cash', { notes: 'card payment: Travel Visa' }]], {
     edit(x) {
       x.data.plan.budget.excluded = [{ from: 'Invented business' }];
       for (const account of x.payload.accounts) account.last_fetch = x.asOf + 'T17:00:00Z';
-      editObservation?.(x.payload);
+      editObservation?.(x.payload, x.data);
     },
   });
   const { data } = Live.fromObservation(x);
@@ -29,13 +29,41 @@ async function render(rows, { Forecast, kindHint, editObservation } = {}) {
   assert.equal(page.status(), 'rendered');
   const ctx = page.context();
   const { stackSummary } = ctx.recommendation.payPeriodViews.find(view => view.start === page.selectedKey());
+  const credit = page.blockHtml('credit');
+  const waterfall = page.sandbox.StackWaterfall.html(ctx, { creditOpen: true });
   return {
     summary: stackSummary,
     transactions,
     line: stackSummary.credit.lines.find(line => line.id === cardId),
     sheet: page.sandbox.StackSheet.html(ctx, `card:${cardId}`),
-    tile: page.blockHtml('credit').match(/<li><button[^>]*data-stack-sheet="card:travelvisa"[\s\S]*?<\/li>/)[0],
+    credit,
+    tile: credit.match(/<li><button[^>]*data-stack-sheet="card:travelvisa"[\s\S]*?<\/li>/)[0],
+    waterfall: waterfall.match(/<li[^>]*data-debt-id="travelvisa"[\s\S]*?<\/li>/)?.[0],
   };
+}
+
+function assertUnknownRepayment({ line, sheet, tile }) {
+  assert.equal(line.spent.amount, null);
+  assert.equal(line.stillToPayBack.amount, null);
+  assert.equal(line.stillToPayBack.trust, 'unavailable');
+  assert.ok(line.stillToPayBack.reasons.includes('new-charges-unavailable'));
+  assert.equal(line.targetCovered.value, 'unknown');
+  assert.doesNotMatch(tile, /stack-credit-x is-good/);
+  assert.doesNotMatch(sheet, /<dt>(?:New charges|Target)<\/dt>/);
+  assert.match(sheet, /Repayment coverage<\/dt><dd[^>]*>Not yet known/);
+}
+
+function assertPaidMinimum({ summary, line, sheet, tile, credit, waterfall }, paid) {
+  assert.equal(line.minimumCovered.value, true);
+  assert.match(tile, /stack-credit-tick is-on"[^>]*aria-label="Minimum covered"/);
+  assert.match(tile, new RegExp(`>\\+\\$${paid}</span><i class="stack-credit-of" role="img" aria-label="Minimum \\$25"> / \\$25</i>`));
+  assert.match(sheet, /<dt>Minimum<\/dt><dd[^>]*><span[^>]*>\$25<\/span> <span[^>]*>✓<\/span>/);
+  assert.equal(summary.credit.totals.minimumsDueCount, 1);
+  assert.equal(summary.credit.totals.minimumsCoveredCount, 1);
+  assert.match(credit, /stack-credit-bar"[^>]*><i style="width:100\.0%">/);
+  assert.equal(summary.creditBreakdown.rows.find(row => row.debtId === cardId).amount, null);
+  assert.match(waterfall, /Not yet known<br><span class="wf-check"[^>]*aria-label="Minimum paid">✓<\/span> <span[^>]*>Minimum paid<\/span>/);
+  assert.doesNotMatch(waterfall, /\$0\b/);
 }
 
 function assertCharge({ summary, line, sheet, tile }, inOther = true) {
@@ -100,7 +128,7 @@ function withOldChargeWithhold() {
   const refund = await render([candidate(null), ['card', -12, null, 'refund', { kind: 'refund' }]]);
   assert.equal(refund.line.spent.amount, null);
   assert.ok(refund.line.spent.reasons.includes('card-credit-purpose-unconfirmed'));
-  assert.doesNotMatch(refund.tile, /stack-credit-x is-good|stack-credit-tick is-on/);
+  assertUnknownRepayment(refund);
 
   for (const [scenario, reason, editObservation] of [
     ['stale coverage', 'posted-coverage-incomplete', payload => {
@@ -113,16 +141,17 @@ function withOldChargeWithhold() {
       delete payload.accounts[3].last_fetch;
     }],
   ]) {
-    const { line, sheet, tile } = await render([candidate(null)], { editObservation });
+    const page = await render([candidate(null)], { editObservation });
+    const { line, tile } = page;
     assert.equal(line.spent.amount, null, scenario);
     assert.equal(line.spent.trust, 'unavailable', scenario);
     assert.ok(line.spent.reasons.includes(reason), `${scenario}: ${line.spent.reasons.join(', ')}`);
-    assert.equal(line.targetCovered.value, 'unknown', scenario);
-    assert.doesNotMatch(tile, /stack-credit-x is-good|stack-credit-tick is-on/, scenario);
-    assert.match(sheet, /Repayment coverage<\/dt><dd[^>]*>Not yet known/, scenario);
+    assertUnknownRepayment(page);
     if (scenario === 'manual balance update') {
       assert.equal(line.paidBack.amount, 25, 'the Bills payment remains visible');
-      assert.equal(line.minimumCovered.value, true, 'a paid minimum does not greenlight an unobserved card');
+      assertPaidMinimum(page, 25);
+    } else {
+      assert.doesNotMatch(tile, /stack-credit-tick is-on/, 'the stale coverage leaves the payment unconfirmed too');
     }
   }
 
@@ -131,17 +160,31 @@ function withOldChargeWithhold() {
     [candidate(null), { kindHint: 'refund' }],
     [candidate(null, { is_income: true })],
   ]) {
-    const { line, sheet, tile } = await render([row], options);
+    const page = await render([row], options);
+    const { line } = page;
     assert.equal(line.spent.amount, null);
     assert.ok(line.spent.reasons.includes('card-movement-unconfirmed'));
     assert.equal(line.paidBack.amount, 25);
-    assert.equal(line.minimumCovered.value, true);
     assert.equal(line.target.amount, 25, 'the known lower bound is still available');
     assert.equal(line.target.newCharges, null);
-    assert.equal(line.targetCovered.value, 'unknown');
-    assert.doesNotMatch(tile, /stack-credit-x is-good|stack-credit-tick is-on/);
-    assert.match(sheet, /Repayment coverage<\/dt><dd[^>]*>Not yet known/);
+    assertUnknownRepayment(page);
+    assertPaidMinimum(page, 25);
   }
+
+  const aboveMinimum = await render([candidate('Transfer')], { paymentAmount: 41, editObservation(payload, data) {
+    payload.accounts[3].credit_limit = 400;
+    data.debts.find(debt => debt.id === cardId).limit = 400;
+  } });
+  assert.equal(aboveMinimum.line.target.amount, 117, 'the over-limit lower bound stays available to Forecast');
+  assertUnknownRepayment(aboveMinimum);
+  assertPaidMinimum(aboveMinimum, 41);
+  const belowMinimum = await render([candidate('Transfer')], { paymentAmount: 12 });
+  assertUnknownRepayment(belowMinimum);
+  assert.equal(belowMinimum.line.minimumCovered.value, false);
+  assert.doesNotMatch(belowMinimum.tile, /stack-credit-tick is-on/);
+  assert.match(belowMinimum.credit, /stack-credit-bar"[^>]*><i style="width:0\.0%">/);
+  assert.match(belowMinimum.waterfall, /Not yet known/);
+  assert.doesNotMatch(belowMinimum.waterfall, /Minimum paid|\$0\b/);
 
   const mutant = await render([candidate(null)], { Forecast: withOldChargeWithhold() });
   assert.throws(() => assertCharge(mutant), /the card sheet shows both charges/);

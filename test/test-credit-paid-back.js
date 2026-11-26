@@ -224,7 +224,7 @@ console.log('2a. Through recommend and the real page: beyond-minimum netting, th
 // The invented card-coverage world (fixtures/card-coverage-aggregate-world): a manual pay-down-only card, 200.00 over its
 // limit, with its 25.00 minimum due and a posted 60.00 payment from the bills account (35.00 beyond the minimum). By hand:
 // target max(25.00, new charges withheld, 200.00) = 200.00; nothing counted above (its charges are not seen); due 200.00;
-// netted min(35.00, 200.00 − 25.00) = 35.00; deduction 165.00 (the Credit line). The card's Still to pay back is 200.00.
+// netted min(35.00, 200.00 − 25.00) = 35.00; deduction 165.00 (the Credit line). The card's Still to pay back is unknown.
 const OVER = (() => {
   const { world } = require('./fixtures/card-coverage-aggregate-world');
   const Live = require('../scripts/live-plan');
@@ -243,13 +243,14 @@ let overAdvice;
   const v = overAdvice.payPeriodViews.find(p => p.role === 'active'), ov = oldOver.payPeriodViews.find(p => p.role === 'active');
   const m = v.stackSummary.credit.lines.find(l => l.id === 'mbna');
   ok(cents(m.target.amount) === 20000 && cents(m.deduction.amount) === 16500 && cents(m.deduction.beyondNetted) === 3500 && m.deduction.alreadyCounted === null
-    && cents(m.stillToPayBack.amount) === 20000, 'the card: target 200.00, 35.00 beyond netted, deduction 165.00, nothing counted above, 200.00 still to pay back',
+    && m.stillToPayBack.amount === null && m.stillToPayBack.reasons.includes('new-charges-unavailable'),
+    'the card: target lower bound 200.00, 35.00 beyond netted, deduction 165.00, nothing counted above, remainder unknown',
     JSON.stringify([m.target.amount, m.deduction, m.stillToPayBack]));
   ok(!Object.hasOwn(v.stackSummary.creditBreakdown, 'alreadyCounted'), 'no "Already counted above" figure is published', JSON.stringify(Object.keys(v.stackSummary.creditBreakdown)));
   ok(cents(v.stackSummary.creditBreakdown.total) === 16500 && sameAsMain(overAdvice, oldOver), 'Credit 165.00, and Credit, BAD and Surplus are byte-equal to main on every view');
   const pg = render(read, overAdvice, OVER.world), mpg = render(show, oldOver, OVER.world);
-  ok(!/Already counted above/.test(text(pg.wf)) && /\$200\b/.test(text(pg.wf)) && /Still to pay back on each card/.test(text(pg.wf))
-    && creditLine(pg.wf) === creditLine(mpg.wf), 'the page: the caption and the card\'s 200 still to pay back, no counted row, the Credit line as main',
+  ok(!/Already counted above|\$200\b/.test(text(pg.wf)) && /Still to pay back on each card.*Not yet known/.test(text(pg.wf))
+    && creditLine(pg.wf) === creditLine(mpg.wf), 'the page: the caption and the card\'s unknown remainder, no counted row, the Credit line as main',
     JSON.stringify(items(pg.wf)));
 }
 

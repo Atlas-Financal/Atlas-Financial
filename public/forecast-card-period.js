@@ -860,15 +860,15 @@
         ? { amount: null, trust: 'unavailable', reasons: [...new Set(paidBack.reasons.concat('payment-direction-unresolved'))] }
         : paidBack;
       const towardCents = cents(progress.amount);
-      const shortOf = targetCents === null || towardCents === null;
-      const stillToPayBack = shortOf
-        ? { amount: null, trust: 'unavailable', reasons: [...new Set((targetCents === null ? target.reasons : []).concat(towardCents === null ? progress.reasons : []))] }
-        : { amount: Math.max(0, targetCents - towardCents) / 100, trust: weakest(target.trust, progress.trust), reasons: [] };
-      // When the target only states a lower bound, reaching it cannot prove repayment.
+      // A lower-bound target cannot establish a remaining amount or full repayment.
       const chargesUnavailable = target.reasons.includes('new-charges-unavailable');
-      const targetCovered = shortOf || chargesUnavailable
-        ? { value: 'unknown', trust: 'unavailable', reasons: [...new Set(stillToPayBack.reasons.concat(
-          chargesUnavailable ? ['new-charges-unavailable'] : []))] }
+      const shortOf = targetCents === null || towardCents === null || chargesUnavailable;
+      const stillToPayBack = shortOf
+        ? { amount: null, trust: 'unavailable', reasons: [...new Set((targetCents === null ? target.reasons : [])
+          .concat(towardCents === null ? progress.reasons : [], chargesUnavailable ? ['new-charges-unavailable'] : []))] }
+        : { amount: Math.max(0, targetCents - towardCents) / 100, trust: weakest(target.trust, progress.trust), reasons: [] };
+      const targetCovered = shortOf
+        ? { value: 'unknown', trust: 'unavailable', reasons: stillToPayBack.reasons.slice() }
         : { value: targetCents > 0 && towardCents >= targetCents, trust: weakest(target.trust, progress.trust), reasons: [] };
       // Covered reads posted payments only: a pending payment never by itself makes a minimum covered (lead ruling, 2026-11-22).
       const paidForMinimum = progress;
