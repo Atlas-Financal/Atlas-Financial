@@ -50,7 +50,8 @@ function assertChargesWithheld({ line, sheet, tile }) {
   assert.equal(line.targetCovered.trust, 'unavailable');
   assert.ok(line.targetCovered.reasons.includes('new-charges-unavailable'));
   assert.doesNotMatch(tile, /stack-credit-x is-good/);
-  assert.doesNotMatch(sheet, /<dt>(?:New charges|Target)<\/dt>/);
+  assert.doesNotMatch(sheet, /<dt>New charges<\/dt>/);
+  assert.match(sheet, /<dt>Target<\/dt>/);
 }
 
 function assertUnknownRepayment(page) {
@@ -71,10 +72,10 @@ function assertPublishedRemainder(page, amount, displayed) {
   assert.doesNotMatch(page.waterfall + page.sheet, /Not yet known|At least|As of/i);
 }
 
-function assertPaidMinimum({ summary, line, sheet, tile, credit, waterfall }, paid) {
+function assertPaidMinimum({ summary, line, sheet, tile, credit, waterfall }, paid, target = 25) {
   assert.equal(line.minimumCovered.value, true);
   assert.match(tile, /stack-credit-tick is-on"[^>]*aria-label="Minimum covered"/);
-  assert.match(tile, new RegExp(`>\\+\\$${paid}</span><i class="stack-credit-of" role="img" aria-label="Minimum \\$25"> / \\$25</i>`));
+  assert.match(tile, new RegExp(`>\\+\\$${paid}</span><i class="stack-credit-of"> / \\$${target}</i>`));
   assert.match(sheet, /<dt>Minimum<\/dt><dd[^>]*><span[^>]*>\$25<\/span> <span[^>]*>✓<\/span>/);
   assert.equal(summary.credit.totals.minimumsDueCount, 1);
   assert.equal(summary.credit.totals.minimumsCoveredCount, 1);
@@ -195,13 +196,26 @@ function withOldChargeWithhold() {
     assertUnknownRemainderWithPaidMinimum(page);
   }
 
-  const aboveMinimum = await render([candidate('Transfer')], { paymentAmount: 41, editObservation(payload, data) {
+  function useOverLimitCard(payload, data) {
     payload.accounts[3].credit_limit = 400;
     data.debts.find(debt => debt.id === cardId).limit = 400;
-  } });
+  }
+  const aboveMinimum = await render([candidate('Transfer')], { paymentAmount: 41, editObservation: useOverLimitCard });
   assert.equal(aboveMinimum.line.target.amount, 117, 'the over-limit lower bound stays available to Forecast');
   assertPublishedRemainder(aboveMinimum, 76, 76);
-  assertPaidMinimum(aboveMinimum, 41);
+  assertPaidMinimum(aboveMinimum, 41, 117);
+  assert.match(aboveMinimum.sheet, /<dt>Target<\/dt><dd[^>]*><span[^>]*>\$117<\/span>/);
+  const shownTarget = Number(aboveMinimum.tile.match(/<i class="stack-credit-of"> \/ \$(\d+)<\/i>/)[1]);
+  const shownRemainder = Number(aboveMinimum.waterfall.match(/data-source="stackSummary\.creditBreakdown\.rows\.\d+\.amount">\$(\d+)<\/span>/)[1]);
+  assert.equal(shownTarget, shownRemainder + aboveMinimum.line.paidBack.amount,
+    'the Credit row target uses the same basis as the waterfall remainder on an over-limit card');
+
+  const nearlyCovered = await render([candidate('Transfer')], { paymentAmount: 116.60, editObservation: useOverLimitCard });
+  assert.equal(nearlyCovered.line.paidBack.amount, 116.60);
+  assertUnknownRepayment(nearlyCovered);
+  assertPaidMinimum(nearlyCovered, 117, 117);
+  assertUnknownRemainderWithPaidMinimum(nearlyCovered);
+
   const belowMinimum = await render([candidate('Transfer')], { paymentAmount: 12 });
   assertPublishedRemainder(belowMinimum, 13, 13);
   assert.equal(belowMinimum.line.minimumCovered.value, false);

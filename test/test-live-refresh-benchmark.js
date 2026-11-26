@@ -12,9 +12,9 @@ const { CASE_NAMES, runCase } = require('../scripts/live-refresh-benchmark');
 // and restoring the prior reasons on paidToward, paidBack, stillToPayBack, targetCovered and minimumCovered
 // reproduces the d70784b1 Forecast digests. The budget case also requires the previous totals.minimumsPaid.reasons
 // and totals.minimumsCoveredTrust (now unavailable where payer evidence is missing). No amount or data digest changed.
-// Re-pinned for #1664: coverage stays unknown where charges are withheld and only zero-displaying remainders are withheld.
-// Restoring the prior head's blanket withholding on four positive budget remainders and their dropdown cells reproduces
-// its full Forecast digest exactly. Other Forecast cases and all refresh-publication digests are identical to that head.
+// Re-pinned for #1664: all three Forecast digests differ from c8f6cd5c. Restoring the zero remainders, the reasons on
+// already-withheld remainders, and the corresponding dropdown cells reproduces that head's digests exactly.
+// All three refresh-publication digests are unchanged.
 const snapshots = {
   budget: {
     data: '05b6f393c7b83e81d8bba130f9d6d7834b7c850e9b0dc942093834e60a8cf8bd',
