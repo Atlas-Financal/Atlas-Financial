@@ -429,8 +429,10 @@ function capture(input, { now = () => new Date() } = {}) {
     // A caller holding the raw 200-day history (the operator CLI) derives the
     // record exactly as live does; only the record is kept, never the rows.
     const derives = Object.hasOwn(clean.payload, 'amountHistory') && !Object.hasOwn(clean.payload, 'amountFixedDerivation');
-    refreshed = Live.fromObservation(derives
-      ? { ...evidenceInput, payload: { ...payload, amountHistory: clean.payload.amountHistory } } : evidenceInput);
+    // Rebuild the served receipt linkage for this capture. The archive retains
+    // the resulting sanitized evidence; the process-local receipt keys stay out.
+    refreshed = Live.fromObservation({ ...evidenceInput, priorPostedBillReceipts: clean.priorPostedBillReceipts,
+      ...(derives ? { payload: { ...payload, amountHistory: clean.payload.amountHistory } } : {}) });
     if (derives) payload.amountFixedDerivation = ObservationMemory.amountFixedDerivation(refreshed.report.derivedAmountFixed);
     // The bill sheet's payment series is a page view, never period history:
     // a captured close keeps no per-bill payment rows (Dale, 2026-11-18).
@@ -513,6 +515,7 @@ function latestClosedPeriod(clean) {
     const priorCycle = fetchCycle && fetchCycle.start ? Forecast.spendingCycle(clean.data.plan, dayBefore(fetchCycle.start)) : null;
     refreshed = Live.fromObservation({ data: clean.data, payload, accountMap: clean.accountMap,
       identity: clean.identity, periods: clean.periods,
+      priorPostedBillReceipts: clean.priorPostedBillReceipts,
       ...(priorCycle && priorCycle.end ? { closingDay: date(priorCycle.end) } : {}) });
     asOf = date(Operating.asOfFrom(refreshed.data, {}));
   } catch (_) { fail('history-forecast-capture-failed'); }

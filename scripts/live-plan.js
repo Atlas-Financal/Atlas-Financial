@@ -1625,6 +1625,7 @@ function observeInput(opts) {
     data: opts.data,
     identity,
     fetchedAt: opts.payload && opts.payload.fetchedAt,
+    priorPostedBillReceipts: opts.priorPostedBillReceipts,
   };
 }
 
@@ -1735,21 +1736,23 @@ function fixturePathsFromEnv(env) {
   return { fixture, mapPath };
 }
 
-function observeForOverlay(canonical, payload, accountMap, onCoverageDiagnostic) {
+function observeForOverlay(canonical, payload, accountMap, onCoverageDiagnostic, priorPostedBillReceipts) {
   return O.observe({ ...observeInput({
     data: canonical,
     payload,
     accountMap,
     identity: loadIdentity(),
+    priorPostedBillReceipts,
   }), onCoverageDiagnostic });
 }
 
-function observeForSettlementAcquisition(canonical, payload, accountMap) {
+function observeForSettlementAcquisition(canonical, payload, accountMap, priorPostedBillReceipts) {
   return O.observeWithSettlementCrosswalk(observeInput({
     data: canonical,
     payload,
     accountMap,
     identity: loadIdentity(),
+    priorPostedBillReceipts,
   }));
 }
 
@@ -1970,7 +1973,10 @@ async function applyForServer(canonical, env, options) {
           options?.onHouseholdIdentity?.(value);
         },
       }));
-    const report = StageTiming.sync('normalizeMs', () => observeForOverlay(canonical, payload, accountMap, noteCoverage));
+    const prior = options?.priorPostedBillReceipts;
+    const receipts = options?.evidence?.postedBillReceipts
+      || (householdAccountId && prior?.householdAccountId === householdAccountId ? prior.receipts : undefined);
+    const report = StageTiming.sync('normalizeMs', () => observeForOverlay(canonical, payload, accountMap, noteCoverage, receipts));
     const operatingEvaluation = OA.createRefreshEvaluation();
     const data = StageTiming.sync('overlayMs', () => applyObservedOverlay(canonical, report, operatingEvaluation));
     if (data.liveOverlay?.applied !== true) noteCoverage(CoverageDiagnostics.overlayFailure(data.liveOverlay?.reason));
@@ -2000,9 +2006,12 @@ async function applyForServer(canonical, env, options) {
             ...(report.billPaymentHistory ? { billPaymentHistory: report.billPaymentHistory } : {}) });
           // A field projection cannot change qualification or a single figure.
           // Future observer inputs therefore cause a cache miss until supported.
-          const replayReport = StageTiming.sync('normalizeMs', () => observeForOverlay(canonical, inputs, accountMap));
+          const postedBillReceipts = report.postedBillReceipts;
+          const replayReport = StageTiming.sync('normalizeMs', () => observeForOverlay(canonical, inputs, accountMap,
+            undefined, postedBillReceipts));
           const replayed = StageTiming.sync('overlayMs', () => applyObservedOverlay(canonical, replayReport, operatingEvaluation));
-          if (isDeepStrictEqual(data, replayed)) evidence = { schema: ObservationMemory.SCHEMA, payload: inputs };
+          if (isDeepStrictEqual(data, replayed)) evidence = { schema: ObservationMemory.SCHEMA, payload: inputs,
+            ...(postedBillReceipts ? { postedBillReceipts } : {}) };
         });
       } catch (error) {
         // Capacity refusal is a cache miss, not a failed provider observation.
@@ -2050,7 +2059,7 @@ async function acquireSettlementForServer(canonical, env, options) {
     const payload = StageTiming.sync('sourceReplayMs',
       () => ObservationMemory.sourceInputs(options.evidence.payload));
     const paired = StageTiming.sync('normalizeMs',
-      () => observeForSettlementAcquisition(canonical, payload, accountMap));
+      () => observeForSettlementAcquisition(canonical, payload, accountMap, options.evidence.postedBillReceipts));
     if (!paired || !paired.report) {
       notify({ qualified: false, checkedAt: null, evidence: null });
       return null;
