@@ -2,6 +2,8 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { createHash } = require('node:crypto');
+const approvedAssets = require('./demo-asset-digests.json');
 
 // Deny every other environment key, including new credentials whose names
 // Atlas does not yet know. Check presence, including empty values.
@@ -11,9 +13,10 @@ const BOOT_ENV = new Set([
   'HOMEDRIVE', 'HOMEPATH', 'LOGONSERVER', 'SYSTEMDRIVE', 'SYSTEMROOT', 'TEMP',
   'USERDOMAIN', 'USERNAME', 'USERPROFILE', 'WINDIR',
 ]);
-const PUBLIC = path.join(__dirname, '..', 'public');
-const FIXTURE = path.join(__dirname, '..', 'test', 'fixtures', 'figures-inputs', 'stack-card-summary.json');
+const ROOT = path.join(__dirname, '..');
+const FIXTURE_PATH = 'test/fixtures/figures-inputs/stack-card-summary.json';
 const HOUSEHOLD_PATHS = ['data.json', 'public/periods.json', 'raw', 'derived', 'snapshots'];
+const CREDENTIAL_PATHS = ['scripts/local-config.json', 'docs/connectivity/provider-account-map.local.json'];
 const DEMO_SCRIPT_MARKER = '/* Atlas demo asset */\n';
 
 // Only Budget's reviewed assets. A new file in public/ is private by default.
@@ -37,9 +40,31 @@ const BANNER = '<p id="atlas-demo-banner" style="margin:0;padding:10px 16px;back
   'color:#241c0a;text-align:center;font:600 15px/1.4 system-ui">' +
   'Demo — made-up numbers, not a real household.</p>';
 
-function readFixedFile(filename) {
+function verifyAsset(name, body) {
+  if (!Object.hasOwn(approvedAssets, name) || createHash('sha256').update(body).digest('hex') !== approvedAssets[name]) {
+    throw new Error(`Unexpected demo asset contents: ${name}`);
+  }
+}
+
+function readApprovedFile(name) {
+  const filename = path.join(ROOT, name);
   if (fs.realpathSync(filename) !== filename) throw new Error('Unexpected demo file location');
-  return fs.readFileSync(filename);
+  const body = fs.readFileSync(filename);
+  verifyAsset(name, body);
+  return body;
+}
+
+function hasCredentialEntry(directory, recursive) {
+  return fs.readdirSync(directory, { withFileTypes: true }).some(entry => {
+    if (/^\.env(?:[._-]|$|rc$)|\.local$|^(?:secrets\.json|lunchmoney\.dat)$/i.test(entry.name)) return true;
+    return recursive && entry.isDirectory() && !['node_modules', '.git'].includes(entry.name)
+      && hasCredentialEntry(path.join(directory, entry.name), true);
+  });
+}
+
+function hasCredentialFile(directory, recursive) {
+  return CREDENTIAL_PATHS.some(name => fs.lstatSync(path.join(directory, name), { throwIfNoEntry: false }))
+    || hasCredentialEntry(directory, recursive);
 }
 
 function start(environment) {
@@ -48,20 +73,28 @@ function start(environment) {
     process.exitCode = 1;
     return;
   }
-  if (HOUSEHOLD_PATHS.some(name => fs.lstatSync(path.join(__dirname, '..', name), { throwIfNoEntry: false }))) {
+  const cwd = process.cwd();
+  const directories = new Set([ROOT, cwd]);
+  if ([...directories].some(directory => HOUSEHOLD_PATHS.some(name =>
+    fs.lstatSync(path.join(directory, name), { throwIfNoEntry: false })))) {
     console.error('FATAL: demo requires a checkout without household data paths.');
+    process.exitCode = 1;
+    return;
+  }
+  if (hasCredentialFile(ROOT, true) || (cwd !== ROOT && hasCredentialFile(cwd, false))) {
+    console.error('FATAL: demo requires a checkout without local credential files.');
     process.exitCode = 1;
     return;
   }
 
   const express = require('express');
-  const fixture = JSON.parse(readFixedFile(FIXTURE));
+  const fixture = JSON.parse(readApprovedFile(FIXTURE_PATH));
   if (fixture.schema !== 'atlas-figures-input/v1' || fixture.id !== 'stack-card-summary'
     || fixture.invented !== true || !fixture.data?.meta?.asOf) {
     throw new Error('Invented demo fixture is unavailable');
   }
 
-  const template = readFixedFile(path.join(PUBLIC, 'index.html')).toString('utf8');
+  const template = readApprovedFile('public/index.html').toString('utf8');
   if (!template.includes('<body>')) throw new Error('Demo Budget template has no banner mount');
   const budget = template.replace('</head>',
     '<style>[data-manual-refresh], [data-stack-refresh] { display: none !important; }</style>\n</head>')
@@ -69,7 +102,7 @@ function start(environment) {
     .replace('<script src="/client-timing.js"></script>', '');
   const assetRoutes = new Map(ASSETS.map(name => {
     const type = path.extname(name);
-    const body = readFixedFile(path.join(PUBLIC, name));
+    const body = readApprovedFile('public/' + name);
     if (type === '.js' && body.toString('utf8', 0, DEMO_SCRIPT_MARKER.length) !== DEMO_SCRIPT_MARKER) {
       throw new Error('Demo requires packaged browser scripts');
     }
@@ -112,4 +145,4 @@ function start(environment) {
   return server;
 }
 
-module.exports = { start, ASSETS, FIXTURE, DEMO_SCRIPT_MARKER };
+module.exports = { start, ASSETS, FIXTURE_PATH, DEMO_SCRIPT_MARKER, verifyAsset };

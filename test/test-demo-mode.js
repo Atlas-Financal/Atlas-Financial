@@ -6,6 +6,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { launch, demoPackage } = require('./lib/demo-process');
 const fixture = require('./fixtures/figures-inputs/stack-card-summary.json');
+const { checkDemoPrivacy } = require('../scripts/package-demo');
+const { fingerprintOf, HOUSEHOLD_FINGERPRINTS } = require('../scripts/privacy-guard');
 
 const preload = ['--require', path.join(__dirname, 'lib', 'demo-preload.js')];
 const refusalValue = 'invented-placeholder';
@@ -27,14 +29,64 @@ async function expectRefusal(child, message) {
   } finally { await child.stop(); }
 }
 
+async function withBytes(filename, bytes, check) {
+  const original = fs.readFileSync(filename);
+  fs.writeFileSync(filename, bytes);
+  try { await check(); } finally { fs.writeFileSync(filename, original); }
+}
+
+async function checkAssetRefusal(directory) {
+  const { label, id, balance } = fixture.data.debts[0];
+  const cases = [
+    ['public/plan.js', label + ' privacy canary', 'alphaspace'],
+    ['public/budget-card-movements.js', id + 'privacycanary', 'alnum'],
+    ['public/forecast.js', String(Math.round(balance * 100)).padEnd(9, '7'), 'digit'],
+  ];
+  for (const [name, canary, cls] of cases) {
+    const filename = path.join(directory, name);
+    const published = fs.readFileSync(filename);
+    const changed = Buffer.concat([published, Buffer.from(`\nglobalThis.demoCanary = ${JSON.stringify(canary)};\n`)]);
+    const fingerprints = [...HOUSEHOLD_FINGERPRINTS, { len: canary.length, cls, sha256: fingerprintOf(canary) }];
+    assert.doesNotThrow(() => checkDemoPrivacy(name, published, fingerprints));
+    assert.throws(() => checkDemoPrivacy(name, changed, fingerprints),
+      { message: `Demo asset rejected by privacy guard: ${name}` });
+    await withBytes(filename, changed, () => expectRefusal(launch({ ATLAS_DEMO: '1' }, preload, directory),
+      `Unexpected demo asset contents: ${name}`));
+  }
+  const entry = path.join(directory, 'scripts', 'demo-server.js');
+  const source = fs.readFileSync(entry, 'utf8').replaceAll('\r\n', '\n');
+  const mutant = source.replace('  verifyAsset(name, body);\n', '');
+  assert.notEqual(mutant, source, 'mutation must remove asset verification');
+  const name = cases[0][0];
+  const filename = path.join(directory, name);
+  const changed = Buffer.concat([fs.readFileSync(filename), Buffer.from(`\nglobalThis.demoCanary = ${JSON.stringify(label)};\n`)]);
+  await withBytes(entry, mutant, () => withBytes(filename, changed, () =>
+    assert.rejects(expectRefusal(launch({ ATLAS_DEMO: '1' }, preload, directory), `Unexpected demo asset contents: ${name}`),
+      { code: 'ERR_ASSERTION', actual: 0, expected: 1 })));
+  console.log('PASS  invented label, account and figure canaries fail privacy and approved-asset checks, including the asset guard mutant');
+}
+
 async function checkDemo(directory) {
   const refusedEnv = 'FATAL: demo requires an isolated startup environment.';
+  const refusedFile = 'FATAL: demo requires a checkout without local credential files.';
   for (const name of secretNames) {
     // Presence is enough, even when the runtime supplies an empty value.
     const value = name === 'UNRECOGNIZED_FUTURE_CREDENTIAL' ? '' : refusalValue;
     await expectRefusal(launch({ ATLAS_DEMO: '1', [name]: value }, preload, directory), refusedEnv);
     console.log(`PASS  demo refuses ${name}`);
   }
+
+  for (const name of ['.env', '.env.local', '.env.production.local', '.env-test', '.envrc', 'public/.env.local', 'secrets.json', 'lunchmoney.dat',
+    'scripts/local-config.json', 'docs/connectivity/provider-account-map.local.json']) {
+    const filename = path.join(directory, name);
+    fs.mkdirSync(path.dirname(filename), { recursive: true });
+    fs.writeFileSync(filename, name === '.env' ? '' : `DEMO_CANARY=${refusalValue}`, { flag: 'wx' });
+    try {
+      await expectRefusal(launch({ ATLAS_DEMO: '1' }, preload, directory), refusedFile);
+    } finally { fs.unlinkSync(filename); }
+    console.log(`PASS  demo refuses a checkout containing ${name}`);
+  }
+  await checkAssetRefusal(directory);
   for (const name of ['data.json', 'public/periods.json', 'raw', 'derived', 'snapshots']) {
     const filename = path.join(directory, name);
     const file = name.endsWith('.json');
@@ -84,7 +136,17 @@ async function checkDemo(directory) {
   } finally { await demo.stop(); }
 
   const sourcePath = path.join(directory, 'scripts', 'demo-server.js');
-  const source = fs.readFileSync(sourcePath, 'utf8');
+  const source = fs.readFileSync(sourcePath, 'utf8').replaceAll('\r\n', '\n');
+  const fileMutant = source.replace('if (hasCredentialFile(ROOT, true) || (cwd !== ROOT && hasCredentialFile(cwd, false)))', 'if (false)');
+  assert.notEqual(fileMutant, source, 'mutation must remove the credential-file refusal');
+  const dotenv = path.join(directory, '.env');
+  fs.writeFileSync(dotenv, `DEMO_CANARY=${refusalValue}`, { flag: 'wx' });
+  try {
+    await withBytes(sourcePath, fileMutant, () =>
+      assert.rejects(expectRefusal(launch({ ATLAS_DEMO: '1' }, preload, directory), refusedFile),
+        { code: 'ERR_ASSERTION', actual: 0, expected: 1 }));
+  } finally { fs.unlinkSync(dotenv); }
+  console.log('PASS  dotenv guard mutant is caught by the same refusal assertion');
   const mutant = source.replace(' || Object.keys(environment).some(key => !BOOT_ENV.has(key.toUpperCase()))', '');
   assert.notEqual(mutant, source, 'mutation must remove the environment refusal');
   fs.writeFileSync(sourcePath, mutant);

@@ -17,6 +17,8 @@ function guarded(original) {
     if (typeof filename === 'string') {
       const key = path.relative(root, path.resolve(filename)).replaceAll('\\', '/').toLowerCase();
       if (/^(?:data\.json|public\/periods\.json|(?:raw|derived|snapshots)(?:\/.*)?)$/.test(key)) deny();
+      if (isDemo && (/^\.env(?:[._-]|$|rc$)|\.local$|^(?:secrets\.json|lunchmoney\.dat)$/i.test(path.basename(key))
+        || ['scripts/local-config.json', 'docs/connectivity/provider-account-map.local.json'].includes(key))) deny();
     }
     return original.call(this, filename, ...args);
   };
