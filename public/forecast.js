@@ -206,8 +206,24 @@
         candidates.add(record.scheduledDate);
       }
     }
+    // Future minimums carry the row's latest published minimum (owner, Dale, #821 7173859561, 2026-11-25: "make the
+    // minimums for future pay periods what the minimums are for this pay period"): an occurrence of this row dated
+    // after its latest statement, with no statement of its own, takes that statement's minimum, tagged estimated,
+    // never more certain (with a fixed interest minimum, the larger of the two). Within this row only: a dated
+    // successor row keeps its own planned amount until it has a statement of its own, and a dated amount-schedule
+    // term wins over the carry.
+    const latest = statements.reduce((best, record) => (!best || record.scheduledDate > best.scheduledDate ? record : best), null);
     return Array.from(candidates).map(scheduledDate => {
       const statement = byScheduled.get(scheduledDate);
+      if (latest && !statement && scheduledDate > latest.scheduledDate) {
+        const regular = obligationScheduledBase(row, scheduledDate);
+        // Only over a valid standing monthly amount above zero, on a row tagged estimated or confirmed: a malformed,
+        // zero or impossible plan input, or an unknown or malformed tag, keeps its own path (never made more certain).
+        if (row.frequency === 'monthly' && !regular.term && !regular.invalid && typeof regular.amount === 'number'
+          && cents(regular.amount) != null && regular.amount > 0 && (regular.confidence === 'estimated'
+            || regular.confidence === 'confirmed')) return { scheduledDate, date: scheduledDate, statement: false, carriedMinimum: true,
+          amount: fixed == null ? latest.minimum : Math.max(fixed, latest.minimum), confidence: 'estimated' };
+      }
       // Amount confirmation is statement.confidence. Date trust is separate:
       // omitted dateConfidence remains a fully confirmed statement-date override.
       const dateConfidence = statement

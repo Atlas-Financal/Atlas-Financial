@@ -225,10 +225,16 @@ function streamTotal(items, asOf, end, occurrences, opts) {
       ? independentlyOnceOutflowDates(item, asOf, end)
       : occurrences(item, asOf, end);
     const statements = item.statementOccurrences || [];
+    // Dale, #821 7173859561 (2026-11-25): a later occurrence with no statement of its own carries this row's latest
+    // statement minimum (latest by original date; within this row only). Rows with a fixed interest minimum or a
+    // dated amount schedule are not modelled here, as before.
+    const latest = item.amountSchedule === undefined && item.fixedInterestMinimum == null
+      ? statements.reduce((best, st) => (!best || st.scheduledDate > best.scheduledDate ? st : best), null) : null;
     const recurring = dates.reduce((n, d) => {
       const date = typeof d === 'string' ? d : (d && d.date);
       if (date && represented.has(item.id + '@' + date)) return n;
       if (statements.some(statement => statement.scheduledDate === date)) return n;
+      if (latest && date > latest.scheduledDate) return n + latest.minimum;
       return n + independentlyBillOccurrenceAmount(item, d);
     }, 0);
     // Primary statement rows replace dated estimates. Do not call the engine's

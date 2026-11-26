@@ -22,7 +22,9 @@ eq(canonical.plan.opening.representedEvents.filter(row => row.id === 'tdcc'),
 eq(F.obligationOccurrences(target, '2026-10-01', '2026-10-31').map(row =>
   [row.scheduledDate, row.date, row.amount, row.confidence, row.dateConfidence]),
   [['2026-10-17', '2026-10-17', 45.96, 'confirmed', 'estimated']]);
-eq(F.obligationOccurrences(target, '2026-11-01', '2026-11-30')[0].amount, 94.03);
+// Future minimums carry the latest statement minimum, estimated (Dale, #821 7173859561, 2026-11-25).
+eq([F.obligationOccurrences(target, '2026-11-01', '2026-11-30')[0].amount, F.obligationOccurrences(target, '2026-11-01', '2026-11-30')[0].confidence],
+  [target.statementOccurrences[0].minimum, 'estimated'], 'November carries the October statement minimum, estimated');
 
 function fixture() {
   const data = require('./fixtures/card-backfill-data')('tdcc', 'invented-emerald-minimum').data;
@@ -64,9 +66,9 @@ eq(state.payments.some(row => row.scheduledDate === '2038-05-17'), false,
 eq(F.representedOccurrence(p, 'invented-emerald-minimum', '2038-05-17', x.asOf, x.opts), true,
   'independently represented older cycle stays represented');
 const next = F.obligationOccurrences(p.obligations[0], '2038-07-01', '2038-07-31')[0];
-eq([next.amount, next.confidence], [38.41, 'estimated'], 'next minimum keeps independent standing estimate');
+eq([next.amount, next.confidence], [23.17, 'estimated'], 'next minimum carries the June statement minimum, estimated (#821 7173859561)');
 eq(Math.round(F.simulate(p, x.asOf, { ...x.opts, viewDays: 45, horizonDays: 45 }).ending * 100),
-  43380, 'future 38.41 deducted once after already included current send');
+  44904, 'future carried 23.17 deducted once after already included current send: 472.21 - 23.17 = 449.04');
 eq(F.expandEvents(p, x.asOf, '2038-06-30', x.opts).some(row => row.id === 'invented-emerald-minimum'), false,
   'qualified early receipt omits the later scheduled cash event');
 const event = F.expandEvents(p, x.asOf, '2038-06-30', { ...x.opts, keepRepresented: true })

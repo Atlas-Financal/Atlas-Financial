@@ -3000,8 +3000,21 @@ console.log('\n=== Native HELOC interest is liability cost; its Bills payment st
   assert.deepEqual(F.classifyCurrentPeriodTransaction(payment, x.data.plan),
     base.exports.classifyCurrentPeriodTransaction(payment, x.data.plan));
   const start = canonical.opening.asOf, end = F.addDays(start, 91);
-  assert.deepEqual(F.expandEvents(canonical, start, end), base.exports.expandEvents(canonical, start, end));
-  ok(true, 'canonical cash, bill and obligation events are byte-for-byte unchanged from main');
+  // Since #821 7173859561 (Dale, 2026-11-25), a later card-minimum occurrence carries its row's latest statement minimum,
+  // estimated. Every other event stays byte-for-byte equal to the base engine; a moved event must be exactly that carry.
+  const now = F.expandEvents(canonical, start, end), was = base.exports.expandEvents(canonical, start, end);
+  assert.equal(now.length, was.length, 'same events');
+  const carriedOk = (a, b) => {
+    const row = a.kind === 'obligation' && canonical.obligations.find(o => o.id === a.id);
+    const latest = row && row.amountSchedule === undefined && row.fixedInterestMinimum == null
+      && (row.statementOccurrences || []).reduce((best, st) => (!best || st.scheduledDate > best.scheduledDate ? st : best), null);
+    const scheduled = a.scheduledDate || a.date;
+    return !!latest && scheduled > latest.scheduledDate && !(row.statementOccurrences || []).some(st => st.scheduledDate === scheduled)
+      && Math.round(-a.amount * 100) === Math.round(latest.minimum * 100) && a.confidence === 'estimated'
+      && JSON.stringify({ ...a, amount: 0, confidence: 0, carriedMinimum: 0 }) === JSON.stringify({ ...b, amount: 0, confidence: 0, carriedMinimum: 0 });
+  };
+  now.forEach((event, i) => { if (JSON.stringify(event) !== JSON.stringify(was[i])) assert.ok(carriedOk(event, was[i]), 'only the carried minimum moves'); });
+  ok(true, 'canonical cash, bill and obligation events are unchanged from main apart from the carried card minimums');
 }
 
 console.log('\n=== HELOC finance-charge evidence survives the privacy boundary narrowly ===');

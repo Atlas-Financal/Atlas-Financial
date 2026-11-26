@@ -41,6 +41,9 @@ const expand = plan => F.expandEvents({ ...plan, opening: { ...plan.opening, rep
 
 console.log('1. The committed rows');
 const tdcc = obligation(data.plan, 'tdcc'), auto = obligation(data.plan, 'tdcc-auto17');
+// Future minimums carry the row's latest published minimum (Dale, #821 7173859561, 2026-11-25), which supersedes
+// tdcc's own estimate for occurrences after its latest statement; the trust tag stays estimated.
+const tdccCarried = (tdcc.statementOccurrences || []).reduce((best, o) => (!best || o.scheduledDate > best.scheduledDate ? o : best), null);
 ok(tdcc && tdcc.lastDue === '2026-11-17' && tdcc.day === 17 && tdcc.firstDue === '2026-09-17',
   'tdcc ends at its 2026-11-17 occurrence (lastDue)');
 ok(auto && auto.debtId === 'tdcc' && auto.effect === 'payment' && auto.frequency === 'monthly' && auto.day === 17
@@ -67,8 +70,9 @@ const perMonth = {}; for (const e of events) perMonth[e.date.slice(0, 7)] = (per
 ok(Object.values(perMonth).every(n => n === 1), 'one TD payment per month', J(perMonth));
 ok(events.filter(e => e.id === 'tdcc-auto17').every(e => cents(e.amount) === cents(auto.amount)),
   'each payment from Dec 17 is the dated row\'s amount');
-ok(events.filter(e => e.id === 'tdcc' && e.date === '2026-11-17').every(e => cents(e.amount) === cents(tdcc.amount)),
-  'the Nov 17 occurrence keeps tdcc\'s own estimate');
+ok(tdccCarried && tdccCarried.scheduledDate < '2026-11-17' && events.some(e => e.id === 'tdcc' && e.date === '2026-11-17')
+  && events.filter(e => e.id === 'tdcc' && e.date === '2026-11-17').every(e => cents(e.amount) === cents(tdccCarried.minimum)),
+  'the Nov 17 occurrence carries tdcc\'s latest statement minimum (#821 7173859561)');
 
 console.log('3. The live page (committed opening as priorAsOf, advanced to 2026-11-21)');
 const live = tdRows(livePlan());
@@ -83,8 +87,8 @@ ok(oct17 && oct17Statement && cents(oct17.planned != null ? oct17.planned : oct1
   && oct17.status === 'PAID' && oct17.confidence === 'confirmed',
   'an earlier occurrence (Oct 17) is unchanged: its statement minimum, confirmed, paid');
 const nov17 = live.find(r => r.id === 'tdcc' && r.date === '2026-11-17');
-ok(nov17 && cents(nov17.amount) === cents(tdcc.amount) && nov17.confidence === 'estimated',
-  'Nov 17 is unchanged: tdcc\'s own estimate');
+ok(nov17 && tdccCarried && cents(nov17.amount) === cents(tdccCarried.minimum) && nov17.confidence === 'estimated',
+  'Nov 17 carries tdcc\'s latest statement minimum, still estimated (#821 7173859561)');
 ok(live.filter(r => r.id === 'tdcc').every(r => r.date <= '2026-11-17'), 'no tdcc occurrence after Nov 17');
 
 console.log('4. Removal checks');
