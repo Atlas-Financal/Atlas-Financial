@@ -387,7 +387,7 @@ console.log('5. the sheet');
   const { win } = load();
   const ctx = context(TOTALS.complete);
   const visa = text(win.StackSheet.html(ctx, 'card:travelvisa'));
-  ok(visa === 'Credit · Mar 1 – 14 Blue Visa +$400 / $25 Paid back $400 New charges $400 Minimum $25 ✓ Target $25'
+  ok(visa === 'Credit · Mar 1 – 14 Blue Visa +$400 / $25 New charges $400 Minimum $25 ✓ Paid back $400 Target $25'
     + ' Transactions Mar 3 Corner Grocer $150 Mar 9 Payment thank you Card-side receipt · Excluded from Paid back +$400'
     + ' Mar 10 Pending Cafe $12.50', 'card sheet', visa);
   const tx = win.StackSheet.html(ctx, 'card:travelvisa');
@@ -428,7 +428,7 @@ console.log('5. the sheet');
     const rows = rowsOf(all.slice(all.indexOf('stack-sheet-tx"')));
     ok(rows.length === 4 && rows.every(r => /^<li class="[^"]*is-pending/.test(r) && r.split(DOT).length === 2),
       'every row pending: every row is dimmed and carries exactly one dot named "pending"', JSON.stringify(rows));
-    ok(text(all).includes('Paid back $400 New charges $400'), 'the marker moves no figure: Paid back and New charges print as before');
+    ok(text(all).includes('New charges $400 Minimum $25 ✓ Paid back $400'), 'the marker moves no figure: Paid back and New charges print as before');
   } finally { LINES[0].transactions = saved; }
   // MUTANT: a sheet that drops the dot leaves an all-pending list unmarked, which the checks above reject.
   const src = read('public/stack-credit.js');
@@ -439,9 +439,9 @@ console.log('5. the sheet');
   const heloc = text(win.StackSheet.html(ctx, 'card:heloc'));
   ok(heloc === 'Credit · Mar 1 – 14 Line of credit — / $210 Minimum $210', 'HELOC sheet: "— / $210" and its minimum, no ✓', heloc);
   const green = text(win.StackSheet.html(ctx, 'card:cashback'));
-  ok(green === 'Credit · Mar 1 – 14 Green Card +$100 / $30 Paid back $100 New charges $260 Minimum $30 Target $30 Transactions', 'a card spending above its payments: Paid back, never a net; an empty list, no ✓', green);
+  ok(green === 'Credit · Mar 1 – 14 Green Card +$100 / $30 New charges $260 Minimum $30 Paid back $100 Target $30 Transactions', 'a card spending above its payments: Paid back, never a net; an empty list, no ✓', green);
   const red = text(win.StackSheet.html(ctx, 'card:tdcc'));
-  ok(red === 'Credit · Mar 1 – 14 Red Card $0 / $15 Paid back $0 New charges $0 Minimum $15 Target $15 Transactions', "an upcoming card: '$0 / $15' and its minimum, no ✓", red);
+  ok(red === 'Credit · Mar 1 – 14 Red Card $0 / $15 New charges $0 Minimum $15 Paid back $0 Target $15 Transactions', "an upcoming card: '$0 / $15' and its minimum, no ✓", red);
   const water = text(win.StackSheet.html(ctx, 'bill:water@2031-03-05'));
   // Water is paid on a different date (Mar 7) from a different account (Savings) than scheduled (Mar 5, Chequing).
   ok(water === 'Bill · Mar 1 – 14 Water $64 ✓ Feb 5 $62 ✓ Jan 5 —' && !/Mar 5|Chequing|Mar 7|Savings|Due|Comes out|Apr 5/.test(water),
@@ -459,9 +459,9 @@ console.log('5. the sheet');
   const { win: w2 } = load();
   const states2 = context(TOTALS.complete);
   states2.Forecast = { ...states2.Forecast, stackCreditLines: () => ({ lines: withTargets(STATES), totals: TOTALS.complete }) };
-  ok(text(w2.StackSheet.html(states2, 'card:nomin')) === 'Credit · Mar 1 – 14 Free Card +$5 Paid back $5 New charges $5 Minimum Not due this period Target $0 Transactions',
+  ok(text(w2.StackSheet.html(states2, 'card:nomin')) === 'Credit · Mar 1 – 14 Free Card +$5 New charges $5 Minimum Not due this period Paid back $5 Target $0 Transactions',
     'a card with no minimum due: "$5" alone and "Minimum Not due this period"', text(w2.StackSheet.html(states2, 'card:nomin')));
-  ok(/Minimum \$50 Target \$50 Transactions/.test(text(w2.StackSheet.html(states2, 'card:unk'))) && !/✓/.test(text(w2.StackSheet.html(states2, 'card:unk'))),
+  ok(/Minimum \$50 Paid back \$100 Target \$50 Transactions/.test(text(w2.StackSheet.html(states2, 'card:unk'))) && !/✓/.test(text(w2.StackSheet.html(states2, 'card:unk'))),
     "an unknown coverage check: the minimum, no ✓");
 }
 
@@ -671,10 +671,24 @@ console.log('9. the repayment target after the slash (OD-028): above the minimum
   ok((el.innerHTML.match(/stack-credit-tick is-on/g) || []).length === 3,
     'the ✓ still means only "minimum covered": all three minimums are covered though no target is paid in full');
   const sheet = text(win.StackSheet.html(ctx, 'card:overlim'));
-  ok(sheet.includes('Paid back $100 New charges $236 Minimum $25 ✓ Over the limit by $127 Target $363'),
+  ok(sheet.includes('New charges $236 Minimum $25 ✓ Paid back $100 Over the limit by $127 Target $363'),
     'the sheet breaks the target down in plain words: new charges, minimum, over the limit by, target', sheet);
   ok(!text(win.StackSheet.html(ctx, 'card:above')).includes('Over the limit by'), 'a card under its limit prints no "Over the limit by" row');
   ok(text(win.StackSheet.html(ctx, 'card:tgtoff')).includes('Target —'), 'a withheld target prints a dash in the sheet');
+  // Restore the previous Paid back position. Use the same order oracle for the real renderer and mutant.
+  const ordered = html => [...html.matchAll(/<dt>([^<]+)<\/dt>/g)].map(m => m[1]).join(' → ');
+  const expected = 'New charges → Minimum → Paid back → Over the limit by → Target';
+  ok(ordered(win.StackSheet.html(ctx, 'card:overlim')) === expected, 'over-limit card rows in waterfall order');
+  ok(ordered(win.StackSheet.html(ctx, 'card:above')) === 'New charges → Minimum → Paid back → Target',
+    'under-limit card rows in waterfall order');
+  const src = read('public/stack-credit.js');
+  const paid = src.match(/^      \+ \(!heloc && r\.x != null.*$/m)?.[0];
+  const afterDl = "      + '<dl>'";
+  ok(paid && src.includes(afterDl), 'old-order mutant targets the Paid back row and summary start');
+  const mutant = src.replace(paid + '\n', '').replace(afterDl, afterDl + '\n' + paid);
+  ok(ordered(load(mutant).win.StackSheet.html(ctx, 'card:overlim')) === 'Paid back → New charges → Minimum → Over the limit by → Target',
+    'the waterfall order oracle rejects the restored old order');
+
 }
 
 console.log(`\nPASS Stack credit card and sheet (${checks})`);
