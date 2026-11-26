@@ -186,7 +186,7 @@ ok(sport.sinking > 0, 'the season fees are tracked as a sinking fund instead', m
   // Sport is no longer the whole of sinkingMonthly once travel/Christmas
   // have owner cash dates. Hand-sum the newly dated non-sport amounts.
   const monthsInWindow = (plan.windowDays || 91) / (365.25 / 12);
-  const HAND_NONSPORT_SINKING = 1500 + 1500 + 500 + 3500 + 3000; // seattle-nov, seattle-dec, linden-birthday, christmas-2026, san-diego
+  const HAND_NONSPORT_SINKING = 1500 + 1500 + 500 + 4300 + 3000; // seattle-nov, seattle-dec, linden-birthday, christmas-2026, san-diego
   ok(near(budget.sinkingMonthly, sport.sinking + HAND_NONSPORT_SINKING / monthsInWindow),
     'sinkingMonthly is sport sinking plus independently dated travel/Christmas smears',
     money(budget.sinkingMonthly));
