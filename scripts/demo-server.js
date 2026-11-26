@@ -45,54 +45,22 @@ const BANNER = '<p id="atlas-demo-banner" style="margin:0;padding:10px 16px;back
   'color:#241c0a;text-align:center;font:600 15px/1.4 system-ui">' +
   'Demo — made-up numbers, not a real household.</p>';
 
-function sha256(bytes) {
-  return createHash('sha256').update(bytes).digest('hex');
+function assetDigest(body) {
+  return createHash('sha256').update(Buffer.isBuffer(body) ? body : Buffer.from(body)).digest('hex');
 }
 
-// Lossless byte-for-byte digest list for one demo asset. Binary assets keep a
-// single whole-file SHA-256. Text assets are partitioned on content-defined
-// line boundaries (every line whose SHA-256 begins with '0', which includes
-// blank lines) into contiguous slices whose concatenation equals the raw buffer
-// byte for byte. Any changed, inserted, deleted, reordered or duplicated byte
-// changes the list, while non-adjacent edits to the same asset touch different
-// stored hash lines and merge cleanly in git.
-function assetDigests(name, body) {
-  const buf = Buffer.isBuffer(body) ? body : Buffer.from(body);
-  if (!TEXT_ASSET.test(name)) return [sha256(buf)];
-  const digests = [];
-  let chunkStart = 0;
-  let lineStart = 0;
-  for (let i = 0; i < buf.length; i++) {
-    if (buf[i] === 0x0a) {
-      const line = buf.subarray(lineStart, i + 1);
-      lineStart = i + 1;
-      if (sha256(line)[0] === '0') {
-        digests.push(sha256(buf.subarray(chunkStart, lineStart)));
-        chunkStart = lineStart;
-      }
-    }
-  }
-  if (chunkStart < buf.length || digests.length === 0) {
-    digests.push(sha256(buf.subarray(chunkStart)));
-  }
-  return digests;
+function formatDigest(hash) {
+  return hash + '\n';
 }
 
-function formatDigests(hashes) {
-  return hashes.join('\n') + '\n';
-}
-
-function parseDigests(text, name, label = name) {
+function parseDigest(text, label) {
   const normalized = text.replaceAll('\r\n', '\n');
   if (!normalized.endsWith('\n')) throw new Error(`Malformed demo asset digest: ${label}`);
-  const hashes = normalized.slice(0, -1).split('\n');
-  if (!hashes.length || hashes.some(h => !HASH_RE.test(h))) {
+  const lines = normalized.slice(0, -1).split('\n');
+  if (lines.length !== 1 || !HASH_RE.test(lines[0])) {
     throw new Error(`Malformed demo asset digest: ${label}`);
   }
-  if (!TEXT_ASSET.test(name) && hashes.length !== 1) {
-    throw new Error(`Malformed demo asset digest: ${label}`);
-  }
-  return hashes;
+  return lines[0];
 }
 
 function listDigestFiles(dir) {
@@ -124,7 +92,7 @@ function loadApprovedAssets(dir = DIGESTS_DIR) {
     const name = rel.slice(0, -'.sha256'.length);
     if (!ASSET_FILE_SET.has(name)) throw new Error(`Unexpected demo digest file: ${rel}`);
     const text = fs.readFileSync(path.join(dir, rel), 'utf8');
-    approved.set(name, parseDigests(text, name, rel));
+    approved.set(name, parseDigest(text, rel));
   }
   for (const name of ASSET_FILES) {
     if (!approved.has(name)) throw new Error(`Missing demo asset digest: ${name}`);
@@ -140,9 +108,7 @@ function getApprovedAssets() {
 
 function verifyAsset(name, body, approved = getApprovedAssets()) {
   const expected = approved.get(name);
-  if (!expected) throw new Error(`Unexpected demo asset contents: ${name}`);
-  const actual = assetDigests(name, body);
-  if (actual.length !== expected.length || actual.some((hash, i) => hash !== expected[i])) {
+  if (!expected || assetDigest(body) !== expected) {
     throw new Error(`Unexpected demo asset contents: ${name}`);
   }
 }
@@ -255,6 +221,6 @@ function start(environment) {
 
 module.exports = {
   start, ASSETS, ASSET_FILES, FIXTURE_PATH, DIGESTS_REL, DIGESTS_DIR, TEXT_ASSET,
-  DEMO_SCRIPT_MARKER, assetDigests, formatDigests, parseDigests, listDigestFiles,
+  DEMO_SCRIPT_MARKER, assetDigest, formatDigest, parseDigest, listDigestFiles,
   loadApprovedAssets, verifyAsset,
 };

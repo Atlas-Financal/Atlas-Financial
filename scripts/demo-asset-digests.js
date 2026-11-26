@@ -2,34 +2,36 @@
 'use strict';
 /* Approved demo asset digests: per-asset diff and refresh helper.
  *
- *   node scripts/demo-asset-digests.js [--check]  verify every prepared demo asset
- *                                                 against scripts/demo-asset-digests/;
+ *   node scripts/demo-asset-digests.js [--check]  verify every prepared demo asset's
+ *                                                 whole-file SHA-256 against
+ *                                                 scripts/demo-asset-digests/;
  *                                                 exit 1 on any difference (default)
  *   node scripts/demo-asset-digests.js --write    verify privacy on every prepared demo
  *                                                 asset and rewrite only the differing
  *                                                 .sha256 files under scripts/demo-asset-digests/
  *
  * Uses scripts/package-demo.js (prepareAsset, checkDemoPrivacy) and
- * scripts/demo-server.js (ASSET_FILES, assetDigests, formatDigests, parseDigests)
+ * scripts/demo-server.js (ASSET_FILES, assetDigest, formatDigest, parseDigest)
  * directly; this file holds no second redactor or hash implementation.
  * CI never runs --write. Running --write does not replace reviewing the
  * prepared demo asset for privacy before committing.
  */
 const fs = require('node:fs');
 const path = require('node:path');
-const { createHash } = require('node:crypto');
 const {
   ASSET_FILES, FIXTURE_PATH, DIGESTS_REL,
-  assetDigests, formatDigests, parseDigests, listDigestFiles,
+  assetDigest, formatDigest, parseDigest, listDigestFiles,
 } = require('./demo-server');
 const { prepareAsset, checkDemoPrivacy } = require('./package-demo');
 
 const ROOT = path.join(__dirname, '..');
 const ASSET_FILE_SET = new Set(ASSET_FILES);
+const HASH_RE = /^[0-9a-f]{64}$/;
 
-const shortDigest = text => text == null
-  ? '-'
-  : createHash('sha256').update(text).digest('hex').slice(0, 12);
+const shortHash = hash => {
+  if (hash == null) return '-';
+  return HASH_RE.test(hash) ? hash.slice(0, 12) : 'invalid';
+};
 
 function readSource(root, name) {
   const source = path.join(root, name);
@@ -50,7 +52,7 @@ function computeExpectedDigests(root, fingerprints) {
   }
   const expected = new Map();
   for (const name of ASSET_FILES) {
-    expected.set(name, formatDigests(assetDigests(name, prepared.get(name))));
+    expected.set(name, assetDigest(prepared.get(name)));
   }
   return expected;
 }
@@ -63,17 +65,20 @@ function readExistingDigests(digestsDir, { allowMalformedKnown = false } = {}) {
     if (!rel.endsWith('.sha256')) throw new Error(`Unexpected demo digest file: ${rel}`);
     const name = rel.slice(0, -'.sha256'.length);
     const raw = fs.readFileSync(path.join(digestsDir, rel), 'utf8');
-    const normalized = raw.replaceAll('\r\n', '\n');
     if (!ASSET_FILE_SET.has(name)) {
-      stale.push({ name, rel, text: normalized });
+      let hash = null;
+      try { hash = parseDigest(raw, rel); } catch { hash = 'invalid'; }
+      stale.push({ name, rel, hash });
       continue;
     }
+    let hash;
     try {
-      parseDigests(normalized, name, rel);
+      hash = parseDigest(raw, rel);
     } catch (error) {
       if (!allowMalformedKnown) throw error;
+      hash = 'invalid';
     }
-    existing.set(name, normalized);
+    existing.set(name, hash);
   }
   return { existing, stale };
 }
@@ -81,14 +86,14 @@ function readExistingDigests(digestsDir, { allowMalformedKnown = false } = {}) {
 function diffDigests(existing, stale, expected) {
   const rows = [];
   for (const name of ASSET_FILES) {
-    const oldText = existing.has(name) ? existing.get(name) : null;
-    const newText = expected.get(name);
-    if (oldText === newText) continue;
+    const oldHash = existing.has(name) ? existing.get(name) : null;
+    const newHash = expected.get(name);
+    if (oldHash === newHash) continue;
     rows.push({
-      change: oldText === null ? 'added' : 'changed',
+      change: oldHash === null ? 'added' : 'changed',
       name,
-      oldText,
-      newText,
+      oldHash,
+      newHash,
     });
   }
   for (const entry of stale) {
@@ -96,8 +101,8 @@ function diffDigests(existing, stale, expected) {
       change: 'removed',
       name: entry.name,
       rel: entry.rel,
-      oldText: entry.text,
-      newText: null,
+      oldHash: entry.hash,
+      newHash: null,
     });
   }
   return rows.sort((a, b) => a.name.localeCompare(b.name));
@@ -105,7 +110,7 @@ function diffDigests(existing, stale, expected) {
 
 function formatDiff(rows) {
   return rows.map(row =>
-    `${row.change.toUpperCase().padEnd(7)}  ${row.name}  ${shortDigest(row.oldText)} -> ${shortDigest(row.newText)}`
+    `${row.change.toUpperCase().padEnd(7)}  ${row.name}  ${shortHash(row.oldHash)} -> ${shortHash(row.newHash)}`
   ).join('\n');
 }
 
@@ -126,7 +131,7 @@ function writeDigests(digestsDir, rows) {
     const rel = row.name + '.sha256';
     const target = path.join(digestsDir, rel);
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, row.newText);
+    fs.writeFileSync(target, formatDigest(row.newHash));
     touched.push(rel);
   }
   return touched.sort();
@@ -150,7 +155,8 @@ function main(argv, deps = {}, log = console.log) {
   log(`Demo asset digests: differences.\n${formatDiff(rows)}`);
   if (!write) return 1;
   const touched = writeDigests(digestsDir, rows);
-  log(`\nWrote ${touched.length} file${touched.length === 1 ? '' : 's'} under ${DIGESTS_REL}/. Review the prepared demo asset diff before committing; --write does not discharge the privacy review.`);
+  log(`\nWrote ${touched.length} file${touched.length === 1 ? '' : 's'} under ${DIGESTS_REL}/: ${rows.map(r => r.name).join(', ')}.`);
+  log('Review the prepared demo asset diff before committing; --write does not discharge the privacy review.');
   return 0;
 }
 

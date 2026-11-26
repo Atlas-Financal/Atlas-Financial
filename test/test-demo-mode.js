@@ -2,14 +2,14 @@
 
 const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
-const { createHash, randomUUID } = require('node:crypto');
+const { randomUUID } = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { launch, demoPackage } = require('./lib/demo-process');
 const fixture = require('./fixtures/figures-inputs/stack-card-summary.json');
 const {
-  ASSET_FILES, DIGESTS_REL, assetDigests, verifyAsset, loadApprovedAssets,
+  ASSET_FILES, DIGESTS_REL, assetDigest, verifyAsset, loadApprovedAssets,
 } = require('../scripts/demo-server');
 const { packageDemo, prepareAsset, checkDemoPrivacy } = require('../scripts/package-demo');
 const DemoDigests = require('../scripts/demo-asset-digests');
@@ -230,7 +230,7 @@ async function checkLosslessAssetProtection(directory) {
     { message: `Unexpected demo asset contents: ${binaryAsset}` });
   await withBytes(binaryPath, binaryMutated, () => expectRefusal(
     launch({ ATLAS_DEMO: '1' }, preload, directory), `Unexpected demo asset contents: ${binaryAsset}`));
-  console.log('PASS  content-defined chunk digests catch every text and binary byte mutation');
+  console.log('PASS  whole-file SHA-256 digests catch every text and binary byte mutation');
 }
 
 async function checkDigestDirectoryFailClosed(directory) {
@@ -265,19 +265,21 @@ async function checkDigestDirectoryFailClosed(directory) {
     expectRefusal(launch({ ATLAS_DEMO: '1' }, preload, directory),
       `Malformed demo asset digest: ${sampleName}.sha256`));
 
-  // Multi-line digest file for a binary asset fails startup.
-  const binaryDigestPath = path.join(digestsDir, 'public/icon-192.png.sha256');
-  const binaryOriginal = fs.readFileSync(binaryDigestPath, 'utf8');
-  await withBytes(binaryDigestPath, Buffer.from(binaryOriginal + binaryOriginal), () =>
-    expectRefusal(launch({ ATLAS_DEMO: '1' }, preload, directory),
-      'Malformed demo asset digest: public/icon-192.png.sha256'));
+  // Multi-line digest files (text and binary alike) fail startup.
+  for (const name of [sampleName, 'public/icon-192.png']) {
+    const digestPath = path.join(digestsDir, name + '.sha256');
+    const originalText = fs.readFileSync(digestPath, 'utf8');
+    await withBytes(digestPath, Buffer.from(originalText + originalText), () =>
+      expectRefusal(launch({ ATLAS_DEMO: '1' }, preload, directory),
+        `Malformed demo asset digest: ${name}.sha256`));
+  }
 
-  // Tampered hash line fails startup.
+  // Tampered hash fails startup.
   const tampered = sampleOriginal.toString('utf8').replace(/^[0-9a-f]{64}/, '0'.repeat(64));
   await withBytes(sampleDigestPath, Buffer.from(tampered), () =>
     expectRefusal(launch({ ATLAS_DEMO: '1' }, preload, directory),
       `Unexpected demo asset contents: ${sampleName}`));
-  console.log('PASS  missing, stray, malformed and tampered digest files fail closed at startup');
+  console.log('PASS  missing, stray, malformed, multi-line and tampered digest files fail closed at startup');
 }
 
 function copyDemoSourceTree(destination) {
@@ -317,6 +319,10 @@ function checkDigestScriptAndGitMerges() {
 
   const repoCheck = runDemoDigests(ROOT, ['--check']);
   assert.equal(repoCheck.code, 0, repoCheck.out);
+  for (const name of ASSET_FILES) {
+    const raw = fs.readFileSync(path.join(ROOT, DIGESTS_REL, name + '.sha256'), 'utf8').replaceAll('\r\n', '\n');
+    assert.match(raw, /^[0-9a-f]{64}\n$/, `${name}.sha256 must hold one whole-file SHA-256`);
+  }
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-demo-digests-'));
   try {
@@ -360,7 +366,8 @@ function checkDigestScriptAndGitMerges() {
     fs.writeFileSync(displayPath, displayBefore + '\nconst demoBranchA = 1;\n');
     const writeA = runDemoDigests(tree, ['--write']);
     assert.equal(writeA.code, 0, writeA.out);
-    assert.match(writeA.out, /Wrote 1 file under/);
+    assert.match(writeA.out, /CHANGED {2}public\/display-name\.js/);
+    assert.match(writeA.out, /Wrote 1 file under scripts\/demo-asset-digests\/: public\/display-name\.js\./);
     assert.equal(git('add', '-A').status, 0);
     assert.equal(git('commit', '-q', '-m', 'diff-a').status, 0);
 
@@ -369,7 +376,8 @@ function checkDigestScriptAndGitMerges() {
     fs.writeFileSync(cssPath, fs.readFileSync(cssPath, 'utf8') + '\n.demo-branch-b { opacity: 1; }\n');
     const writeB = runDemoDigests(tree, ['--write']);
     assert.equal(writeB.code, 0, writeB.out);
-    assert.match(writeB.out, /Wrote 1 file under/);
+    assert.match(writeB.out, /CHANGED {2}public\/atlas-toolbar\.css/);
+    assert.match(writeB.out, /Wrote 1 file under scripts\/demo-asset-digests\/: public\/atlas-toolbar\.css\./);
     assert.equal(git('add', '-A').status, 0);
     assert.equal(git('commit', '-q', '-m', 'diff-b').status, 0);
 
@@ -379,48 +387,7 @@ function checkDigestScriptAndGitMerges() {
     assert.equal(runDemoDigests(tree, ['--check']).code, 0);
     packageDemo(path.join(tmp, 'pkg-diff-merged'), tree);
 
-    // 3. Two PRs making non-adjacent edits to public/forecast.js merge cleanly and pass --check & packageDemo.
-    assert.equal(git('checkout', '-q', 'main').status, 0);
-    const forecastPath = path.join(tree, 'public/forecast.js');
-    const forecastBase = fs.readFileSync(forecastPath, 'utf8').replaceAll('\r\n', '\n');
-    const forecastLines = forecastBase.split('\n');
-    const topIdx = forecastLines.findIndex((line, i) => i > 120 && line === '  }');
-    const bottomIdx = forecastLines.length - 40;
-    assert.ok(topIdx > 120 && bottomIdx - topIdx > 500, 'forecast.js must have well-separated edit sites');
-    const editTop = text => {
-      const l = text.split('\n');
-      l.splice(topIdx + 1, 0, '  const demoInventedTopAnchor = 1;');
-      return l.join('\n');
-    };
-    const editBottom = text => {
-      const l = text.split('\n');
-      l.splice(bottomIdx, 0, '  const demoInventedBottomAnchor = 2;');
-      return l.join('\n');
-    };
-
-    assert.equal(git('checkout', '-q', '-b', 'same-a', 'main').status, 0);
-    fs.writeFileSync(forecastPath, editTop(forecastBase));
-    assert.equal(runDemoDigests(tree, ['--check']).code, 1);
-    assert.equal(runDemoDigests(tree, ['--write']).code, 0);
-    assert.equal(git('add', '-A').status, 0);
-    assert.equal(git('commit', '-q', '-m', 'same-a').status, 0);
-
-    assert.equal(git('checkout', '-q', '-b', 'same-b', 'main').status, 0);
-    fs.writeFileSync(forecastPath, editBottom(forecastBase));
-    assert.equal(runDemoDigests(tree, ['--check']).code, 1);
-    assert.equal(runDemoDigests(tree, ['--write']).code, 0);
-    assert.equal(git('add', '-A').status, 0);
-    assert.equal(git('commit', '-q', '-m', 'same-b').status, 0);
-
-    assert.equal(git('checkout', '-q', 'same-a').status, 0);
-    const mergeSame = git('merge', '-q', '--no-edit', 'same-b');
-    assert.equal(mergeSame.status, 0, 'non-adjacent forecast.js edits must merge cleanly: ' + mergeSame.stderr);
-    assert.equal(git('diff', '--name-only', '--diff-filter=U').stdout.trim(), '');
-    const mergedCheck = runDemoDigests(tree, ['--check']);
-    assert.equal(mergedCheck.code, 0, 'merged forecast.js digests must match merged source: ' + mergedCheck.out);
-    packageDemo(path.join(tmp, 'pkg-same-merged'), tree);
-
-    // Negative control: the retired single-file JSON manifest conflicts on the exact same two edits.
+    // Negative control: the retired single-file JSON manifest conflicts when two PRs edit adjacent assets.
     const control = path.join(tmp, 'old-manifest');
     fs.mkdirSync(control);
     const gitOld = (...args) => spawnSync('git', [
@@ -429,71 +396,97 @@ function checkDigestScriptAndGitMerges() {
       '-c', 'commit.gpgsign=false', '-c', 'init.defaultBranch=main',
       ...args,
     ], { cwd: control, env: gitEnv, encoding: 'utf8' });
-    const writeSingleManifest = text => {
-      const prepared = prepareAsset('public/forecast.js', Buffer.from(text), fixture);
-      const hash = createHash('sha256').update(prepared).digest('hex');
-      fs.writeFileSync(path.join(control, 'forecast.js'), text);
-      fs.writeFileSync(path.join(control, 'demo-asset-digests.json'),
-        JSON.stringify({ 'public/forecast.js': hash }, null, 2) + '\n');
+    const writeSingleManifest = (cardHash, forecastHash) => {
+      fs.writeFileSync(path.join(control, 'demo-asset-digests.json'), JSON.stringify({
+        'public/forecast-card-period.js': cardHash,
+        'public/forecast.js': forecastHash,
+      }, null, 2) + '\n');
     };
     assert.equal(gitOld('init', '-q').status, 0);
-    writeSingleManifest(forecastBase);
+    writeSingleManifest('1'.repeat(64), '2'.repeat(64));
     assert.equal(gitOld('add', '-A').status, 0);
     assert.equal(gitOld('commit', '-q', '-m', 'base').status, 0);
     assert.equal(gitOld('checkout', '-q', '-b', 'a').status, 0);
-    writeSingleManifest(editTop(forecastBase));
+    writeSingleManifest('a'.repeat(64), '2'.repeat(64));
     assert.equal(gitOld('add', '-A').status, 0);
     assert.equal(gitOld('commit', '-q', '-m', 'a').status, 0);
     assert.equal(gitOld('checkout', '-q', '-b', 'b', 'main').status, 0);
-    writeSingleManifest(editBottom(forecastBase));
+    writeSingleManifest('1'.repeat(64), 'b'.repeat(64));
     assert.equal(gitOld('add', '-A').status, 0);
     assert.equal(gitOld('commit', '-q', '-m', 'b').status, 0);
     assert.equal(gitOld('checkout', '-q', 'a').status, 0);
     const oldMerge = gitOld('merge', '-q', '--no-edit', 'b');
-    assert.notEqual(oldMerge.status, 0, 'control: old single-file manifest must conflict');
+    assert.notEqual(oldMerge.status, 0, 'control: old single-file manifest conflicts on adjacent asset edits');
     assert.equal(gitOld('diff', '--name-only', '--diff-filter=U').stdout.trim(), 'demo-asset-digests.json');
 
-    // 4. Adjacent edits conflict; keeping either side's digest fails closed until --write repairs it.
-    assert.equal(git('checkout', '-q', '-b', 'adj-a', 'main').status, 0);
-    const editAdj = (text, decl) => {
+    // 3. Reviewer's regression case: two branches making non-adjacent edits to public/forecast.js,
+    // each refreshed on its own branch, must NOT pass when merged without whole-file re-approval.
+    assert.equal(git('checkout', '-q', 'main').status, 0);
+    const forecastPath = path.join(tree, 'public/forecast.js');
+    const forecastDigestPath = path.join(tree, DIGESTS_REL, 'public/forecast.js.sha256');
+    const forecastBase = fs.readFileSync(forecastPath, 'utf8').replaceAll('\r\n', '\n');
+    const forecastLines = forecastBase.split('\n');
+    assert.ok(forecastLines.length > 8200, 'forecast.js must span both reviewer edit sites');
+    const insertBefore = (text, lineNumber, added) => {
       const l = text.split('\n');
-      l.splice(topIdx + 1, 0, decl);
+      l.splice(lineNumber - 1, 0, added);
       return l.join('\n');
     };
-    fs.writeFileSync(forecastPath, editAdj(forecastBase, '  const demoAdjA = 1;'));
-    assert.equal(runDemoDigests(tree, ['--write']).code, 0);
-    const adjADigest = fs.readFileSync(path.join(tree, DIGESTS_REL, 'public/forecast.js.sha256'), 'utf8');
-    assert.equal(git('add', '-A').status, 0);
-    assert.equal(git('commit', '-q', '-m', 'adj-a').status, 0);
 
-    assert.equal(git('checkout', '-q', '-b', 'adj-b', 'main').status, 0);
-    fs.writeFileSync(forecastPath, editAdj(forecastBase, '  const demoAdjB = 2;'));
-    assert.equal(runDemoDigests(tree, ['--write']).code, 0);
-    const adjBDigest = fs.readFileSync(path.join(tree, DIGESTS_REL, 'public/forecast.js.sha256'), 'utf8');
+    assert.equal(git('checkout', '-q', '-b', 'same-a', 'main').status, 0);
+    fs.writeFileSync(forecastPath, insertBefore(forecastBase, 601, '  '));
+    assert.equal(runDemoDigests(tree, ['--check']).code, 1);
+    const writeSameA = runDemoDigests(tree, ['--write']);
+    assert.equal(writeSameA.code, 0, writeSameA.out);
+    assert.match(writeSameA.out, /CHANGED {2}public\/forecast\.js/);
+    const digestSameA = fs.readFileSync(forecastDigestPath, 'utf8');
     assert.equal(git('add', '-A').status, 0);
-    assert.equal(git('commit', '-q', '-m', 'adj-b').status, 0);
+    assert.equal(git('commit', '-q', '-m', 'same-a').status, 0);
 
-    assert.equal(git('checkout', '-q', 'adj-a').status, 0);
-    const mergeAdj = git('merge', '-q', '--no-edit', 'adj-b');
-    assert.notEqual(mergeAdj.status, 0, 'adjacent edits must conflict');
-    const resolvedForecast = editAdj(editAdj(forecastBase, '  const demoAdjA = 1;'), '  const demoAdjB = 2;');
-    fs.writeFileSync(forecastPath, resolvedForecast);
-    // Conflict markers in the digest file fail --check and packageDemo, then --write repairs cleanly.
+    assert.equal(git('checkout', '-q', '-b', 'same-b', 'main').status, 0);
+    fs.writeFileSync(forecastPath, insertBefore(forecastBase, 8101, '  '));
+    assert.equal(runDemoDigests(tree, ['--check']).code, 1);
+    const writeSameB = runDemoDigests(tree, ['--write']);
+    assert.equal(writeSameB.code, 0, writeSameB.out);
+    assert.match(writeSameB.out, /CHANGED {2}public\/forecast\.js/);
+    const digestSameB = fs.readFileSync(forecastDigestPath, 'utf8');
+    assert.equal(git('add', '-A').status, 0);
+    assert.equal(git('commit', '-q', '-m', 'same-b').status, 0);
+
+    assert.equal(git('checkout', '-q', 'same-a').status, 0);
+    const mergeSame = git('merge', '-q', '--no-edit', 'same-b');
+    assert.notEqual(mergeSame.status, 0, 'merging two branches that edited forecast.js must conflict on its digest');
+    assert.equal(git('diff', '--name-only', '--diff-filter=U').stdout.trim(),
+      `${DIGESTS_REL}/public/forecast.js.sha256`,
+      'source merges cleanly while the single whole-file forecast.js digest conflicts');
+    // Leaving conflict markers fails --check and packageDemo closed.
     assert.throws(() => runDemoDigests(tree, ['--check']), /Malformed demo asset digest/);
     assert.throws(() => packageDemo(path.join(tmp, 'pkg-conflict-markers'), tree), /Malformed demo asset digest/);
-    for (const kept of [adjADigest, adjBDigest]) {
-      fs.writeFileSync(path.join(tree, DIGESTS_REL, 'public/forecast.js.sha256'), kept);
-      assert.equal(runDemoDigests(tree, ['--check']).code, 1, 'keeping either side must fail --check');
+    // Keeping either parent's approved whole-file digest without re-approval MUST fail --check and packageDemo.
+    const combinedPrepared = prepareAsset('public/forecast.js', fs.readFileSync(forecastPath), fixture);
+    const combinedHash = assetDigest(combinedPrepared);
+    assert.notEqual(combinedHash + '\n', digestSameA);
+    assert.notEqual(combinedHash + '\n', digestSameB);
+    for (const kept of [digestSameA, digestSameB]) {
+      fs.writeFileSync(forecastDigestPath, kept);
+      const staleCheck = runDemoDigests(tree, ['--check']);
+      assert.equal(staleCheck.code, 1, 'combined forecast.js must fail --check against either parent digest');
+      assert.match(staleCheck.out, /CHANGED {2}public\/forecast\.js/);
       assert.throws(() => packageDemo(path.join(tmp, 'pkg-kept-side-' + randomUUID()), tree),
         { message: 'Unexpected demo asset contents: public/forecast.js' });
     }
-    assert.equal(runDemoDigests(tree, ['--write']).code, 0);
+    // One-command refresh explicitly re-approves the combined file and reports exactly which asset changed.
+    const writeCombined = runDemoDigests(tree, ['--write']);
+    assert.equal(writeCombined.code, 0, writeCombined.out);
+    assert.match(writeCombined.out, /CHANGED {2}public\/forecast\.js/);
+    assert.match(writeCombined.out, /Wrote 1 file under scripts\/demo-asset-digests\/: public\/forecast\.js\./);
+    assert.equal(fs.readFileSync(forecastDigestPath, 'utf8'), combinedHash + '\n');
     assert.equal(runDemoDigests(tree, ['--check']).code, 0);
-    packageDemo(path.join(tmp, 'pkg-adj-repaired'), tree);
+    packageDemo(path.join(tmp, 'pkg-same-reapproved'), tree);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
-  console.log('PASS  demo digest script and git merges eliminate routine conflicts while preserving fail-closed verification');
+  console.log('PASS  per-asset whole-file digests merge cleanly across assets and require explicit re-approval for a combined asset');
 }
 
 async function main() {

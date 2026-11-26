@@ -9,21 +9,24 @@ privacy fingerprints and checks the approved SHA-256 digests for the prepared
 assets and fixture. Startup verifies those digests before opening the port.
 
 Approved digests live one file per asset under `scripts/demo-asset-digests/`
-(`<asset-path>.sha256`). Binary assets store one whole-file SHA-256 hash; text
-assets store the ordered SHA-256 hashes of content-defined line chunks whose
-concatenation equals the prepared asset byte for byte. Any byte change, line
-edit, insertion, deletion, reorder or duplication still fails packaging and
-startup, while edits to different assets or non-adjacent regions of one asset
-touch separate files or hash lines and merge cleanly in git. Missing, stray,
-symlinked or malformed digest files fail closed.
+(`<asset-path>.sha256`). Each file stores the single whole-file SHA-256 hash
+of the prepared asset, preserving the exact whole-file approval requirement.
+Pull requests touching different demo assets write different `.sha256` files
+and no longer conflict with each other. Two pull requests touching the same
+demo asset (for example `public/forecast.js`) still conflict on that asset's
+`.sha256` file and require a one-command refresh after catching up and
+reviewing the combined prepared asset, because a merged file is a new asset
+that has not yet been approved as a whole. Missing, stray, symlinked,
+multi-line, or malformed digest files fail closed at packaging and startup.
 
 When a shared asset changes, review the prepared asset before updating its
 digest:
 - `node scripts/demo-asset-digests.js --check` reports any asset whose prepared
   output differs from `scripts/demo-asset-digests/` (read-only; exits 1 on diff).
 - `node scripts/demo-asset-digests.js --write` checks privacy on every prepared
-  asset and updates only the differing `.sha256` files. It does not replace
-  reviewing the prepared demo asset, and CI never runs `--write`.
+  asset, prints the exact assets that changed, and updates only their `.sha256`
+  files. It does not replace reviewing the prepared demo asset, and CI never
+  runs `--write`.
 - A branch created before the directory layout that still carries the retired
   `scripts/demo-asset-digests.json` resolves the rename once after merging
   `main` with `git rm -f scripts/demo-asset-digests.json` and then running
