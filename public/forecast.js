@@ -17423,7 +17423,8 @@
             // Household chequing only: a Savings (reserve) funded payment's cents
             // already left the Savings pool, never Balance After Deductions' cash.
             let beyond = left;
-            if (payDownOnly.has(account) && left > 0 && !minimums.length) {
+            // A carried line is not the period's own minimum: a payment beyond it still meets the card's next minimum early.
+            if (payDownOnly.has(account) && left > 0 && !minimums.some(m => !m.carriedFrom)) {
               const next = minimumRows.filter(row => row.debtId === account)
                 .flatMap(row => obligationOccurrences(row, addDays(start, 1), addDays(start, 120))
                   .map(occurrence => ({ key: row.id + '@' + (occurrence.scheduledDate || occurrence.date),

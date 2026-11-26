@@ -115,6 +115,27 @@ console.log('5b. The coupled debt and cash walks (Codex on #1663)');
   ok(walked(paidOff) === 0, 'with the card paid off, the carry takes nothing out of cash', J(walked(paidOff)));
 }
 
+console.log('5c. A pay-down-only card: a payment beyond the carry still meets the next minimum early');
+// Invented pay-down-only card (one-sided Bills debits with the card's payment identity, as in
+// test-card-coverage-aggregate-rule section 14): 25 due 09-25 with 10 paid 09-26 leaves a 15.00 carry; the next
+// minimum, 25 due 10-25, is in the period after; 60 paid 10-03. Beyond the minimum: 60 - 15 carried - 25 met early = 20.
+const payDown = (amount, date) => ['bills', amount, date, 'cash', { payee: 'MBNA M/C', category_name: 'DEBT&PAYMENTS' }];
+const PAYDOWN = { card: 'mbna', payDownOnly: ['mbna', 'triangle'], asOf: '2026-10-05', minimumDate: '2026-09-25',
+  edit: x => { const b = x.data.plan.obligations[0]; x.data.plan.obligations.push({ ...b, id: 'mbna-next', date: '2026-10-25' }); } };
+const beyondCents = s => (s.coverage.payDownBeyondMinimum || []).reduce((sum, r) => sum + cents(r.amount), 0);
+const payDownCarry = () => run(world([payDown(10, '2026-09-26'), payDown(60, '2026-10-03')], PAYDOWN));
+{
+  const s = payDownCarry();
+  const carried = carriedLines(s);
+  ok(carried.length === 1 && cents(carried[0].due) === 1500 && cents(carried[0].covered) === 1500,
+    'the 15.00 carry is paid first by the 10-03 payment', J(carried));
+  ok(beyondCents(s) === 2000, '60.00 - 15.00 carried - 25.00 met early = 20.00 beyond the minimum', J(beyondCents(s)));
+  const next = s.advice.payPeriodViews.find(v => v.start === '2026-10-16');
+  const nextRow = next && (next.bills || []).find(b => b.id === 'mbna-next');
+  ok(nextRow && cents(nextRow.remaining) === 2500, 'the next period keeps its own 25.00 (the early-met part is not counted twice)',
+    J(nextRow && nextRow.remaining));
+}
+
 console.log('6. Mutants');
 {
   const FILE = path.join(__dirname, '..', 'public', 'forecast.js');
@@ -154,6 +175,10 @@ console.log('6. Mutants');
   const m3 = withEngine(sharedId, () => run(world(pay(20, '2026-09-26'), { ...OPTS, asOf: '2026-10-09', edit: biweekly })));
   ok(walked(m3) !== 5500, 'MUTANT (carry shares the obligation\'s identity): the same-day walk no longer counts 25.00 + 5.00, which section 5b rejects',
     J(walked(m3)));
+  const ownOnly = compile('!minimums.some(m => !m.carriedFrom)', '!minimums.length', 'carry-blocks-early-met');
+  const m5 = withEngine(ownOnly, () => payDownCarry());
+  ok(beyondCents(m5) === 4500, 'MUTANT (a carry switches early-met off): 45.00 beyond the minimum, 25.00 counted twice, which section 5c rejects',
+    J(beyondCents(m5)));
   const noCap = compile('      if (cap) {\n        const key = date + \':\' + id;', '      if (false) {\n        const key = date + \':\' + id;', 'no-cap');
   const m4 = withEngine(noCap, () => run(world(pay(20, '2026-09-26'), { ...OPTS, edit: x => { x.payload.accounts[3].balance = 3; } })));
   ok(walked(m4) === 500, 'MUTANT (no debt cap on the carry): cash takes out 5.00 with only 3.00 owing, which section 5b rejects', J(walked(m4)));
