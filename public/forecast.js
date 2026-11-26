@@ -105,6 +105,7 @@
       pendingPostedPartner: tx => (tx && tx.id != null && pairs.get(String(tx.id))) || null,
       // The one hold/release decision (pendingHoldReleases): both legs are left off the card's rows and Spent.
       holdReleaseLeg: tx => pendingHoldReleaseLeg(tx, packet),
+      otherChargeCounted: tx => opts.otherCardCharges?.has(tx) === true,
       classify: (tx, selectedPlan) => classifyCurrentPeriodTransaction(tx, selectedPlan,
         Object.assign({}, opts, { currentPeriodActuals: packet, useActuals: true })),
     });
@@ -15314,6 +15315,7 @@
       ? reconcileCardPurchases(packet.transactions, { plan, asOf, packet, debts: opts.debts }) : null;
     const reconById = new Map();
     const confirmationRecon = [];
+    const otherCardCharges = new Set();
     let confirmationSpent = 0;
     // N3: where coverage is lost, the posted rows the packet DOES hold are still known spending.
     // They are read only to seed an estimate (a lower bound on the true hold); they are never
@@ -15337,9 +15339,9 @@
             ? cardCoverageAnnotation(tx, cardCoverage) : null });
         if (otherSpendingEvidenceEligible(cls)) {
           confirmationRecon.push(row);
-          confirmationSpent = roundCent(
-            confirmationSpent + (row.pendingAmountEstimated ? row.amount : confirmedHouseholdAmount(tx, duplicateIds))
-          );
+          const counted = row.pendingAmountEstimated ? row.amount : confirmedHouseholdAmount(tx, duplicateIds);
+          confirmationSpent = roundCent(confirmationSpent + counted);
+          if (counted > 0 && tx.accountRole === 'revolving-credit') otherCardCharges.add(tx);
           continue;
         }
         if (catId && CALENDAR_PERIOD_BUDGET_IDS.indexOf(catId) >= 0) {
@@ -15619,8 +15621,10 @@
       const reason = coverage.reason || 'Current-period spending is not complete, so what is left is unavailable.';
       for (const row of items) Object.assign(row, { remaining: null, overspend: null, remainingTrust: 'unavailable', remainingReason: reason });
     }
+    // Only rows admitted to an Other hold that enters this period's deduction can offset Credit.
+    if (targetsInvalid || !items.some(row => row.id === OTHER_SPENDING_ID && row.hold > 0)) otherCardCharges.clear();
     return {
-      items,
+      items, otherCardCharges,
       // An invalid declared target has no quantity, so the total hold is
       // unknown (null), never the other categories' sum read as the whole.
       hold: targetsInvalid ? null
@@ -16070,7 +16074,7 @@
     }
     return worst;
   }
-  function periodCardCredit(plan, debts, asOf, window, opts, cardMinimums, splitTrust, beyondMinimum) {
+  function periodCardCredit(plan, debts, asOf, window, opts, cardMinimums, splitTrust, beyondMinimum, otherCardCharges) {
     // The card module is loaded with Forecast on every page (index.html) and in node (require); a harness that evaluates
     // this file alone publishes no card target and keeps the minimums, as before this ruling.
     if (!CardPeriodMovement || !Array.isArray(debts) || !window) return null;
@@ -16079,6 +16083,7 @@
       currentPeriodActuals: opts.currentPeriodActuals,
       cardPeriodBalanceEvidence: opts.cardPeriodBalanceEvidence || null,
       liveOverlay: opts.cardLiveOverlay || null,
+      otherCardCharges,
     });
     const split = minimums ? { cardMinimums: minimums.map(card => ({ debtId: card.debtId, amount: card.amount })),
       trust: splitTrust || 'calculated' } : null;
@@ -19283,7 +19288,7 @@
       // A completed period still publishes its lines (the Credit tile reads them), without the adjustment.
       const cardCredit = !planUnavailable
         ? periodCardCredit(plan, debts, asOf, window, opts, billLoadParts && billLoadParts.cardMinimums, periodBillLoadTrust,
-          cardTargetBeyondMinimum(cardCoverage, window, asOf)) : null;
+          cardTargetBeyondMinimum(cardCoverage, window, asOf), budget.otherCardCharges) : null;
       const cardAdjusts = (role === 'active' || role === 'future') && !!cardCredit && !!billLoadParts;
       const cardAdjustmentCents = cardAdjusts ? cardCredit.adjustmentCents : 0;
       const afterHouseholdBudget = afterBills != null && itemSpend != null && heldSpend != null && beyondMinimum != null
