@@ -89,7 +89,7 @@ ok(drop.rows.length === 2 && drop.rows.every(r => {
 }), 'proof 1: each card row is that card\'s target − paid back (A 25.00, B 100.00), worked from its own line', JSON.stringify(drop.rows));
 // Proof 2: no "Already counted above" row (Dale, 7121410691); each card's counted charges stay on its own line (A 0, B 150),
 // exactly that card's purchases already held (Grok Bot's condition 2).
-ok(!Object.hasOwn(drop, 'alreadyCounted') && Object.keys(drop).sort().join() === 'rows,total,trust'
+ok(!Object.hasOwn(drop, 'alreadyCounted') && Object.keys(drop).sort().join() === 'basis,rows,stillToPayBack,total,trust'
   && cents(A.deduction.alreadyCounted) === 0 && cents(B.deduction.alreadyCounted) === 15000,
   'proof 2: the dropdown has no "Already counted above" row; each card keeps its own counted charges on its line (0.00, 150.00)', JSON.stringify(Object.keys(drop)));
 // Proof 3: the Credit line is Σ each line's deduction (50 + 0), (E) unchanged.
@@ -213,8 +213,12 @@ ok(!/stack-est|≈|estimated/i.test(live.card + live.wf), 'no estimate styling o
 // Main (with #1617) printed the same card rows and an "Already counted above −$344" row: the same page scripts on main's engine and page.
 const mainPage = render(show, oldAdvice);
 const creditLine = html => (/<li class="wf-line wf-credit[\s\S]*?<\/button>/.exec(html) || [''])[0];
-ok(creditLine(live.wf) !== '' && creditLine(live.wf) === creditLine(mainPage.wf),
-  'the Credit line itself prints exactly as on main', text(creditLine(live.wf)));
+// OD-057 (BUILD 7): the Credit line now reads the total still to pay back (Travel 136 + Cash Back 0, the dropdown's rows) over
+// the deduction; the deduction's own cell is main's, byte for byte.
+const deductionCell = html => (/<span class="n[^"]*" data-source="stackSummary\.surplus\.terms\.credit">[^<]*<\/span>/.exec(creditLine(html)) || [''])[0];
+ok(creditLine(live.wf) !== '' && text(creditLine(live.wf)) === '− Credit $136 / $6' && deductionCell(live.wf) !== ''
+  && deductionCell(live.wf) === deductionCell(mainPage.wf),
+  'the Credit line reads still to pay back / deduction ($136 / $6), and the deduction prints exactly as on main', text(creditLine(live.wf)));
 ok(/Already counted above −\$344/.test(text(mainPage.wf)) && /\$136\b/.test(text(mainPage.wf)),
   'control: main\'s dropdown printed Travel\'s 136 and "Already counted above −$344", the row this change removes', text(mainPage.wf).slice(0, 240));
 ok(items(live.wf).join('|') === items(mainPage.wf).filter(r => !/^Already counted above/.test(r)).join('|'),
@@ -249,7 +253,8 @@ let overAdvice;
   ok(cents(v.stackSummary.creditBreakdown.total) === 16500 && sameAsMain(overAdvice, oldOver), 'Credit 165.00, and Credit, BAD and Surplus are byte-equal to main on every view');
   const pg = render(read, overAdvice, OVER.world), mpg = render(show, oldOver, OVER.world);
   ok(!/Already counted above/.test(text(pg.wf)) && /\$200\b/.test(text(pg.wf)) && /Still to pay back on each card/.test(text(pg.wf))
-    && creditLine(pg.wf) === creditLine(mpg.wf), 'the page: the caption and the card\'s 200 still to pay back, no counted row, the Credit line as main',
+    && deductionCell(pg.wf) !== '' && deductionCell(pg.wf) === deductionCell(mpg.wf) && /^− Credit \$200 \/ \$165$/.test(text(creditLine(pg.wf))),
+    'the page: the caption and the card\'s 200 still to pay back, no counted row, the Credit line $200 / $165 with main\'s deduction',
     JSON.stringify(items(pg.wf)));
 }
 
@@ -335,7 +340,7 @@ console.log('3. Mutants: each must fail a check above');
   const rb = render(file => (file === 'public/stack-waterfall.js' ? rowBack : read(file)), advice);
   ok(/Already counted above/.test(text(rb.wf)), 'MUTANT: the "Already counted above" row restored is printed, which section 2 rejects');
   // The removed figure restored in Forecast's breakdown: the shape checks above reject it.
-  const figBack = src.replace('    return { rows, total: entry.creditCents / 100, trust };', '    return { rows, alreadyCounted: { amount: 0, trust }, total: entry.creditCents / 100, trust };');
+  const figBack = src.replace('    return { basis, rows, stillToPayBack, total: totalCents / 100, trust };', '    return { basis, rows, alreadyCounted: { amount: 0, trust }, stillToPayBack, total: totalCents / 100, trust };');
   ok(figBack !== src && Object.hasOwn(engine(file => (file === 'public/forecast.js' ? figBack : read(file))).stackCreditBreakdown(entry, BILLS), 'alreadyCounted'),
     'MUTANT: the "Already counted above" figure restored in the breakdown is published, which proof 2 rejects');
   const cp2 = read('public/forecast-card-period.js');

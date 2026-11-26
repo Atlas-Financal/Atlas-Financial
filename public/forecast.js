@@ -13827,23 +13827,42 @@
   // The rows do not add up to the Credit line, and nothing here claims they do: `total` is (E)'s Credit deduction, Σ each
   // line's deduction, unchanged. Null where the Credit term is the minimums (a completed or saved period, or no card
   // evidence): the dropdown then lists the minimums, as before.
+  // The waterfall's Credit rows (OD-033; OD-057): each card's Still to pay back from the view's one card publication, joined
+  // by debt id, on every view that publishes card lines. total is the Credit term the Surplus takes: the targets' deduction
+  // on a current or upcoming view (desk ruling (E), basis 'targets'), the period's card minimums on a completed or saved one
+  // (its historical cash deduction, basis 'minimums'). stillToPayBack is the sum of the rows, withheld when any row is, so the
+  // Credit line's two figures and the rows under it come from one publication (BUILD 7).
   function stackCreditBreakdown(entry, bills) {
-    if (!entry || !entry.adjusts || !Number.isSafeInteger(entry.creditCents) || !entry.credit) return null;
+    if (!entry || !entry.credit) return null;
+    const minimums = bills && Array.isArray(bills.cardMinimums) ? bills.cardMinimums : null;
+    let basis, totalCents;
+    if (entry.adjusts) {
+      if (!Number.isSafeInteger(entry.creditCents)) return null;
+      basis = 'targets';
+      totalCents = entry.creditCents;
+    } else {
+      if (!minimums || !minimums.every(card => isStackFigure(card && card.amount))) return null;
+      basis = 'minimums';
+      totalCents = minimums.reduce((sum, card) => sum + stackCents(card.amount), 0);
+    }
     const lines = entry.credit.lines;
-    const minimums = bills && Array.isArray(bills.cardMinimums) ? bills.cardMinimums : [];
     const lineIds = new Set(lines.map(line => String(line.id)));
     const rows = [];
     for (const line of lines) {
-      if (line.target.amount === null) return null;
       const still = line.stillToPayBack || { amount: null, trust: 'unavailable' };
-      if (stackCents(line.target.amount) > 0) rows.push({ debtId: line.id, amount: still.amount, trust: still.trust });
+      // A withheld target is a row with a dash (its Still to pay back is withheld too), never the minimum in its place.
+      if (line.target.amount === null || stackCents(line.target.amount) > 0) rows.push({ debtId: line.id, amount: still.amount, trust: still.trust });
     }
-    for (const card of minimums) if (!lineIds.has(String(card.debtId)) && stackCents(card.amount) > 0) {
+    for (const card of (minimums || [])) if (!lineIds.has(String(card.debtId)) && stackCents(card.amount) > 0) {
       rows.push({ debtId: card.debtId, amount: card.amount, trust: bills.trust || 'calculated' });
     }
     const RANK = { calculated: 0, estimated: 1, unavailable: 2 };
-    const trust = [(bills && bills.trust) || 'calculated', entry.trust || 'calculated'].reduce((worst, t) => (RANK[t] ?? 2) > (RANK[worst] ?? 2) ? t : worst, 'calculated');
-    return { rows, total: entry.creditCents / 100, trust };
+    const worst = words => words.reduce((w, t) => (RANK[t] ?? 2) > (RANK[w] ?? 2) ? t : w, 'calculated');
+    const trust = worst([(bills && bills.trust) || 'calculated', basis === 'targets' ? entry.trust || 'calculated' : 'calculated']);
+    const heldRow = rows.some(row => !isStackFigure(row.amount));
+    const stillToPayBack = heldRow ? { amount: null, trust: 'unavailable' }
+      : { amount: rows.reduce((sum, row) => sum + stackCents(row.amount), 0) / 100, trust: worst(rows.map(row => row.trust)) };
+    return { basis, rows, stillToPayBack, total: totalCents / 100, trust };
   }
   const STACK_SURPLUS_UNAVAILABLE = 'Surplus after deductions is unavailable: a term it sums (income, a bills part or the Household budget) is withheld for this period.';
   function stackSurplus(view, bills) {

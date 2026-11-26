@@ -6,7 +6,7 @@
  *                  minimumCovered: {value: true|false|'unknown'}, transactions }],
  *        totals: { paid, spent, trust, completeness: 'complete'|'partial'|'none', excluded: [ids], reasons } }
  *
- * Closed: "Credit" and paid / minimums due from totals. Open: one row per line: "Paid back / Total to pay back" (OD-033),
+ * Closed: "Credit" and total paid back / total target from totals.paidBack and totals.target (OD-052). Open: one row per line: "Paid back / Total to pay back" (OD-033),
  * green when Forecast publishes targetCovered, and the ✓ when the minimum is covered. HELOC: its minimum is its target. Each row opens the sheet
  * (data-stack-sheet="card:<id>"), which reads the same line through window.StackCredit.
  *
@@ -150,31 +150,30 @@
   let open = false;
   function cardHtml(reading) {
     const t = reading.totals, view = reading.view;
-    // Both sides are Forecast's published totals over exactly the lines whose minimums are due (the HELOC included, so the due equals the waterfall's Credit), never
-    // added up here: totals.minimumsPaid over totals.minimumsDue. The paid figure prints in normal type, whatever its trust word (Dale,
-    // 2026-11-20: no estimated distinction). A past period with incomplete posted coverage withholds minimumsPaid, so the paid
-    // side is a dash there; the minimums due is a dash when it is withheld.
-    // The bar is covered over due, from Forecast's two published counts, so it is full only when every due minimum is covered.
-    const mp = t.minimumsPaid && typeof t.minimumsPaid === 'object' ? t.minimumsPaid : null;
-    const paidShown = !!mp && num(mp.amount);
-    const md = t.minimumsDue && typeof t.minimumsDue === 'object' ? t.minimumsDue : null;
-    const due = md && num(md.amount) ? md.amount : null;
-    // The shell's trust treatment for the minimums due (StackBlocks.estClass: now always ''): a class token, trimmed for the class list.
-    const dueClass = est(view, md ? md.trust : null).trim();
-    const countsShown = num(t.minimumsDueCount) && num(t.minimumsCoveredCount);
+    // OD-052 (Dale, 2026-11-25: "it should be [total paid back]/[sum of the card targets]"): both sides are Forecast's
+    // published totals over exactly the rows listed below, the HELOC included, never added up here: totals.paidBack over
+    // totals.target. The paid side is green only when Forecast publishes totals.targetCovered true (every card's target
+    // paid back) and the period is not upcoming. A withheld side is a dash, never a blank or a guessed fill. Every figure
+    // displays the same way whatever its trust word (OD-034).
+    // The bar is the same ratio, drawn by the shell's one helper.
+    const pb = t.paidBack && typeof t.paidBack === 'object' ? t.paidBack : null;
+    const paid = pb && num(pb.amount) ? pb.amount : null;
+    const tg = t.target && typeof t.target === 'object' ? t.target : null;
+    const target = tg && num(tg.amount) ? tg.amount : null;
+    const covered = t.targetCovered && t.targetCovered.value === true && COVERAGE_TRUST.includes(t.targetCovered.trust)
+      && !reading.lines.some(line => line && line.status === 'upcoming');
+    const paidClass = 'stack-credit-x' + (covered ? ' is-good' : '');
     return `<section class="stack-credit${open ? ' is-open' : ''}" data-stack-credit>`
       + `<button class="stack-credit-head" type="button" data-stack-credit-toggle aria-expanded="${open}">`
       + '<span class="stack-credit-hd"><span class="stack-credit-title">Credit</span>'
-      + '<span class="stack-credit-sr">paid / card minimums due</span>'
-      // "paid / card minimums due": paid toward them is a published $0 when nothing has been paid; a withheld part is a soft
-      // dash, never a blank or a guessed fill.
-      + (paidShown || due != null
-        ? `<span class="stack-credit-figure stack-n" data-stack-credit-total>${paidShown ? `<span>${esc(money(mp.amount))}</span>` : dash}`
-          + (due != null ? `<i class="${dueClass}"> / ${esc(money(due))}</i>` : `<i> / ${dash}</i>`) + '</span>'
+      + '<span class="stack-credit-sr">paid back / total to pay back</span>'
+      + (paid != null || target != null
+        ? `<span class="stack-credit-figure stack-n" data-stack-credit-total>${paid != null ? `<span class="${paidClass}">${esc(money(paid))}</span>` : dash}`
+          + (target != null ? `<i> / ${esc(money(target))}</i>` : `<i> / ${dash}</i>`) + '</span>'
         : '<span class="stack-credit-figure stack-n" data-stack-credit-total data-unpublished>—</span>')
       + '</span><span class="stack-credit-go">' + CHEV + '</span></button>'
-      // A bar with no ratio to draw (counts withheld, or nothing due) is an empty track, never a guessed fill.
-      + ((countsShown && bar(t.minimumsCoveredCount, t.minimumsDueCount, 'stack-credit-bar' + est(view, t.minimumsCoveredTrust)))
+      // A bar with no ratio to draw (a side withheld, or nothing to pay back) is an empty track, never a guessed fill.
+      + ((paid != null && target != null && bar(paid, target, 'stack-credit-bar'))
         || '<span class="stack-credit-bar" aria-hidden="true"><i style="width:0%"></i></span>')
       + `<div class="stack-credit-exp"${open ? '' : ' inert'}><div><ul class="stack-credit-list">`
       + reading.lines.map(line => lineHtml(line, view)).join('') + '</ul></div></div></section>';

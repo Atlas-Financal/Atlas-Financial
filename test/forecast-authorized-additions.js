@@ -171,11 +171,30 @@ function proveStackCredit(view, credit, breakdown, surplus) {
       if (line.deduction.amount !== null) assert.equal(cents(line.target.amount) - cents(line.deduction.countedOffset) - cents(line.deduction.beyondNetted),
         cents(line.deduction.amount), 'authorized addition: target − countedOffset − beyondNetted is the deduction, per line');
     }
+    // OD-052: the Credit head's totals, worked here from the lines: Σ paid back and Σ target over every line (the HELOC
+    // included), each withheld when any line's is, never a partial sum.
+    const t = credit.totals;
+    assert.ok(t.paidBack && t.target && t.targetCovered, 'authorized addition: the Credit totals carry paidBack, target and targetCovered');
+    if (t.paidBack.amount !== null) assert.equal(cents(t.paidBack.amount), credit.lines.reduce((sum, line) => sum + cents(line.paidBack.amount), 0),
+      'authorized addition: totals.paidBack is Σ each line\'s Paid back');
+    else assert.equal(t.paidBack.trust, 'unavailable', 'authorized addition: a withheld paid back total reads unavailable');
+    if (credit.lines.some(line => line.paidBack.amount === null)) assert.equal(t.paidBack.amount, null, 'authorized addition: a withheld line withholds totals.paidBack');
+    if (credit.lines.every(line => line.target.amount !== null)) assert.equal(cents(t.target.amount), credit.lines.reduce((sum, line) => sum + cents(line.target.amount), 0),
+      'authorized addition: totals.target is Σ each line\'s target');
+    else assert.ok(t.target.amount === null && t.target.trust === 'unavailable', 'authorized addition: a withheld target withholds totals.target');
+    if (t.targetCovered.value === true) assert.ok(credit.lines.every(line => cents(line.target.amount) === 0 || line.targetCovered.value === true),
+      'authorized addition: the head is covered only when every line with a target is');
   }
   if (breakdown === null) return;
   assert.ok(breakdown && Array.isArray(breakdown.rows), 'authorized addition: a Credit breakdown lists rows');
   // No "Already counted above" row (Dale, 2026-11-24, #1617 7121410691): the breakdown publishes no catch-all and no counted row.
-  assert.deepEqual(Object.keys(breakdown).sort(), ['rows', 'total', 'trust'], 'authorized addition: the Credit breakdown carries only its card rows, total and trust');
+  assert.deepEqual(Object.keys(breakdown).sort(), ['basis', 'rows', 'stillToPayBack', 'total', 'trust'], 'authorized addition: the Credit breakdown carries only its basis, card rows, their sum, total and trust');
+  assert.ok(['targets', 'minimums'].includes(breakdown.basis), 'authorized addition: the Credit term is the targets\' deduction or the minimums');
+  // OD-057: the Credit line's first figure is the sum of the rows the dropdown lists, withheld when any row is.
+  if (breakdown.rows.some(row => row.amount === null)) assert.ok(breakdown.stillToPayBack.amount === null && breakdown.stillToPayBack.trust === 'unavailable',
+    'authorized addition: a withheld row withholds the Credit line\'s still to pay back');
+  else assert.equal(cents(breakdown.stillToPayBack.amount), breakdown.rows.reduce((sum, row) => sum + cents(row.amount), 0),
+    'authorized addition: the Credit line\'s still to pay back is Σ the dropdown rows');
   // Display only (OD-033; desk ruling (1)): every row is checked against the per-line figures, never against the total, so
   // a catch-all offset (the targets minus the Credit term) fails here.
   const lines = credit ? credit.lines : [];
@@ -184,9 +203,13 @@ function proveStackCredit(view, credit, breakdown, surplus) {
     const line = byId.get(String(row.debtId));
     if (line) assert.equal(row.amount, line.stillToPayBack.amount, 'authorized addition: a card row is that card\'s Still to pay back');
   }
-  if (credit) {
-    const unlined = (view.stackSummary && view.stackSummary.bills && Array.isArray(view.stackSummary.bills.cardMinimums) ? view.stackSummary.bills.cardMinimums : [])
-      .filter(card => !byId.has(String(card.debtId))).reduce((sum, card) => sum + cents(card.amount), 0);
+  const minimums = view.stackSummary && view.stackSummary.bills && Array.isArray(view.stackSummary.bills.cardMinimums) ? view.stackSummary.bills.cardMinimums : [];
+  if (breakdown.basis === 'minimums') {
+    // A completed or saved period keeps its historical cash deduction: the minimums, unchanged by the rows shown.
+    assert.equal(cents(breakdown.total), minimums.reduce((sum, card) => sum + cents(card.amount), 0),
+      'authorized addition: a completed period\'s Credit total is its card minimums');
+  } else if (credit) {
+    const unlined = minimums.filter(card => !byId.has(String(card.debtId))).reduce((sum, card) => sum + cents(card.amount), 0);
     if (lines.every(line => line.deduction.amount !== null)) assert.equal(lines.reduce((sum, line) => sum + cents(line.deduction.amount), 0) + unlined,
       cents(breakdown.total), 'authorized addition: the Credit total is Σ each line\'s deduction (and any unlined minimum), unchanged');
   }
@@ -429,7 +452,7 @@ function authorizedTagKey(key, value) {
   // Desk ruling (E) (#1573): the view's card-target publication and the Credit breakdown, each figure with its own trust
   // word (a card line's figures, totals and deduction; a breakdown row), proved in proveStackCredit.
   if (/\.stackSummary\.credit\.(lines\.\d+|totals)(\.[A-Za-z]+)*\.(trust|[a-zA-Z]+Trust)$/.test(key)
-    || /\.stackSummary\.creditBreakdown\.(rows\.\d+\.trust|trust)$/.test(key)) {
+    || /\.stackSummary\.creditBreakdown\.(rows\.\d+\.trust|stillToPayBack\.trust|trust)$/.test(key)) {
     assert.ok(['calculated', 'estimated', 'unavailable'].includes(value), `authorized addition tag ${key} is a trust word`);
     return true;
   }

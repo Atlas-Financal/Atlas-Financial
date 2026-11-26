@@ -36,6 +36,10 @@ html.stack-view .stack-waterfall .wf-toggle .lab::after {
 }
 html.stack-view .stack-waterfall .wf-toggle:disabled .lab::after { display: none; }
 html.stack-view .stack-waterfall .wf-credit.open .wf-toggle .lab::after { transform: rotate(45deg); }
+/* The Credit line's two figures (OD-057): still to pay back / the deduction, on one line, the same ink. */
+html.stack-view .stack-waterfall .wf-of { white-space: nowrap; }
+html.stack-view .stack-waterfall .wf-of i { font-style: normal; font-weight: 700; }
+html.stack-view .stack-waterfall .wf-of .n[data-unpublished] { display: none; }
 html.stack-view .stack-waterfall .wf-cards { list-style: none; margin: 0; padding: 2px 0 6px 62px; }
 html.stack-view .stack-waterfall .wf-card {
   display: flex; justify-content: space-between; align-items: center; gap: 10px;
