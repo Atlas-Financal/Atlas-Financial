@@ -5440,7 +5440,7 @@
     // A card minimum the card ledger covered with a posted payment already
     // left cash in the opening; only an uncovered remainder is walked (A4).
     const events = withCoveredCardMinimums(plan, asOf, expandEvents(plan, start, end, opts),
-      { ...opts, cardCoverageReuse: coverageHolder });
+      { ...opts, cardCoverageReuse: coverageHolder }, { start, end });
     const dailyVariable = (opts.weeklyVariable || 0) / 7;
     // Calendar month, the same 365.25/12 identity budgetBreakdown uses.
     const reservedDaily = currentRegimeMonthly(plan) * 12 / 365.25;
@@ -11897,7 +11897,8 @@
     }
     const coverage = known || probeCardCoverage(plan, asOf, opts);
     if (!coverage || coverage.status !== 'ready' || !Array.isArray(coverage.minimumCoverage)) return null;
-    const matches = coverage.minimumCoverage.filter(row => row && row.obligationId === event.id
+    if (event.carriedRemainder) return null;
+    const matches = coverage.minimumCoverage.filter(row => row && !row.carriedFrom && row.obligationId === event.id
       && row.date === event.date && row.scheduledDate === (event.scheduledDate || event.date));
     if (matches.length !== 1) return null;
     const row = matches[0], due = savingsCents(row.due), covered = savingsCents(row.covered);
@@ -11908,14 +11909,46 @@
         due: due / 100, status: row.status, paymentIds: row.paymentIds.slice(), trust: 'calculated' } };
   }
 
+  // The card ledger's carried lines (an unpaid remainder of the pay period just closed, rolled once into the
+  // current one) as walk events: one event per line, still owed = the carried amount less what this period's
+  // payments already put toward it, dated as-of (it is past due), estimated, labelled "carried from" its original
+  // date. The ledger is the one authority; the walk and the Bills rows both read these same lines. Only lines whose
+  // pay period overlaps [start, end] and that still owe something; none without a ready ledger.
+  function carriedCardRemainderEvents(plan, asOf, coverage, start, end) {
+    if (!coverage || coverage.status !== 'ready' || !Array.isArray(coverage.minimumCoverage)) return [];
+    const cycle = spendingCycle(plan, asOf);
+    if (!cycle || !savingsDate(cycle.start) || !savingsDate(asOf)) return [];
+    const date = asOf > cycle.start ? asOf : cycle.start;
+    if ((start && date < start) || (end && date > end)) return [];
+    const out = [];
+    for (const row of coverage.minimumCoverage) {
+      if (!row || !row.carriedFrom || row.carriedInto !== cycle.start) continue;
+      const due = savingsCents(row.due), covered = savingsCents(row.covered);
+      if (!(due > 0) || covered == null || covered < 0 || covered >= due) continue;
+      const obligation = (plan.obligations || []).find(o => o && o.id === row.obligationId);
+      if (!obligation || obligation.debtId === 'heloc') continue;
+      out.push({ date, amount: -(due - covered) / 100, kind: 'obligation', effect: 'payment', id: row.obligationId,
+        label: (obligation.label || obligation.name || row.obligationId) + ' (carried from ' + row.carriedFrom + ')',
+        debtId: obligation.debtId, payingAccount: obligation.payingAccount, confidence: 'estimated',
+        carriedRemainder: { from: row.carriedFrom, scheduledDate: row.scheduledDate, due: due / 100,
+          covered: covered / 100, left: (due - covered) / 100, source: coverage.source || 'Forecast.visaPaymentReconciliation',
+          trust: 'calculated' } });
+    }
+    return out;
+  }
+
   // The coupled cash and debt walks both read this one mapping: a covered
   // minimum already left cash and already reduced the observed card balance,
   // so each walk applies only its uncovered remainder (Atlas finding on #854).
-  function withCoveredCardMinimums(plan, asOf, events, opts) {
+  function withCoveredCardMinimums(plan, asOf, events, opts, window) {
     const holder = cardCoverageHolderFor(plan, asOf, opts);
     const read = { ...opts, cardCoverageReuse: holder };
     const coverage = probeCardCoverage(plan, asOf, read);
-    return events.map(e => {
+    const carried = window ? carriedCardRemainderEvents(plan, asOf, coverage, window.start, window.end) : [];
+    const walked = carried.length
+      ? events.concat(carried).map((e, i) => [e, i]).sort((a, b) => String(a[0] && a[0].date).localeCompare(String(b[0] && b[0].date)) || a[1] - b[1]).map(p => p[0])
+      : events;
+    return walked.map(e => {
       const amt = e && e.kind === 'obligation' && !e.minimumPayment
         ? (e.minimumAmount != null ? e.minimumAmount : -e.amount) : null;
       const covered = amt > 0 ? coveredCardMinimum(plan, e, asOf, read, coverage) : null;
@@ -12127,8 +12160,14 @@
     const represented = representedKeySet(plan, opts, asOf);
     const observed = representedActualMap(opts);
     const cashAsOf = settlementOpeningDate(plan, asOf);
-    const events = expandEvents(plan, span.start, span.end,
+    const expanded = expandEvents(plan, span.start, span.end,
       Object.assign({}, opts, { keepRepresented: true }));
+    // The card ledger's carried lines (one unpaid remainder of the pay period just closed, rolled once) are Bills
+    // rows of their own, read from the same ledger lines the walk reads, and only for a caller that bound a coverage
+    // holder (the same opt-in as every other card-coverage read on these rows).
+    const carriedRows = cardCoverageHolderMatches(opts.cardCoverageReuse, plan, asOf, opts)
+      ? carriedCardRemainderEvents(plan, asOf, probeCardCoverage(plan, asOf, opts), span.start, span.end) : [];
+    const events = carriedRows.length ? expanded.concat(carriedRows) : expanded;
     const seen = new Set();
     const buckets = {};
     for (let i = 0; i < windows.length; i++) {
@@ -12239,10 +12278,11 @@
       const scheduleDate = calendarBillScheduleDate(plan, event);
       const due = event.date;
       if (due < span.start || due > span.end) continue;
-      const key = (event.id || event.label || '') + '@' + due;
+      const key = (event.id || event.label || '') + '@' + due + (event.carriedRemainder ? '#carried@' + event.carriedRemainder.from : '');
       if (seen.has(key)) continue;
       seen.add(key);
       const row = calendarBillRowFromEvent(plan, event, asOf, represented, observed, cashAsOf, due, opts);
+      if (row && event.carriedRemainder) row.carriedRemainder = { ...event.carriedRemainder };
       // Written here and read by the bill-row printers only. Nothing in
       // Forecast reads it back: a guessed stand-in decides no window, no
       // amount, and whether no other row is listed.
@@ -17266,6 +17306,8 @@
       // the required inflow is the minimum due in the period plus net new
       // purchases. Payments apply to the minimum occurrence first.
       const currentEnd = spendingCycle(plan, asOf)?.end || asOf;
+      const currentPeriodStart = spendingCycle(plan, asOf)?.start || null;
+      const previousPeriodStart = currentPeriodStart ? spendingCycle(plan, addDays(currentPeriodStart, -1))?.start || null : null;
       for (const row of minimumRows) {
         if (origin > currentEnd) continue;
         for (const occurrence of obligationOccurrences(row, origin, currentEnd)) {
@@ -17277,6 +17319,7 @@
           const reflectedThrough = statementPaymentsReflectedThrough(plan, row.id, scheduledDate);
           if (period) (period.minimums = period.minimums || []).push({ id: row.id,
             scheduledDate, date: occurrence.date, cents, covered: 0,
+            ...(occurrence.statement ? { statement: true } : {}),
             ...(reflectedThrough ? { reflectedThrough } : {}) });
         }
       }
@@ -17298,7 +17341,16 @@
       const byLegDate = (a, b) => a.card.tx.date.localeCompare(b.card.tx.date)
         || String(a.card.tx.coverageRef).localeCompare(String(b.card.tx.coverageRef));
       for (const [account, state] of Array.from(cards).sort((a, b) => a[0].localeCompare(b[0]))) {
-        for (const [start, period] of Array.from(state.periods).sort((a, b) => a[0].localeCompare(b[0]))) {
+        const periodList = Array.from(state.periods).sort((a, b) => a[0].localeCompare(b[0]));
+        // The current pay period gets a period of its own (no activity yet) when the one just closed left a known
+        // remainder to carry into it.
+        const previousEntry = periodList.find(([start]) => start === previousPeriodStart);
+        if (previousEntry && currentPeriodStart && !state.periods.has(currentPeriodStart)
+          && (previousEntry[1].minimums || []).length) {
+          state.periods.set(currentPeriodStart, { purchases: [], refunds: [], payments: [], reversals: [], carryOnly: true });
+          periodList.push([currentPeriodStart, state.periods.get(currentPeriodStart)]);
+        }
+        for (const [start, period] of periodList) {
           const purchased = period.purchases.reduce((sum, row) => sum + savingsCents(row.amount), 0);
           state.queue.push(...period.purchases);
           let refunded = 0, paidIn = 0, reversedOut = 0;
@@ -17321,6 +17373,22 @@
             const cut = Math.min(toReverse, pair.card.cents - pair.scheduled); toReverse -= cut;
             effective.set(pair, pair.card.cents - pair.scheduled - cut);
             if (cut > 0) reversedPairs.add(pair);
+          }
+          // An unpaid card remainder rolls over to the next pay period, once (Dale, lead 13 item B; LEAD 14 #1620
+          // 7182740397): when the current pay period opens, each minimum of the period just closed that its own
+          // payments met only in part (a known remainder: 0 < covered < due) becomes one carried line in this period,
+          // "carried from" its original date, ahead of this period's own minimums (oldest due first), so this period's
+          // payments pay it first. Only the immediately previous period rolls, only into the current one, and a carried
+          // line never rolls again. Nothing rolls when the card's occurrence this period is a recorded statement (it
+          // already includes the past-due amount). A card with no activity of its own this period still gets the line.
+          if (start === currentPeriodStart && previousPeriodStart && !(period.minimums || []).some(m => m.statement)) {
+            period.minimums = period.minimums || [];
+            const previous = state.periods.get(previousPeriodStart);
+            for (const m of (previous && previous.minimums) || []) {
+              if (m.carriedFrom || !(m.covered > 0) || !(m.covered < m.cents)) continue;
+              period.minimums.push({ id: m.id, scheduledDate: m.scheduledDate, date: m.date, cents: m.cents - m.covered,
+                covered: 0, carriedFrom: m.date, carriedInto: start });
+            }
           }
           const minimums = (period.minimums || []).sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
           for (const pair of sortedPayments) {
@@ -17397,8 +17465,10 @@
               status: minimum.covered >= minimum.cents ? 'covered-by-payment' : minimum.covered > 0 ? 'partial' : 'to-confirm',
               paymentRefs: (minimum.payments || []).map(part => part.creditRef),
               paymentIndexes: (minimum.payments || []).map(part => paymentIndex.get(part.creditRef)),
+              ...(minimum.carriedFrom ? { carriedFrom: minimum.carriedFrom, carriedInto: minimum.carriedInto, debtId: account } : {}),
               trust: 'calculated' });
           }
+          if (period.carryOnly && !minimums.length) continue;
           aggregatePeriods.push({ accountLabel: label(account), start,
             minimumDue: minimums.reduce((sum, m) => sum + m.cents, 0) / 100,
             minimumCovered: minimums.reduce((sum, m) => sum + m.covered, 0) / 100,
@@ -21781,7 +21851,8 @@
     const obligationItems = [];
     // H2-9: a card minimum the card ledger already covered with a posted payment left cash
     // once; only its uncovered remainder is still wanted (the same mapping as the walk, A4).
-    const periodEvents = withCoveredCardMinimums(plan, asOf, expandEvents(plan, asOf, periodLast, opts), opts);
+    const periodEvents = withCoveredCardMinimums(plan, asOf, expandEvents(plan, asOf, periodLast, opts), opts,
+      { start: asOf, end: periodLast });
     const obligationKeys = new Set();
     for (const e of periodEvents) {
       if (!isJointCashOutflow(e) && !e.cardPaid) continue;
@@ -25836,7 +25907,7 @@
     const scheduledAmounts = scheduledAmountState(plan, start, end, opts);
     const omissionTrace = scheduledAmounts.unknowns.some(u => u.carrier === 'obligation') ? {} : null;
     const events = withCoveredCardMinimums(plan, asOf,
-      expandEventsForDebtWalk(plan, start, end, opts, omissionTrace), opts);
+      expandEventsForDebtWalk(plan, start, end, opts, omissionTrace), opts, { start, end });
     const byId = {};
     const state = (debts || []).map(x => {
       // Carrying pending charges from the opening balance is what makes
