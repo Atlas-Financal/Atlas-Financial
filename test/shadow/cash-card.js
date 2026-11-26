@@ -65,6 +65,9 @@ function minimumRows(plan, start, end) {
     const firstDue = heloc ? obligation.cashFirstDue : obligation.firstDue;
     if (!day || (heloc && regularAmount == null)) continue;
     const statements = statementByOriginal(obligation, day, firstDue);
+    // Dale, #821 7173859561 (2026-11-25): a later occurrence with no statement of its own carries the row's latest
+    // statement minimum (by original date). Within this row only; the HELOC cash leg has no statements.
+    const latest = heloc ? null : [...statements.values()].sort((a, b) => b.scheduledDate.localeCompare(a.scheduledDate))[0] || null;
     for (let month = firstMonth - 1; month <= lastMonth + 1; month++) {
       const year = Math.floor(month / 12);
       const monthIndex = month % 12;
@@ -78,7 +81,8 @@ function minimumRows(plan, start, end) {
         debtId: obligation.debtId,
         date,
         scheduledDate,
-        cents: heloc ? cents(regularAmount) : plannedMinimum(obligation, statement),
+        cents: heloc ? cents(regularAmount)
+          : plannedMinimum(obligation, statement || (latest && scheduledDate > latest.scheduledDate ? latest : null)),
         type: heloc ? 'heloc' : 'card'
       });
     }

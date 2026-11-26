@@ -30,7 +30,7 @@ const landing = (account, amount, extra = {}) => ({ id: 'land-' + account + '-' 
   accountRole: account === 'heloc' ? 'heloc' : 'revolving-credit', categoryLabel: 'Payment, Transfer', amount: -amount,
   currency: 'cad', pending: false, original_name: 'PAYMENT RECEIVED', displayedPayee: 'Payment received', ...extra });
 
-function world(rows) {
+function world(rows, edit) {
   const { plan, debts, overlay, packet } = fixture();
   debts.push({ id: 'heloc', label: 'Example HELOC', structure: 'Interest-only revolving — never amortises', secured: true,
     balance: 42025.35, evidenceDate: THIRD, limit: 60000, pending: 0, rate: 4.9 });
@@ -50,12 +50,13 @@ function world(rows) {
   });
   overlay.overlays = overlay.overlays.map(item => ({ ...item, evidenceDate: THIRD }));
   overlay.overlays.push({ locator: 'debts:heloc', field: 'balance', proposedValue: 42025.35, evidenceDate: THIRD });
+  if (edit) edit(plan);
   return { meta: { asOf: THIRD }, accounts: [], revolvingExtra: [], plan, debts,
     liveOverlay: { ...overlay, operatingPlan: 'live', currentPeriodActuals: packet } };
 }
 
-async function read(rows, Engine) {
-  const page = await loadStackPage({ data: world(rows), ...(Engine ? { Forecast: Engine } : {}) });
+async function read(rows, Engine, edit) {
+  const page = await loadStackPage({ data: world(rows, edit), ...(Engine ? { Forecast: Engine } : {}) });
   assert.equal(page.status(), 'rendered');
   const view = page.context().recommendation.payPeriodViews.find(v => v.start === page.selectedKey());
   const credit = view.stackSummary.credit;
@@ -99,6 +100,29 @@ test('2. expected amount: no landing, within the tolerance of exactly one line\'
   assert.equal(travel.travel.paidBack.amount, 21, 'the Travel minimum 20: $1 tolerance, 21 counts');
   const travelPast = await read([debit(21.01)]);
   assert.equal(travelPast.travel.paidBack.amount, 0, '21.01 does not');
+});
+
+test('2b. the expected minimum is the carried one (future minimums carry the latest statement, #821 7173859561)', async () => {
+  // Travel's July statement says 35; the August 22 occurrence (no statement of its own) carries 35, estimated.
+  const carried = plan => { plan.obligations.find(o => o.debtId === 'travelvisa').statementOccurrences =
+    [{ scheduledDate: '2026-07-22', dueDate: '2026-07-22', minimum: 35, currency: 'cad', confidence: 'confirmed' }]; };
+  const at = await read([debit(35)], undefined, carried);
+  assert.equal(at.travel.paidBack.amount, 35, 'an un-noted 35 matches the carried minimum: counted toward Travel');
+  assert.ok(at.travel.paidBack.reasons.includes('card-payment-inferred-by-minimum'));
+  const plan = await read([debit(20)], undefined, carried);
+  assert.equal(plan.travel.paidBack.amount, 0, 'the old plan amount 20 no longer matches');
+  assert.equal(plan.unassigned, '[20]');
+  // Mutant: the carry removed from the one occurrence reader; the 35 no longer matches, which the first check rejects.
+  const FILE = path.join(__dirname, '..', 'public', 'forecast.js');
+  const source = fs.readFileSync(FILE, 'utf8');
+  const anchor = '      if (latest && !statement && scheduledDate > latest.scheduledDate) {\n';
+  assert.equal(source.split(anchor).length, 2, 'carry mutant anchor found exactly once');
+  const mod = new Module(FILE, module);
+  mod.filename = FILE;
+  mod.paths = Module._nodeModulePaths(path.dirname(FILE));
+  mod._compile(source.replace(anchor, '      if (false) {\n'), FILE.replace(/\.js$/, '-no-carry.js'));
+  const mutant = await read([debit(35)], mod.exports, carried);
+  assert.equal(mutant.travel.paidBack.amount, 0, 'MUTANT (no carry): the 35 is not matched');
 });
 
 test('3. ambiguity attributes nothing', async () => {

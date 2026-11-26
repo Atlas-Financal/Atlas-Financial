@@ -141,10 +141,16 @@ function independentLedger(days) {
     scope(rule == null || (Number.isFinite(rule.balance) && rule.balance > 0 && Number.isFinite(rule.rate)
       && rule.rate > 0 && rule.rate < 100), `${row.id}: unsupported fixed interest minimum`);
     const fixed = rule == null ? null : Math.ceil(Math.round(rule.balance * 100) * rule.rate / 1200 / 100 - 1e-9);
+    // Dale, #821 7173859561 (2026-11-25): a later occurrence with no statement of its own carries this row's latest
+    // statement minimum (latest by original date, within this row; the fixed minimum still floors it).
+    const latest = row.amountSchedule === undefined ? (row.statementOccurrences || [])
+      .reduce((best, st) => (!best || st.scheduledDate > best.scheduledDate ? st : best), null) : null;
     for (const date of datesFor(row, days, carryOnce)) {
       if (representedKeys.has(`${row.id}@${date}`)) continue;
       if ((row.statementOccurrences || []).some(statement => statement.scheduledDate === date)) continue;
-      rows.push({ id: row.id, date, kind, amount: fixed == null ? row.amount : fixed, debtId: row.debtId });
+      const base = latest && date > latest.scheduledDate ? latest.minimum : null;
+      rows.push({ id: row.id, date, kind, debtId: row.debtId,
+        amount: base == null ? (fixed == null ? row.amount : fixed) : (fixed == null ? base : Math.max(fixed, base)) });
     }
     // Dated statement facts are a separate source ledger replacing the
     // corresponding calendar-generated estimate, independently of Forecast.

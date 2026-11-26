@@ -212,7 +212,10 @@ for (const moved of [false, true]) for (const proof of ['qualified', 'legacy', '
         proof === 'legacy' ? 'unconfirmed' : 'satisfied', 'historical qualification');
       equal(F.cardMinimumState(data.plan, first).payments[0].issuerMinimumStatus, 'satisfied', 'earliest known opening retained');
       const next = F.expandEvents(data.plan, '2035-11-07', '2035-11-07').find(e => e.id === 'triangle');
-      equal([next.date, next.amount, next.confidence], ['2035-11-07', -61.93, 'estimated'], 'next recurrence remains independent');
+      // With the October statement (moved), the next recurrence carries its minimum 67.43, estimated (Dale, #821
+      // 7173859561); without one (unmoved), the plan's 61.93 stands.
+      equal([next.date, next.amount, next.confidence], ['2035-11-07', moved ? -67.43 : -61.93, 'estimated'],
+        'next recurrence: the carried statement minimum, or the plan amount with no statement; estimated');
     }
   });
 }

@@ -581,9 +581,15 @@ for (const start of ['2025-01-30', '2025-01-31', '2025-02-01', '2025-02-12', '20
     for (const statement of statements.values()) {
       if (statement.dueDate >= start && statement.dueDate <= t.horizon.end) candidates.add(statement.scheduledDate);
     }
+    // Dale, #821 7173859561 (2026-11-25): a later occurrence with no statement of its own carries this row's latest
+    // statement minimum, estimated. Latest by original date; within this row only; a dated amount schedule is not modelled.
+    const latest = r.amountSchedule === undefined
+      ? [...statements.values()].sort((a, b) => b.scheduledDate.localeCompare(a.scheduledDate))[0] || null : null;
     for (const scheduledDate of candidates) {
-      const statement = statements.get(scheduledDate);
-      const date = statement ? statement.dueDate : scheduledDate;
+      const own = statements.get(scheduledDate);
+      const carried = !own && latest && scheduledDate > latest.scheduledDate;
+      const statement = own || (carried ? { ...latest, confidence: 'estimated' } : null);
+      const date = own ? own.dueDate : scheduledDate;
       if (date > t.horizon.end || date < start && r.frequency !== 'once'
           || prepaid(r.id, scheduledDate) || prepaid(r.id, date)) continue;
       // Owner rule 2026-11-20 (Dale): a frozen snapshot's one month of interest, up to the whole dollar,

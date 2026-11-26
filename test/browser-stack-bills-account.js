@@ -1,19 +1,19 @@
 'use strict';
 /* The Bills account stack card in a real browser, at phone width: real App.boot, the real public/ files, invented data
- * only (test/fixtures/bills-period-end-balance-data.js plus three invented bills, served for /data.json by route
+ * only (test/fixtures/bills-period-end-balance-data.js plus invented ledger rows, served for /data.json by route
  * interception; no server, no household data).
  *
  *   1. At 390 and 320 wide: the card is there, sky blue, closed it reads "Bills account", "Bank reading Aug 20" and
  *      "$1,373 now" with no bar; the page does not scroll sideways.
- *   2. Tapping the head opens it: Coming in, Coming out (the late bill reads "late"), Household budget still to move,
- *      Already out; the Weekly-paid bill is not on it.
- *   3. Tapping a bill line opens that bill's sheet; Escape closes it.
- *   4. A stale or missing reading: the head is a dash without explanatory text.
- *   4b. An unpaired Bills debit: all three lists are visible, with the transfer once under Already out.
- *   6. Closed cards are all the same height whichever card is last (the Bills account card has no bar and a two-line head):
- *      the closed heads are equal, every card (the last included, Dale 2026-11-25) is the same full height, and each card
- *      above the last shows the same visible strip (its top to the next card's top).
- *   5. No page errors; the other cards are unchanged in number and order.
+ *   2. Tapping the head opens it: shows only the Bills account's own current-pay-period ledger transactions, newest
+ *      first (posted debit, posted credit reading as in with +, pending row reading as pending, transfer); Weekly,
+ *      Savings, card, and out-of-period rows do not appear; removed sections (Coming in, Coming out, Household budget
+ *      still to move, Already out) do not appear.
+ *   3. Equal closed-card heights, in the default order and with each card last; opening grows the card taller.
+ *   4. Stale, missing-observation, and pending-incomplete states: unreadable readings and unreadable lists show a dash
+ *      with no explanatory sentence.
+ *   5. An unpaired Bills transfer: still appears once on the open card with no matching/pairing and no sentence.
+ *   6. No page errors; the other cards are unchanged in number and order.
  *
  * Optional: STACK_BILLS_ACCOUNT_SHOTS=<dir> writes screenshots. `node test/browser-stack-bills-account.js`
  */
@@ -29,15 +29,17 @@ let checks = 0;
 const ok = (cond, label, detail = '') => { assert.ok(cond, label + (detail ? ' — ' + detail : '')); checks++; console.log('  PASS  ' + label); };
 
 function world(mode) {
-  const d = fx.served(), p = d.plan, pk = d.liveOverlay.currentPeriodActuals;
-  p.bills.push({ id: 'paid-bills', label: 'Invented paid utility', frequency: 'once', date: '2026-08-16', amount: 45.12, confidence: 'confirmed', payingAccount: 'chequing-a' });
-  p.bills.push({ id: 'weekly-bill', label: 'Invented weekly-paid bill', frequency: 'once', date: '2026-08-22', amount: 51.30, confidence: 'confirmed', payingAccount: 'chequing-b' });
-  p.bills.push({ id: 'late-bill', label: 'Invented late bill', frequency: 'once', date: '2026-08-18', amount: 62.40, confidence: 'confirmed', payingAccount: 'chequing-a' });
-  pk.representedActuals.push({ id: 'paid-bills', date: '2026-08-16', actual: 45.12 });
+  const d = fx.served(), pk = d.liveOverlay.currentPeriodActuals;
+  pk.transactions.push(
+    fx.tx('bills-credit', 'chequing-a', '2026-08-17', -412.50, 'Income', { displayedPayee: 'Invented Employer Payroll', isIncome: true }),
+    fx.tx('bills-pending', 'chequing-a', '2026-08-20', 58.90, 'Utilities', { displayedPayee: 'Invented Pending Hydro', pending: true }),
+    fx.tx('savings-tx', 'savings', '2026-08-19', 75.00, 'Transfer', { displayedPayee: 'Invented Savings Row', accountRole: 'household-reserve' }),
+    fx.tx('prior-period-bills', 'chequing-a', '2026-08-13', 19.99, 'Utilities', { displayedPayee: 'Invented Prior Period' }),
+  );
   if (mode === 'unpaired') pk.transactions = pk.transactions.filter(row => row.id !== 'weekly-credit');
   if (mode === 'stale') d.liveOverlay.operatingPlan = 'unavailable';
-  // Only the Bills chequing observation is gone; the plan's Bills row stays (OD-037: a missing reading shows a dash).
   if (mode === 'no-observation') d.liveOverlay.observedCash.accounts = d.liveOverlay.observedCash.accounts.filter(r => r.id !== 'chequing-a');
+  if (mode === 'pending-incomplete') pk.pendingCoverage = 'partial';
   d.meta = { ...(d.meta || {}), asOf: fx.AS_OF };
   return d;
 }
@@ -66,7 +68,7 @@ async function open(browser, width, mode) {
   const browser = await chromium.launch();
   try {
     for (const width of [390, 320]) {
-      console.log(`1-3, 5. At ${width} wide`);
+      console.log(`1-2, 6. At ${width} wide`);
       const { page, errors } = await open(browser, width);
       const card = page.locator('[data-stack-card="billsacct"]');
       ok(await card.count() === 1, width + ': one Bills account card');
@@ -75,35 +77,41 @@ async function open(browser, width, mode) {
         width + ': the Bills account card follows the existing cards, which keep their order', JSON.stringify(order));
       ok(await card.evaluate(e => getComputedStyle(e).backgroundColor) === 'rgb(191, 225, 246)', width + ': sky blue (#bfe1f6)');
       const head = flat(await card.locator('summary').innerText());
-      ok(/Bills account/.test(head) && /Bank reading Aug 20/.test(head) && /\$1,373\s*now/.test(head), width + ': closed head', head);
+      ok(/Bills account/.test(head) && /Bank reading Aug 20/.test(head) && /\$1,373\s*now/.test(head), width + ': closed head unchanged', head);
       ok(await card.locator('.sc-bar').count() === 0, width + ': no bar');
       ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), width + ': no sideways scroll (closed)');
       await card.locator('summary').click();
       await page.waitForTimeout(200);
+      const rows = await card.locator('.sc-row').evaluateAll(els => els.map(el => ({
+        text: el.innerText.replace(/\s+/g, ' ').trim(),
+        pending: el.classList.contains('sc-pending'),
+        incoming: !!el.querySelector('.sc-in'),
+      })));
+      assert.deepEqual(rows, [
+        { text: 'Invented Pending Hydro Aug 20 · Pending $58.90', pending: true, incoming: false },
+        { text: 'Invented card-debit Aug 20 $111.11', pending: false, incoming: false },
+        { text: 'Invented direct-grocery Aug 19 $31.27', pending: false, incoming: false },
+        { text: 'AB123 TFR-TO invented Aug 18 $240.16', pending: false, incoming: false },
+        { text: 'Invented Employer Payroll Aug 17 +$412.50', pending: false, incoming: true },
+      ]);
+      ok(true, width + ': open card shows only the 5 Bills account transactions, newest first, with pending and money-in styling');
       const body = flat(await card.innerText());
-      ok(/Coming in Invented partner salary Aug 25 \$643/.test(body) && /Coming out · this pay period Invented late bill Aug 18 · late \$62/.test(body)
-        && /Household budget still to move \$161/.test(body) && /Already out Invented paid utility Aug 16 \$45/.test(body), width + ': open card', body);
-      ok(await card.getByText('Transfer', { exact: true }).count() === 0, width + ': paired Weekly funding is not also an unpaired transfer');
-      ok(await card.locator('.sc-why').count() === 0, width + ': paired control has no explanatory sentence');
-      ok(!/weekly-paid/i.test(body), width + ': the Weekly-paid bill is not on the card');
+      ok(!/Coming in|Coming out|Household budget still to move|Already out/.test(body),
+        width + ': retired sections are absent', body);
+      ok(await card.locator('.sc-cap, .sc-why, .sc-check, [data-stack-sheet]').count() === 0,
+        width + ': no section captions, explanatory text, paid checks, or bill sheet links');
+      ok(!/weekly-dining|TFR-FR|Savings Row|card-purchase|Prior Period/i.test(body),
+        width + ': Weekly, Savings, card, and prior-period rows do not appear', body);
       ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), width + ': no sideways scroll (open)');
       const overflow = await card.evaluate(c => [...c.querySelectorAll('.sc-row')].filter(r => r.scrollWidth > r.clientWidth + 1).length);
       ok(overflow === 0, width + ': no row overflows');
       if (shots) await card.screenshot({ path: path.join(shots, `bills-account-open-${width}.png`) });
-      const row = card.locator('[data-stack-sheet="bill:late-bill@2026-08-18"]');
-      await row.click();
-      await page.waitForSelector('.stack-sheet', { timeout: 5000 });
-      ok(/Invented late bill/.test(flat(await page.locator('.stack-sheet').innerText())), width + ': the bill line opens its bill sheet');
-      await page.keyboard.press('Escape');
-      await page.waitForFunction(() => !document.querySelector('.stack-sheet'), null, { timeout: 5000 });
-      ok(true, width + ': Escape closes the sheet');
       ok(errors.length === 0, width + ': no page errors', errors.join(' | '));
       await page.close();
     }
-    console.log('6. Equal closed-card heights, in the default order and with each card last');
+    console.log('3. Equal closed-card heights, in the default order and with each card last');
     for (const width of [390, 320]) {
       const { page, errors } = await open(browser, width);
-      // One entry per card slot (Credit included): the closed head's height, the card's height, and its visible strip.
       const measure = () => page.$$eval('[data-stack-pile] > [data-stack-slot]', els => els.map((slot, i) => {
         const c = slot.querySelector('details.sc-card, .stack-credit') || slot, h = c.querySelector('summary, .stack-credit-head') || c;
         const next = els[i + 1], top = c.getBoundingClientRect().top;
@@ -132,7 +140,6 @@ async function open(browser, width, mode) {
       await move('bills', 'Alt+ArrowDown', n);
       m = await check('Bills last');
       ok(m[m.length - 1].id === 'bills', width + ': the Bills card is the last in the pile', JSON.stringify(m.map(x => x.id)));
-      // Open, the card grows and nothing else moves out of line: the open card is taller than closed, the rest keep their height.
       const closedHead = (await measure()).find(x => x.id === 'billsacct').head;
       await page.locator('[data-stack-card="billsacct"] > summary').click();
       await page.waitForTimeout(200);
@@ -141,34 +148,36 @@ async function open(browser, width, mode) {
       ok(errors.length === 0, width + ': no page errors', errors.join(' | '));
       await page.close();
     }
-    console.log('4. A stale or missing Bills bank reading');
-    for (const mode of ['stale', 'no-observation']) {
+    console.log('4. Unreadable reading and unreadable list states');
+    for (const mode of ['stale', 'no-observation', 'pending-incomplete']) {
       const { page, errors } = await open(browser, 390, mode);
       const card = page.locator('[data-stack-card="billsacct"]');
       const head = flat(await card.locator('summary').innerText());
-      ok(/^Bills account\s*—$/.test(head), mode + ': only the title and a dash in the head', head);
+      if (mode === 'pending-incomplete') {
+        ok(/Bills account/.test(head) && /Bank reading Aug 20/.test(head) && /\$1,373\s*now/.test(head),
+          'pending-incomplete: bank reading head stays intact', head);
+      } else {
+        ok(/^Bills account\s*—$/.test(head), mode + ': only the title and a dash in the head', head);
+      }
       if (shots) await card.screenshot({ path: path.join(shots, 'bills-account-' + mode + '-390.png') });
       await card.locator('summary').click();
       ok(await card.locator('.sc-why').count() === 0, mode + ': no explanatory sentence on the open card');
-      if (mode === 'stale') ok(flat(await card.locator('.sc-unavailable').innerText()) === '—', 'stale: unreadable lists render as a dash');
+      if (mode === 'stale' || mode === 'pending-incomplete') {
+        ok(flat(await card.locator('.sc-unavailable').innerText()) === '—', mode + ': unreadable list renders only a dash');
+      }
       ok(errors.length === 0, mode + ': no page errors', errors.join(' | '));
       await page.close();
     }
-    console.log('4b. A posted transfer out of Bills with no paired Weekly credit');
+    console.log('5. An unpaired Bills transfer stays visible once on the open card');
     {
       const { page, errors } = await open(browser, 390, 'unpaired');
       const card = page.locator('[data-stack-card="billsacct"]');
       await card.locator('summary').click();
-      const captions = await card.locator('.sc-cap:visible').allTextContents();
-      assert.deepEqual(captions, ['Coming in', 'Coming out · this pay period', 'Already out'], '390: all three sections are visible in order');
-      const transfers = card.locator('.sc-row').filter({ has: page.getByText('Transfer', { exact: true }) });
-      ok(await transfers.count() === 1, '390: exactly one transfer across the three lists');
-      const transfer = transfers.first();
-      const alreadyOutTransfers = card.locator('.sc-cap:text-is("Already out") ~ .sc-row').filter({ has: page.getByText('Transfer', { exact: true }) });
-      ok(await alreadyOutTransfers.count() === 1, '390: the transfer belongs to Already out');
-      ok(flat(await transfer.innerText()) === 'Transfer Aug 18 $240' && await transfer.locator('.sc-check').count() === 0,
-        '390: the transfer has its posted date and displayed amount without a paid-bill check');
-      ok(await card.locator('.sc-why').count() === 0, '390: no explanatory sentence on the unpaired card');
+      const transferRows = card.locator('.sc-row').filter({ hasText: 'AB123 TFR-TO invented' });
+      ok(await transferRows.count() === 1, '390: unpaired transfer appears once');
+      ok(flat(await transferRows.first().innerText()) === 'AB123 TFR-TO invented Aug 18 $240.16',
+        '390: unpaired transfer shows its Lunch Money payee, date and amount');
+      ok(await card.locator('.sc-cap, .sc-why').count() === 0, '390: no captions or explanatory sentence on the unpaired card');
       ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), '390: unpaired card fits the viewport');
       ok(errors.length === 0, '390: no page errors', errors.join(' | '));
       await page.close();

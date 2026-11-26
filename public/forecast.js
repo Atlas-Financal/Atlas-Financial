@@ -71,6 +71,8 @@
       balanceEvidence: opts.cardPeriodBalanceEvidence || null, overlay: opts.liveOverlay || null }, {
       date: savingsDate, cents: savingsCents, money: cardMoneyCents, addDays, skipParent: skipSplitParent,
       payingSidePayment,
+      // Incoming deposits count as card reversals only with card identity.
+      incomingCardReversal: incomingCardReversalIdentity,
       unnotedHouseholdMovement: tx => provenInternalMovementForTx(tx, opts) && !cardPaymentNoteEvidence(tx),
       // Inferred destination (Dale, #821 7174658128): whether a debit carries a `card payment:` note (a note always wins),
       // and the minimum Forecast expects per credit line over a window: the plan's own scheduled occurrences (a card's
@@ -204,8 +206,24 @@
         candidates.add(record.scheduledDate);
       }
     }
+    // Future minimums carry the row's latest published minimum (owner, Dale, #821 7173859561, 2026-11-25: "make the
+    // minimums for future pay periods what the minimums are for this pay period"): an occurrence of this row dated
+    // after its latest statement, with no statement of its own, takes that statement's minimum, tagged estimated,
+    // never more certain (with a fixed interest minimum, the larger of the two). Within this row only: a dated
+    // successor row keeps its own planned amount until it has a statement of its own, and a dated amount-schedule
+    // term wins over the carry.
+    const latest = statements.reduce((best, record) => (!best || record.scheduledDate > best.scheduledDate ? record : best), null);
     return Array.from(candidates).map(scheduledDate => {
       const statement = byScheduled.get(scheduledDate);
+      if (latest && !statement && scheduledDate > latest.scheduledDate) {
+        const regular = obligationScheduledBase(row, scheduledDate);
+        // Only over a valid standing monthly amount above zero, on a row tagged estimated or confirmed: a malformed,
+        // zero or impossible plan input, or an unknown or malformed tag, keeps its own path (never made more certain).
+        if (row.frequency === 'monthly' && !regular.term && !regular.invalid && typeof regular.amount === 'number'
+          && cents(regular.amount) != null && regular.amount > 0 && (regular.confidence === 'estimated'
+            || regular.confidence === 'confirmed')) return { scheduledDate, date: scheduledDate, statement: false, carriedMinimum: true,
+          amount: fixed == null ? latest.minimum : Math.max(fixed, latest.minimum), confidence: 'estimated' };
+      }
       // Amount confirmation is statement.confidence. Date trust is separate:
       // omitted dateConfidence remains a fully confirmed statement-date override.
       const dateConfidence = statement
@@ -12826,6 +12844,23 @@
     return note || payment ? { cardId: null, trust: 'estimated' } : null;
   }
 
+  // An incoming paying-side row is a possible card reversal only when the row
+  // itself names a card. A payment-category deposit with none of this identity
+  // (an Interac or e-transfer from outside the household, and no household
+  // counterpart) is neither paid nor a reversal. Outgoing debits are unchanged.
+  function incomingCardReversalIdentity(tx) {
+    if (!tx) return false;
+    if (tx.cardPaymentIdentity === true || tx.tdCardPaymentIdentity === true || tx.payingSideCardPaymentKind === true) return true;
+    const hint = normalizeCategoryLabel(tx.kindHint || tx.kind);
+    if (hint === 'card-payment') return true;
+    const label = normalizeCategoryLabel(tx.categoryLabel);
+    if (label === 'credit card payment' || label === 'cc payment') return true;
+    if (cardPaymentNoteEvidence(tx)) return true;
+    if (typeof tx.cardPaymentDestination === 'string' && tx.cardPaymentDestination !== '') return true;
+    if (isStackCreditLine(tx.minimumCategoryDebt)) return true;
+    return /^\s*[A-Z]{2}\d{3}\s+TFR-(?:TO|FR)\s+C\/C\s*$/i.test(txBankDescriptor(tx));
+  }
+
   function householdCashLocationId(tx) {
     if (!tx) return null;
     if (tx.accountRole === 'household-external' || tx.accountRole === 'unmapped') {
@@ -13660,14 +13695,14 @@
   // evidence confirms paid: the sum of the counted amounts of exactly the rows
   // the page checks (stackBillPaid), in cents. Trust (lead ruling, 2026-11-20):
   //   - the split unpublished, or its rows unmarked: paid null, 'unavailable';
-  //   - the period's posted evidence not complete (budgetProgress.coverage.complete,
-  //     the gate Budget's own actuals use) outside a later period: paid null,
-  //     'unavailable' (ATLAS REVIEWER 2, 7053664784): an unread ledger is not 0;
+  //   - incomplete period coverage outside a later period: keep the positive
+  //     sum of checked rows, estimated (OD-045). Withhold an unread or unknown
+  //     zero (ATLAS REVIEWER 2, 7053664784);
   //   - no Bills row confirmed paid: 0 with the split's own trust ('estimated'
   //     in an estimated later period, never more certain than the split);
   //   - otherwise the weakest of the paid rows' own amount trust; a paid row
   //     with no trust word withholds paid, never defaulted to calculated.
-  // Pending, differing and unmatched payments count 0 and do not enter its trust.
+  // Only payments marked paid by stackBillPaidEvidence enter the sum and trust.
   const STACK_BILLS_PAID_UNAVAILABLE = 'The Bills paid figure is unavailable: this period\'s bills split, or a paid row\'s trust, is not published.';
   const STACK_BILLS_PAID_UNREAD = 'The Bills paid figure is unavailable: this period\'s posted transaction evidence is not complete.';
   function stackBillsPaid(view, bills) {
@@ -13678,22 +13713,23 @@
         || rows.some(row => !isStackFigure(row.stackBillAmount) || typeof row.stackBillPaid !== 'boolean')
         // The marked rows must be the whole Bills part: unmarked rows are unknown, never paid 0.
         || rows.reduce((sum, row) => sum + stackCents(row.stackBillAmount), 0) !== stackCents(bills.other)) return withhold();
-    // A row with no payment seen is unpaid only where the ledger was read: the period's posted evidence must be
-    // complete under the one gate Budget's own actuals use (budgetProgress.coverage.complete). A later period
-    // cannot have been paid yet, so its zero stands without evidence.
+    const paid = rows.filter(row => row.stackBillPaid);
+    const cents = paid.reduce((sum, row) => sum + stackCents(row.stackBillAmount), 0);
+    // Complete coverage establishes a zero. Partial coverage only establishes
+    // what the checked rows show. A later period's zero stands without evidence.
     const progress = view.budgetProgress;
-    if (!progress || typeof progress !== 'object' || (progress.role !== 'future'
-        && !(progress.coverage && progress.coverage.complete === true))) {
+    const incomplete = progress?.role !== 'future' && progress?.coverage?.complete !== true;
+    if (!progress || typeof progress !== 'object' || (incomplete
+        && (!progress.coverage || progress.coverage.status === 'absent' || cents === 0))) {
       return Object.assign(bills, { paid: null, paidTrust: 'unavailable', paidReason: STACK_BILLS_PAID_UNREAD });
     }
-    const paid = rows.filter(row => row.stackBillPaid);
     if (paid.some(row => !Object.hasOwn(STACK_TRUST_RANK, row.stackBillAmountTrust))) return withhold();
-    const cents = paid.reduce((sum, row) => sum + stackCents(row.stackBillAmount), 0);
     // Nothing paid is a zero only as sure as the split it reads: an estimated (later) period's zero is estimated.
     if (!paid.length && !Object.hasOwn(STACK_TRUST_RANK, bills.trust)) return withhold();
     const trust = paid.length ? paid.reduce((worst, row) => STACK_TRUST_RANK[row.stackBillAmountTrust] > STACK_TRUST_RANK[worst]
       ? row.stackBillAmountTrust : worst, 'calculated') : bills.trust;
-    Object.assign(bills, { paid: cents / 100, paidTrust: trust });
+    const paidTrust = incomplete ? 'estimated' : trust;
+    Object.assign(bills, { paid: cents / 100, paidTrust });
   }
   function stackBills(view) {
     const parts = periodBillLoadPartsByPeriod.get(view);
@@ -13785,20 +13821,15 @@
   // income class, or a split that does not sum withholds every line: never
   // guessed, never zero.
   const STACK_INCOME_LINE = Object.freeze({ dale: 'dale', amanda: 'amanda', other: 'other', named: 'other' });
-  // The Bills account stack card (lead dispatch 2026-11-24, task 24). Forecast's projection of the active pay period's
-  // billsAccountPeriodBalance for that card: nothing is calculated here, every amount is one the publication already
-  // holds. The page prints these fields as given.
-  //   now          the Bills reading (observedCash and its date), or null with the reason when the reading is missing,
-  //                misaligned or the current plan is untrusted (stale);
-  //   comingIn     income still to land in Bills this period, as counted in the close;
-  //   comingOut    the Bills bills and other Bills outflows still to go out, as counted in the close ('late' past due);
-  //   householdToMove  the Household budget still to move out of Bills (household.remaining);
-  //   alreadyOut   settled Bills bills at their counted amount, and posted transfer-outs whose purpose is unknown.
-  // An unpaired transfer withholds the close and household funding remainder, but its posted debit is known.
-  //   A reading is a dash too (OD-037: "a stale or missing reading shows a dash") when no chequing observation exists for
-  //   the Bills account (the plan's Bills row alone is not a reading: billsAccountReadingByPublication) and when the
-  //   posted movements are not covered through the as-of day ('posted-window-incomplete'). The close itself is not
-  //   changed by either: only what this card prints as "Bank reading".
+  // The Bills account stack card (Dale's decision recorded on #821; lead brief #1620 7181064255). Forecast's projection
+  // of the active pay period's Bills account reading and its own ledger transactions: nothing is matched or paired here
+  // (rule 17), and the page prints these fields as given.
+  //   now           the Bills reading (observedCash and its date), or null with the reason when the reading is missing,
+  //                 misaligned, has no chequing observation (billsAccountReadingByPublication), has incomplete posted
+  //                 coverage through as-of, or the current plan is untrusted (stale);
+  //   transactions  only the Bills account's own ledger transactions for the current pay period (posted debits, posted
+  //                 credits, pending rows, transfers), newest first, from the packet Forecast already holds; null when
+  //                 the packet or period coverage is unreadable.
   const BILLS_READING_ISSUES = new Set(['bills-cash-unavailable', 'cash-observation-misaligned', 'operating-plan-unavailable',
     'posted-window-incomplete']);
   function stackBillsAccount(view) {
@@ -13816,32 +13847,15 @@
       : { amount: null, asOf: null, trust: 'unavailable',
         reason: readingIssue ? readingIssue.message : observed ? 'A dated posted Bills account balance is unavailable.'
           : 'No bank reading of the Bills account is available.' };
-    const pubItems = billsAccountItemsByPublication.get(pub);
-    const unpairedOnly = pub.issues?.length > 0 && pub.issues.every(issue => issue.code === 'unpaired-bills-transfer');
-    const ready = Array.isArray(pubItems) && (pub.status === 'ready' || unpairedOnly);
-    const reason = ready ? null : pub.reason || 'The Bills account lines are unavailable.';
-    const rows = new Map((Array.isArray(view.bills) ? view.bills : []).filter(row => row && row.id && row.date)
-      .map(row => [row.id + '@' + row.date, row]));
-    const line = item => ({ id: item.id, label: item.label, date: item.date, amount: item.amount, trust: item.trust,
-      billRow: item.kind === 'bill' && rows.has(item.id + '@' + item.date) });
-    // Each list in date order (then name), as the card reads it.
-    const items = ready ? pubItems.slice().sort((a, b) => String(a.date || '').localeCompare(String(b.date || ''))
-      || String(a.label || '').localeCompare(String(b.label || ''))) : [];
-    const household = pub.household || {};
-    return { status: ready ? 'ready' : 'unavailable', reason, now,
-      comingIn: ready ? items.filter(item => item.kind === 'income').map(line) : null,
-      comingOut: ready ? items.filter(item => item.kind === 'bill' || item.kind === 'other')
-        .map(item => ({ ...line(item), status: item.status })) : null,
-      householdToMove: ready && finite(household.remaining) ? { amount: household.remaining, trust: household.trust || 'estimated' }
-        : { amount: null, trust: 'unavailable' },
-      alreadyOut: ready ? items.filter(item => item.kind === 'settled' || item.kind === 'transfer').map(item => {
-        if (item.kind === 'transfer') return { ...line(item), paid: false };
-        const row = rows.get(item.id + '@' + item.date);
-        const amount = row && finite(row.stackBillAmount) ? row.stackBillAmount : null;
-        return { id: item.id, label: item.label, date: item.date, amount,
-          trust: amount == null ? 'unavailable' : row.stackBillAmountTrust || 'estimated',
-          paid: !!row && row.stackBillPaid === true, billRow: !!row };
-      }) : null };
+    const ledger = billsAccountTransactionsByPublication.get(pub);
+    const ready = !!ledger && ledger.status === 'ready' && Array.isArray(ledger.transactions);
+    const reason = ready ? null : (ledger && ledger.reason) || 'Bills account transactions are unavailable.';
+    return {
+      status: ready ? 'ready' : 'unavailable',
+      reason,
+      now,
+      transactions: ready ? ledger.transactions.map(row => ({ ...row })) : null,
+    };
   }
   function stackIncome(view) {
     const total = view.incomeTotal;
@@ -16078,13 +16092,79 @@
   }
 
 
-  // The Bills account card's lines for each billsAccountPeriodBalance publication (lead dispatch 2026-11-24), kept beside
-  // the publication, never on it: the close and every saved record of it stay exactly as before. Read only by
-  // stackBillsAccount; a publication without an entry (a copy, a saved record) has no lines.
-  const billsAccountItemsByPublication = new WeakMap();
+  // The Bills account card's own ledger transactions for each billsAccountPeriodBalance publication (Dale's decision
+  // recorded on #821; lead brief #1620 7181064255), kept beside the publication, never on it: the close and every saved
+  // record of it stay exactly as before. Read only by stackBillsAccount; a publication without an entry (a copy, a saved
+  // record) has no list.
+  const billsAccountTransactionsByPublication = new WeakMap();
   // Whether the Bills account has its own chequing observation for each publication, kept beside it for the same reason
   // (the close and its saved records stay exact). The plan's Bills row alone is not a bank reading.
   const billsAccountReadingByPublication = new WeakMap();
+
+  // Only the Bills account's own ledger transactions for the current pay period, newest first, straight from the
+  // transaction packet Forecast already has (no matching or pairing, rule 17). Fails closed when the period, plan,
+  // posted coverage, pending coverage, or a Bills transaction's identity, date, amount or currency is unreadable.
+  function billsAccountLedgerTransactions(packet, cycle, day, posted, opts) {
+    if (!cycle || !cycle.start || !cycle.end || !day) {
+      return { status: 'unavailable', transactions: null, reason: 'The active pay period is unavailable.' };
+    }
+    if (opts && opts.operatingPlan === 'unavailable') {
+      return { status: 'unavailable', transactions: null,
+        reason: opts.operatingPlanNote || 'The current cash observation is untrusted.' };
+    }
+    if (!packet || !Array.isArray(packet.transactions)) {
+      return { status: 'unavailable', transactions: null, reason: 'Bills account transactions are unavailable.' };
+    }
+    if (!posted || posted.complete !== true) {
+      return { status: 'unavailable', transactions: null, reason: 'Posted Bills movements do not cover this pay period completely.' };
+    }
+    if (pendingCoverageStatus(packet) !== 'complete') {
+      return { status: 'unavailable', transactions: null, reason: 'Pending cash coverage is incomplete.' };
+    }
+    const seen = new Set();
+    const rows = [];
+    for (const tx of packet.transactions) {
+      if (!tx || skipSplitParent(tx, packet)) continue;
+      const aliases = [tx.atlasAccountId, tx.accountId, tx.account]
+        .filter(v => v != null && String(v).trim() !== '').map(v => String(v).trim());
+      if (aliases.includes(BILLS_ACCOUNT_ID) && new Set(aliases).size > 1) {
+        return { status: 'unavailable', transactions: null, reason: 'Bills account transaction identity is conflicting.' };
+      }
+      const loc = householdCashLocationId(tx);
+      if (loc !== BILLS_ACCOUNT_ID) continue;
+      if (!savingsDate(tx.date)) {
+        return { status: 'unavailable', transactions: null, reason: 'A Bills account transaction date is unreadable.' };
+      }
+      if (tx.date < cycle.start || tx.date > cycle.end) continue;
+      const id = tx.id == null ? '' : String(tx.id).trim();
+      if (!id || seen.has(id)) {
+        return { status: 'unavailable', transactions: null, reason: 'A Bills account transaction identity is missing or duplicated.' };
+      }
+      seen.add(id);
+      if (typeof tx.amount !== 'number' || !Number.isFinite(tx.amount)
+        || String(tx.currency || '').trim().toLowerCase() !== 'cad'
+        || tx.contradictoryEvidence === true) {
+        return { status: 'unavailable', transactions: null, reason: 'A Bills account transaction amount or currency is untrusted.' };
+      }
+      const pending = tx.pending === true;
+      const label = typeof tx.displayedPayee === 'string' && tx.displayedPayee.trim() ? tx.displayedPayee.trim()
+        : typeof tx.originalMerchant === 'string' && tx.originalMerchant.trim() ? tx.originalMerchant.trim()
+        : 'Transaction';
+      rows.push({
+        id,
+        label,
+        date: tx.date,
+        amount: roundCent(Math.abs(tx.amount)),
+        direction: tx.amount < 0 ? 'in' : 'out',
+        pending,
+        trust: pending ? 'estimated' : 'calculated',
+      });
+    }
+    rows.sort((a, b) => b.date.localeCompare(a.date)
+      || (a.pending === b.pending ? 0 : a.pending ? -1 : 1)
+      || a.id.localeCompare(b.id));
+    return { status: 'ready', transactions: rows, reason: null };
+  }
 
   // Owner 2026-10-07: expected period-end stock of BILLS only. This
   // derives a separate estimate; it never replaces the period-income BAD,
@@ -16167,9 +16247,6 @@
     let weeklyFunding = 0, directFunding = 0, cardFunding = 0, pendingBillsHousehold = 0, categoryCardCash = 0;
     let weeklyCardOutside = 0;
     let fundingEventCount = 0;
-    // Display lines for the Bills account card. Keep them beside the publication so they never enter the close.
-    const items = [];
-    const unpairedDebits = new Map();
     const usedCash = new Set();
     const takeFunding = id => {
       if (usedCash.has(id)) { issue('funding-identity-reused', 'One posted cash event cannot fund two household purposes.'); return false; }
@@ -16184,7 +16261,6 @@
       } else if (mov.amount < 0 && tx && isInternalTransferIdentity(tx) && !mov.internalTransfer
         && ['UNKNOWN', 'transfer'].includes(mov.classification)) {
         issue('unpaired-bills-transfer', 'A Bills transfer has no proven destination and funding purpose.');
-        unpairedDebits.set(mov.id, mov);
       }
     }
     for (const { tx, amount } of supporting) {
@@ -16247,7 +16323,7 @@
       ? roundCent(Math.max(0, coverage.reservedCash - categoryCardCash)) : coverage.status === 'incumbent' ? 0 : null;
     let futureIncome = 0, remainingBills = 0, otherOutflows = 0;
     const futureCashKeys = new Set(), evidence = [], coveredMinimums = [];
-    const addCash = (key, amount, kind, source, item) => {
+    const addCash = (key, amount, kind, source) => {
       if (futureCashKeys.has(key)) { issue('future-cash-identity-reused', 'A remaining cash occurrence is duplicated.'); return; }
       futureCashKeys.add(key);
       if (!finite(amount) || amount < 0) { issue('remaining-cash-unknown', 'A remaining cash requirement is unknown.'); return; }
@@ -16255,8 +16331,6 @@
       else if (kind === 'bill') remainingBills = roundCent(remainingBills + amount);
       else otherOutflows = roundCent(otherOutflows + amount);
       evidence.push({ kind, amount, source });
-      if (item) items.push({ id: item.id || null, kind, label: item.label || null, date: item.date || null, amount,
-        status: kind === 'income' ? 'due' : item.date && item.date < day ? 'late' : 'due', trust: 'estimated' });
     };
     // The calendar owns joint household costs, not an account's stock.
     // An explicit other cash payer does not imply a new Bills transfer.
@@ -16370,20 +16444,13 @@
         // its remainder is still cash Bills must hold.
         if ((row.settlement === 'represented' && !feeAllowance && !Object.hasOwn(row, 'additionalCashRequired')
           && row.partlyPaidRemainder !== true) || row.settlement === 'opening') {
-          // Already out of Bills this period: the bill's own settled occurrence, paid in cash from Bills (or with no other
-          // payer, the owner's Bills anchor), never a card-paid bill, whose charge went on a card (Neon, #1607 7141216339).
-          // A side-effect-free test: a display line never adds an issue to the close (billsCashScope records one for an
-          // unknown payer; review 4684284216).
-          if (row.settlement === 'represented' && row.id && row.date && row.cardPaid !== true
-            && (!row.payingAccount || row.payingAccount === BILLS_ACCOUNT_ID))
-            items.push({ id: row.id, kind: 'settled', label: row.label || null, date: row.date, amount: null, status: 'settled', trust: null });
           continue;
         }
         if (amount !== 0 && !billsCashScope(row)) continue;
         if (!['confirmed', 'estimated'].includes(row.confidence) && amount !== 0) {
           issue('remaining-cash-unknown', 'The confidence of a remaining bill cash requirement is unknown.'); continue;
         }
-        addCash((row.occurrenceKey || row.id + '@' + row.date), amount, 'bill', 'Forecast.calendarBillSections', row);
+        addCash((row.occurrenceKey || row.id + '@' + row.date), amount, 'bill', 'Forecast.calendarBillSections');
       }
       const events = expandEvents(plan, day, cycle.end, opts);
       const representedIncome = representedKeySet(plan, opts, day);
@@ -16404,12 +16471,12 @@
           if (!['confirmed', 'estimated'].includes(event.confidence)) {
             issue('income-unavailable', 'A future income amount is not qualified by the existing plan.'); continue;
           }
-          addCash(event.id + '@' + event.date, event.amount, 'income', 'Forecast.expandEvents', event);
+          addCash(event.id + '@' + event.date, event.amount, 'income', 'Forecast.expandEvents');
         } else if (['commitment', 'reserve'].includes(event.kind) && event.jointCash !== false) {
           const amount = -operatingEventAmount(event);
           if (event.kind === 'commitment' && amount !== 0
             && !billsCashScope((plan.commitments || []).find(row => row.id === event.id) || event)) continue;
-          if (amount > 0) addCash(event.id + '@' + event.date, amount, 'other', 'Forecast.expandEvents', event);
+          if (amount > 0) addCash(event.id + '@' + event.date, amount, 'other', 'Forecast.expandEvents');
         }
       }
     }
@@ -16431,20 +16498,7 @@
       provenance: ['Forecast.postedBillsAccountCash', 'Forecast.postedAccountMovements', 'Forecast.householdInternalMovements',
         'Forecast.calendarHouseholdBudget', 'Forecast.reconcileCardPurchases', 'Forecast.cardMinimumState', 'Forecast.expandEvents'],
       grantsSpendPermission: false };
-    if (unpairedDebits.size) {
-      // A displayed bill can already represent the same posted debit. Keep its full settled
-      // amount (including multi-leg payments) and omit only explicitly linked transfer rows.
-      const settledKeys = new Set(items.filter(item => item.kind === 'settled').map(item => item.id + '@' + item.date));
-      for (const link of Array.isArray(packet.representedActuals) ? packet.representedActuals : []) {
-        if (!link || link.pending === true || !finite(link.actual) || !settledKeys.has(link.id + '@' + link.date)) continue;
-        if (link.transactionId != null) unpairedDebits.delete(String(link.transactionId));
-        for (const id of Array.isArray(link.transactionIds) ? link.transactionIds : []) unpairedDebits.delete(String(id));
-      }
-      for (const mov of unpairedDebits.values()) {
-        items.push({ id: mov.id, kind: 'transfer', label: 'Transfer', date: mov.date, amount: -mov.amount, trust: 'calculated' });
-      }
-    }
-    billsAccountItemsByPublication.set(publication, items);
+    billsAccountTransactionsByPublication.set(publication, billsAccountLedgerTransactions(packet, cycle, day, posted, opts));
     billsAccountReadingByPublication.set(publication, { observed: observedRows.length > 0 });
     return publication;
   }
