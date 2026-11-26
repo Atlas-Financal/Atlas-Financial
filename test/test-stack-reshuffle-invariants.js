@@ -540,26 +540,38 @@ function generated(p) {
     );
     surfaces(r);
   }
-  for (const name of [
-    'unknown',
-    'unmapped',
-    'external',
-    'business',
-    'pendingUnknown',
-    'asTransfer',
-    'asPayment',
-    'refund',
-    'manual'
-  ]) {
+  // #1664: every recognized debit adds to the card. An excluded purchase
+  // consumes its cash through Credit; the other three increase the Budget hold.
+  for (const name of ['unknown', 'unmapped', 'external', 'business', 'pendingUnknown']) {
+    const r = observe(p, name), l = r.l;
+    countedOnce(l, charges);
+    preservedPayment(l, paid);
+    assert.deepEqual(
+      [cents(l.target.amount), cents(l.stillToPayBack.amount), l.minimumCovered.value, l.targetCovered.value],
+      [charges, charges - paid, paid >= 2500, false], name
+    );
+    const extraHold = ['external', 'business'].includes(name) ? 0 : purchases[1];
+    assert.deepEqual(
+      [cents(r.s.bills.paid), cents(r.view.budgetHold), cents(r.s.surplus.amount)],
+      [bill, hold + extraHold, surplus - purchases[1]], name
+    );
+    assert.deepEqual(
+      [l.spent.trust, l.target.trust, l.stillToPayBack.trust, l.deduction.trust, r.s.surplus.trust],
+      ['estimated', 'estimated', 'estimated', 'estimated', 'estimated'], name + ' trust'
+    );
+    surfaces(r);
+  }
+  for (const name of ['asTransfer', 'asPayment', 'refund', 'manual']) {
     const r = observe(p, name),
       l = r.l;
-    const id = ['asTransfer', 'asPayment', 'refund', 'manual'].includes(name) ? 6 : 1;
-    // #1664 restores ordinary charge recognition and changes the uncertain target.
+    // The known subtotal still disappears. An unpaid portion of the $25
+    // minimum is a lower bound. Paying the minimum gives no exact remainder.
+    const unpaidMinimum = paid < 2500 ? 2500 - paid : null;
     defect(
-      id,
+      6,
       name + ' loses supported spend',
       [l.spent.amount, cents(l.target.amount), cents(l.stillToPayBack.amount), l.targetCovered.value],
-      [null, 2500, Math.max(0, 2500 - paid), paid >= 2500]
+      [null, 2500, unpaidMinimum, 'unknown']
     );
     preservedPayment(l, paid);
     assert.equal(cents(r.s.bills.paid), bill);
@@ -567,9 +579,9 @@ function generated(p) {
       [l.spent.trust, l.target.trust, l.deduction.trust, r.s.surplus.trust],
       ['unavailable', 'estimated', 'estimated', 'estimated']
     );
-    const extraHold = ['unknown', 'unmapped', 'pendingUnknown'].includes(name) ? purchases[1] : 0;
-    assert.equal(cents(r.view.budgetHold), hold + extraHold);
-    assert.equal(cents(r.s.surplus.amount), surplus - extraHold - 2500);
+    assert.equal(l.stillToPayBack.trust, unpaidMinimum === null ? 'unavailable' : 'estimated', name + ' remainder trust');
+    assert.equal(cents(r.view.budgetHold), hold);
+    assert.equal(cents(r.s.surplus.amount), surplus - 2500);
     surfaces(r);
   }
   for (const name of ['payerRecategorized', 'plainRecategorized']) {
@@ -804,7 +816,7 @@ async function main() {
   const ids = new Set([...defects].map((s) => Number(s.split(' ')[0])));
   assert.deepEqual(
     [...ids].sort((a, b) => a - b),
-    Array.from({ length: 12 }, (_, i) => i + 1)
+    [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
   );
   for (const label of defects) console.log('KNOWN-DEFECT ' + label);
   console.log(
@@ -816,7 +828,14 @@ async function main() {
   );
 }
 main().catch((error) => {
-  const head = require('node:child_process').execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
-  console.error({ head, seed: '0x5eedc0de', ...active }, error);
   process.exitCode = 1;
+  let head = 'unavailable';
+  try {
+    head = require('node:child_process').execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: __dirname, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore']
+    }).trim();
+  } catch {
+    // A missing git executable or checkout must not mask the original assertion.
+  }
+  console.error({ head, seed: '0x5eedc0de', ...active }, error);
 });
