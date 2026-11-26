@@ -1,19 +1,23 @@
 'use strict';
-/* The Bills account stack card (lead dispatch, ATLAS LEAD 12, 2026-11-24). Forecast publishes, per active pay period,
- * stackSummary.billsAccount: the Bills bank reading now (billsAccountPeriodBalance.observedCash and its date), and the
- * named, dated lines that the period-end Bills close already counts (income coming in, Bills bills and other Bills
- * outflows coming out, the Household budget still to move) plus the Bills bills already settled this period. The page
- * prints them as given.
+/* The Bills account stack card (Dale's decision recorded on #821; lead brief #1620 7181064255). Forecast publishes, per
+ * active pay period, stackSummary.billsAccount:
+ *   - now: the Bills bank reading (billsAccountPeriodBalance.observedCash and its date), unchanged;
+ *   - transactions: only the Bills account's own ledger transactions for the current pay period, newest first, straight
+ *     from the transaction packet Forecast already has (no matching or pairing, rule 17). Money in reads as in, pending
+ *     rows read as pending; an unreadable list is withheld (a dash on the card, never a sentence).
+ * Coming in, Coming out, Household budget still to move, and Already out are retired.
  *
- *   1. An invented world where only some bills pay from Bills: the card's lists are exactly the Bills lines, a bill paid
- *      from another account is excluded, a past-due unsettled bill reads 'late', and each list reconciles to the close's
- *      own published terms (independently worked by hand below). The close itself is byte-equal to main.
- *   2. An unpaired posted Bills transfer appears once under Already out. Other figures retain their values and trust.
- *      An unreadable reading prints a dash; an unavailable card never prints a reason.
- *   3. End to end through recommend and the real stack-cards.js: the closed card, the open card, the sheets.
- *   4. Mutants: the account scope, the late word and the reading guard, each removed, are caught.
+ *   1. An invented world with a posted debit, a posted credit (money in), a pending row, a transfer, and rows from
+ *      Weekly, Savings, a card, and outside the pay period: only Bills current-period rows appear, newest first; the
+ *      close itself (billsAccountPeriodBalance) is byte-equal to main; the figures snapshot captures only the new fields.
+ *   2. Unpaired transfer and unrelated close withholding leave the Bills transaction list readable; stale/incomplete
+ *      coverage/missing packet/unreadable Bills rows withhold the list cleanly; closed reading gates stay intact.
+ *   3. End to end through recommend and the real stack-cards.js: closed card unchanged, open card shows only the Bills
+ *      transactions, retired sections are gone, unreadable list prints only a dash, hostile payees are escaped.
+ *   4. Mutants: letting a Weekly-account row in, dropping period bounds, reversing order, dropping money-in or pending,
+ *      weakening coverage/reading guards, and page-side regressions are all caught.
  *
- * Invented data only (test/fixtures/bills-period-end-balance-data.js plus three invented bills).
+ * Invented data only (test/fixtures/bills-period-end-balance-data.js plus invented ledger rows).
  * `node test/test-stack-bills-account.js`
  */
 const assert = require('node:assert/strict');
@@ -28,9 +32,9 @@ let checks = 0;
 const ok = (cond, label, detail = '') => { assert.ok(cond, label + (detail ? ' — ' + detail : '')); checks++; console.log('  PASS  ' + label); };
 const cents = v => Math.round(v * 100);
 const ROOT = path.join(__dirname, '..');
-const read = file => fs.readFileSync(path.join(ROOT, file), 'utf8');
+const read = file => fs.readFileSync(path.join(ROOT, file), 'utf8').replace(/\r\n/g, '\n');
 
-const BASE = 'b2a821ebd356a91deea07f586a49bf5fbaefc933'; // main before this change (#1617 merged)
+const BASE = '5f8d00aa35bfcce1ba00920ed96efc5e2221193a'; // main before this change (#1644 and #1652 merged)
 const show = file => cp.execFileSync('git', ['show', BASE + ':' + file], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 function engine(sources) {
   const c = { console };
@@ -40,39 +44,50 @@ function engine(sources) {
   return c.Forecast;
 }
 
-// The invented world. The fixture's Bills week (as of 2026-08-20, period 2026-08-14..2026-08-27) plus:
-//   paid-bills   45.12 from Bills on 08-16, settled (a represented actual): Already out.
-//   weekly-bill  51.30 from Weekly (chequing-b) on 08-22: not a Bills line, on no list.
-//   late-bill    62.40 from Bills on 08-18, unpaid and past due: Coming out, 'late'.
-// Hand-worked lists:
-//   Coming in:  the partner salary 643.17 on 08-25 (the fixture's only income still to land in Bills).
-//   Coming out: late-bill 62.40 (08-18, late), the commitment 27.19 (08-23), the service 93.41 (08-24).
-//     Bills bills 62.40 + 93.41 = 155.81; other Bills outflows 27.19.
-//   Household budget still to move: 520.37 − 359.86 = 160.51 (the fixture's own working).
-//   Now: 1373.29, read 2026-08-20.
+// Invented world based on bills-period-end-balance-data (as of 2026-08-20, period 2026-08-14..2026-08-27).
+// Bills account (chequing-a) current-period transactions (expected newest first, pending before posted on same day):
+//   1. bills-pending   2026-08-20  58.90 out (pending)  "Invented Pending Hydro"
+//   2. card-debit      2026-08-20 111.11 out (posted)   "Invented card-debit"
+//   3. direct-grocery  2026-08-19  31.27 out (posted)   "Invented direct-grocery"
+//   4. weekly-debit    2026-08-18 240.16 out (transfer) "AB123 TFR-TO invented"
+//   5. bills-credit    2026-08-17 412.50 in  (posted)   "Invented Employer Payroll"
+// Must NOT appear:
+//   - weekly-credit, weekly-dining (chequing-b)
+//   - savings-tx (savings)
+//   - card-purchase, card-credit (travelvisa)
+//   - prior-period-bills (chequing-a, 2026-08-13), next-period-bills (chequing-a, 2026-08-28)
 function world(mode) {
-  const d = fx.served(), p = d.plan, pk = d.liveOverlay.currentPeriodActuals;
-  p.bills.push({ id: 'paid-bills', label: 'Invented paid utility', frequency: 'once', date: '2026-08-16', amount: 45.12, confidence: 'confirmed', payingAccount: 'chequing-a' });
-  p.bills.push({ id: 'weekly-bill', label: 'Invented weekly-paid bill', frequency: 'once', date: '2026-08-22', amount: 51.30, confidence: 'confirmed', payingAccount: 'chequing-b' });
-  p.bills.push({ id: 'late-bill', label: 'Invented late bill', frequency: 'once', date: '2026-08-18', amount: 62.40, confidence: 'confirmed', payingAccount: 'chequing-a' });
-  pk.representedActuals.push({ id: 'paid-bills', date: '2026-08-16', actual: 45.12 });
+  const d = fx.served(), pk = d.liveOverlay.currentPeriodActuals;
+  pk.transactions.push(
+    fx.tx('bills-credit', 'chequing-a', '2026-08-17', -412.50, 'Income', { displayedPayee: 'Invented Employer Payroll', isIncome: true }),
+    fx.tx('bills-pending', 'chequing-a', '2026-08-20', 58.90, 'Utilities', { displayedPayee: 'Invented Pending Hydro', pending: true }),
+    fx.tx('savings-tx', 'savings', '2026-08-19', 75.00, 'Transfer', { displayedPayee: 'Invented Savings Row', accountRole: 'household-reserve' }),
+    fx.tx('prior-period-bills', 'chequing-a', '2026-08-13', 19.99, 'Utilities', { displayedPayee: 'Invented Prior Period' }),
+    fx.tx('next-period-bills', 'chequing-a', '2026-08-28', 29.99, 'Utilities', { displayedPayee: 'Invented Next Period' }),
+  );
   if (mode === 'unpaired') pk.transactions = pk.transactions.filter(tx => tx.id !== 'weekly-credit');
   if (mode === 'stale') d.liveOverlay.operatingPlan = 'unavailable';
   if (mode === 'misaligned') d.liveOverlay.observedCash.accounts[0].value = 1400.01;
   if (mode === 'missing') {
-    p.startingCash.breakdown = p.startingCash.breakdown.filter(r => r.id !== 'chequing-a');
+    d.plan.startingCash.breakdown = d.plan.startingCash.breakdown.filter(r => r.id !== 'chequing-a');
     d.liveOverlay.observedCash.accounts = d.liveOverlay.observedCash.accounts.filter(r => r.id !== 'chequing-a');
   }
-  // Bug hunt 3 (#1607) finding 4: only the Bills chequing observation is gone; the plan's Bills row (1373.29) stays.
   if (mode === 'no-observation') {
     d.liveOverlay.observedCash.accounts = d.liveOverlay.observedCash.accounts.filter(r => r.id !== 'chequing-a');
   }
-  // Finding 9: the Bills balance is dated Aug 17 (as of Aug 20), posted-transaction coverage is partial through Aug 17,
-  // and nothing posted after Aug 17.
   if (mode === 'window-incomplete') {
     d.liveOverlay.observedCash.accounts.find(r => r.id === 'chequing-a').evidenceDate = '2026-08-17';
     pk.coverageThrough = '2026-08-17'; pk.transactionCoverage = 'partial';
     pk.transactions = pk.transactions.filter(r => r.date <= '2026-08-17');
+  }
+  if (mode === 'pending-incomplete') pk.pendingCoverage = 'partial';
+  if (mode === 'no-packet') d.liveOverlay.currentPeriodActuals = null;
+  if (mode === 'bad-currency') pk.transactions.push(fx.tx('usd-bills', 'chequing-a', '2026-08-19', 12.00, 'Utilities', { currency: 'usd' }));
+  if (mode === 'bad-date') pk.transactions.push(fx.tx('bad-date-bills', 'chequing-a', '2026-99-99', 12.00, 'Utilities'));
+  if (mode === 'empty-bills') pk.transactions = pk.transactions.filter(tx => tx.account !== 'chequing-a');
+  if (mode === 'unknown-bill') {
+    d.plan.bills.push({ id: 'unknown-amount', label: 'Invented unknown bill', frequency: 'once', date: '2026-08-26',
+      amount: null, confidence: 'confirmed', payingAccount: 'chequing-a' });
   }
   d.meta = { ...(d.meta || {}), asOf: fx.AS_OF };
   return d;
@@ -80,179 +95,121 @@ function world(mode) {
 const advise = (E, d) => E.recommend(d.plan, fx.AS_OF, E.budgetRecommendInputs(d, {}));
 const activeOf = advice => advice.payPeriodViews.find(v => v.role === 'active');
 
-console.log('1. Only some bills pay from Bills: the lists are exactly the Bills lines');
+console.log('1. Bills account publishes only its own current-period ledger transactions, newest first');
 const advice = advise(F, world());
 const view = activeOf(advice);
 const ba = view.stackSummary.billsAccount;
 const close = view.billsAccountPeriodBalance;
 ok(ba && ba.status === 'ready' && ba.reason === null, 'the card is published, ready, for the active pay period', JSON.stringify(ba && ba.status));
+ok(JSON.stringify(Object.keys(ba).sort()) === JSON.stringify(['now', 'reason', 'status', 'transactions']),
+  'retired fields (comingIn, comingOut, householdToMove, alreadyOut) are gone from stackSummary.billsAccount', JSON.stringify(Object.keys(ba)));
 ok(cents(ba.now.amount) === 137329 && ba.now.asOf === '2026-08-20' && ba.now.trust === 'estimated' && ba.now.reason === null,
-  'now: 1373.29, read 2026-08-20 (the close\'s observedCash and its date), tagged estimated', JSON.stringify(ba.now));
-ok(JSON.stringify(ba.comingIn.map(r => [r.id, r.date, cents(r.amount)])) === JSON.stringify([['partner', '2026-08-25', 64317]]),
-  'coming in: the partner salary 643.17 on 08-25, nothing else', JSON.stringify(ba.comingIn));
-ok(JSON.stringify(ba.comingOut.map(r => [r.id, r.date, cents(r.amount), r.status])) === JSON.stringify([
-  ['late-bill', '2026-08-18', 6240, 'late'], ['cost', '2026-08-23', 2719, 'due'], ['service', '2026-08-24', 9341, 'due']]),
-  'coming out, in date order: late-bill 62.40 late, the commitment 27.19, the service 93.41', JSON.stringify(ba.comingOut));
-ok(![...ba.comingIn, ...ba.comingOut, ...ba.alreadyOut].some(r => r.id === 'weekly-bill')
-  && view.bills.some(r => r.id === 'weekly-bill'), 'the bill paid from Weekly is on the period\'s bills but on no Bills account list');
-ok(cents(ba.householdToMove.amount) === 16051 && ba.householdToMove.trust === 'estimated',
-  'Household budget still to move: 160.51 (520.37 − 359.86)', JSON.stringify(ba.householdToMove));
-const paidRow = view.bills.find(r => r.id === 'paid-bills');
-ok(ba.alreadyOut.length === 1 && ba.alreadyOut[0].id === 'paid-bills' && cents(ba.alreadyOut[0].amount) === 4512
-  && ba.alreadyOut[0].paid === (paidRow.stackBillPaid === true) && ba.alreadyOut[0].trust === paidRow.stackBillAmountTrust,
-  'already out: the settled 45.12 Bills bill, with the bill row\'s own amount, trust and paid check', JSON.stringify(ba.alreadyOut));
-// Each list reconciles to the close's own published terms (no term moved, nothing counted twice or left out).
-const sum = rows => rows.reduce((t, r) => t + cents(r.amount), 0);
-ok(sum(ba.comingIn) === cents(close.futureIncome) && sum(ba.comingOut.filter(r => r.billRow)) === cents(close.remainingBills)
-  && sum(ba.comingOut.filter(r => !r.billRow)) === cents(close.otherOutflows) && cents(close.remainingBills) === 15581,
-  'the lists add up to the close\'s futureIncome, remainingBills (155.81 by hand) and otherOutflows',
-  JSON.stringify([close.futureIncome, close.remainingBills, close.otherOutflows]));
-ok(ba.comingOut.filter(r => r.billRow).map(r => r.id).join() === 'late-bill,service' && !ba.comingIn[0].billRow,
-  'bill lines carry billRow (they open the bill sheet); income and the commitment do not');
+  'closed reading unchanged: 1373.29, read 2026-08-20, tagged estimated', JSON.stringify(ba.now));
+assert.deepEqual(ba.transactions, [
+  { id: 'bills-pending', label: 'Invented Pending Hydro', date: '2026-08-20', amount: 58.9, direction: 'out', pending: true, trust: 'estimated' },
+  { id: 'card-debit', label: 'Invented card-debit', date: '2026-08-20', amount: 111.11, direction: 'out', pending: false, trust: 'calculated' },
+  { id: 'direct-grocery', label: 'Invented direct-grocery', date: '2026-08-19', amount: 31.27, direction: 'out', pending: false, trust: 'calculated' },
+  { id: 'weekly-debit', label: 'AB123 TFR-TO invented', date: '2026-08-18', amount: 240.16, direction: 'out', pending: false, trust: 'calculated' },
+  { id: 'bills-credit', label: 'Invented Employer Payroll', date: '2026-08-17', amount: 412.5, direction: 'in', pending: false, trust: 'calculated' },
+]);
+ok(true, 'exact Bills transactions newest first: pending debit, posted debits, transfer, posted credit (money in)');
+for (const excludedId of ['weekly-credit', 'weekly-dining', 'savings-tx', 'card-purchase', 'card-credit', 'prior-period-bills', 'next-period-bills']) {
+  ok(!ba.transactions.some(r => r.id === excludedId), 'excluded row never appears: ' + excludedId);
+}
 ok(advice.payPeriodViews.filter(v => v.role !== 'active').every(v => !v.stackSummary || v.stackSummary.billsAccount === null),
   'no other pay period carries the card');
-// The close itself (every published field but the new display list) is byte-equal to main.
+
+// Pending credit (money in + pending) and split parent with children (parent skipped, children listed once).
+{
+  const d = world();
+  d.liveOverlay.currentPeriodActuals.transactions.push(
+    fx.tx('pending-refund', 'chequing-a', '2026-08-20', -25.40, 'Refund', { displayedPayee: 'Invented Pending Credit', pending: true }),
+    fx.tx('split-parent', 'chequing-a', '2026-08-16', 100.00, 'Split', { displayedPayee: 'Split Parent', isGroup: true }),
+    fx.tx('split-child-a', 'chequing-a', '2026-08-16', 60.00, 'Groceries', { displayedPayee: 'Split Child A', parentId: 'split-parent' }),
+    fx.tx('split-child-b', 'chequing-a', '2026-08-16', 40.00, 'Utilities', { displayedPayee: 'Split Child B', parentId: 'split-parent' }),
+  );
+  const txs = activeOf(advise(F, d)).stackSummary.billsAccount.transactions;
+  const pc = txs.find(r => r.id === 'pending-refund');
+  ok(pc && pc.direction === 'in' && pc.pending === true && pc.amount === 25.4 && pc.trust === 'estimated',
+    'pending credit carries direction in, pending true, estimated trust', JSON.stringify(pc));
+  ok(!txs.some(r => r.id === 'split-parent') && txs.some(r => r.id === 'split-child-a') && txs.some(r => r.id === 'split-child-b'),
+    'split parent with children is skipped; split children appear once');
+}
+
+// The close itself (billsAccountPeriodBalance) is byte-equal to main across worlds.
 const OLD = engine(show);
-const oldClose = activeOf(advise(OLD, world())).billsAccountPeriodBalance;
-ok(JSON.stringify(close) === JSON.stringify(oldClose),
-  'billsAccountPeriodBalance is byte-equal to main: the lines are kept beside it, never on it (its saved records stay exact)');
+for (const mode of [undefined, 'unpaired', 'no-observation', 'window-incomplete', 'unknown-bill']) {
+  const curClose = activeOf(advise(F, world(mode))).billsAccountPeriodBalance;
+  const oldClose = activeOf(advise(OLD, world(mode))).billsAccountPeriodBalance;
+  ok(JSON.stringify(curClose) === JSON.stringify(oldClose),
+    (mode || 'base') + ': billsAccountPeriodBalance is byte-equal to main');
+}
 ok(JSON.stringify(advice.defaultView.billsAccountPeriodBalance) === JSON.stringify(close),
   'the default view publishes the same close');
 
 {
-  // The figures snapshot (the private diff's source) carries each card figure as published.
+  // The figures snapshot captures the reading and each Bills account transaction, and none of the retired fields or other accounts.
   const snap = require('../scripts/figures-snapshot').buildFiguresSnapshot(world(), null);
   const k = 'period.' + view.start + '.';
-  const want = { stackBillsAccountNow: ba.now.amount, stackBillsAccountNowAsOf: ba.now.asOf, stackBillsAccountHousehold: ba.householdToMove.amount,
-    'stackBillsAccountOut.late-bill@2026-08-18.status': 'late', 'stackBillsAccountOut.service@2026-08-24.amount': 93.41,
-    'stackBillsAccountIn.partner@2026-08-25.amount': 643.17, 'stackBillsAccountSettled.paid-bills@2026-08-16.paid': ba.alreadyOut[0].paid };
+  const want = {
+    stackBillsAccountStatus: 'ready',
+    stackBillsAccountNow: 1373.29,
+    stackBillsAccountNowAsOf: '2026-08-20',
+    stackBillsAccountNowTrust: 'estimated',
+    'stackBillsAccountTx.bills-pending@2026-08-20.amount': 58.9,
+    'stackBillsAccountTx.bills-pending@2026-08-20.direction': 'out',
+    'stackBillsAccountTx.bills-pending@2026-08-20.pending': true,
+    'stackBillsAccountTx.bills-pending@2026-08-20.trust': 'estimated',
+    'stackBillsAccountTx.bills-credit@2026-08-17.amount': 412.5,
+    'stackBillsAccountTx.bills-credit@2026-08-17.direction': 'in',
+    'stackBillsAccountTx.bills-credit@2026-08-17.pending': false,
+    'stackBillsAccountTx.bills-credit@2026-08-17.trust': 'calculated',
+    'stackBillsAccountTx.weekly-debit@2026-08-18.amount': 240.16,
+  };
   const bad = Object.entries(want).filter(([key, value]) => snap[k + key] !== value);
-  ok(!bad.length && !Object.keys(snap).some(key => key.includes('weekly-bill') && key.includes('stackBillsAccount')),
-    'the figures snapshot captures the card\'s figures as published, and no Weekly-paid line', JSON.stringify(bad));
+  const retired = Object.keys(snap).filter(key => /stackBillsAccount(Household|In\.|Out\.|Settled\.)/.test(key));
+  const leaked = Object.keys(snap).filter(key => key.includes('stackBillsAccountTx') && /(weekly-credit|weekly-dining|savings-tx|card-purchase|prior-period|next-period)/.test(key));
+  ok(!bad.length && !retired.length && !leaked.length,
+    'figures snapshot records the reading and Bills account transactions, with no retired fields and no other-account rows',
+    JSON.stringify({ bad, retired, leaked }));
 }
 
-// The fixture's posted Bills debit is 240.16 on Aug 18. Removing only the Weekly credit makes
-// its purpose unknown. The debit is still observed, independently of whether the close can use it.
-const unpairedView = activeOf(advise(F, world('unpaired')));
-const unpaired = unpairedView.stackSummary.billsAccount;
-const unpairedClose = unpairedView.billsAccountPeriodBalance;
-ok(unpairedClose.issues.some(issue => issue.code === 'unpaired-bills-transfer')
-  && unpairedClose.status === 'unavailable' && unpairedClose.amount === null && unpairedClose.trust === 'unknown',
-  'the unmatched leg still withholds the Bills ending balance');
-ok(unpairedClose.household.weeklyFunding === 0 && unpairedClose.household.funded === 119.70
-  && unpairedClose.household.remaining === null && unpaired.householdToMove.amount === null
-  && unpaired.householdToMove.trust === 'unavailable' && unpairedView.stackSummary.surplus.amount === null
-  && unpairedView.stackSummary.surplus.trust === 'unavailable',
-  'only direct spending and backfill fund the budget; the funding remainder and Surplus stay unavailable');
-assert.deepEqual(unpaired.comingIn, ba.comingIn);
-assert.deepEqual(unpaired.comingOut, ba.comingOut);
-assert.deepEqual(unpaired.now, ba.now);
-assert.deepEqual(unpaired.alreadyOut, [...ba.alreadyOut, {
-  id: 'weekly-debit', label: 'Transfer', date: '2026-08-18', amount: 240.16,
-  trust: 'calculated', paid: false, billRow: false,
-}]);
-ok(unpaired.status === 'ready', 'the unpaired debit appears once under Already out, with its posted amount and trust');
-ok(close.household.weeklyFunding === 240.16 && close.amount === 1672.95 && view.stackSummary.surplus.amount === 1977.70,
-  'paired control: the transfer still funds Weekly once and the ending balance and Surplus retain their figures');
-
-// Same day and amount in every case. Only the explicit transaction link on a listed
-// settlement proves that its Already out row and the posted transfer are the same debit.
-for (const [name, link, payer, expectedIds] of [
-  ['single link', { transactionId: 'weekly-debit' }, 'chequing-a', ['paid-bills']],
-  ['array link', { transactionIds: ['weekly-debit'] }, 'chequing-a', ['paid-bills']],
-  ['no link', {}, 'chequing-a', ['paid-bills', 'weekly-debit']],
-  ['link on a bill paid elsewhere', { transactionId: 'weekly-debit' }, 'chequing-b', ['weekly-debit']],
-]) {
-  const d = world('unpaired');
-  const bill = d.plan.bills.find(r => r.id === 'paid-bills');
-  Object.assign(bill, { date: '2026-08-18', amount: 240.16, payingAccount: payer });
-  const settlement = d.liveOverlay.currentPeriodActuals.representedActuals.find(r => r.id === bill.id);
-  Object.assign(settlement, { date: bill.date, actual: bill.amount }, link);
-  const v = activeOf(advise(F, d)), rows = v.stackSummary.billsAccount.alreadyOut;
-  assert.deepEqual(rows.map(r => r.id).sort(), expectedIds);
-  ok(rows.every(r => r.amount === 240.16 && (r.id === 'paid-bills'
-    ? r.billRow && r.label === bill.label : !r.billRow && r.label === 'Transfer')),
-    name + ': each distinct posted amount appears once on its own row');
+console.log('2. Unpaired transfers, close withholding, reading guards, and unreadable list states');
+{
+  const v = activeOf(advise(F, world('unpaired')));
+  ok(v.billsAccountPeriodBalance.issues.some(i => i.code === 'unpaired-bills-transfer') && v.billsAccountPeriodBalance.status === 'unavailable',
+    'unpaired transfer still withholds the close');
+  assert.deepEqual(v.stackSummary.billsAccount.transactions, ba.transactions);
+  ok(v.stackSummary.billsAccount.status === 'ready', 'unpaired transfer still appears once in Bills transactions with no matching or pairing');
 }
-
-console.log('2. A stale, misaligned or missing reading: a dash, Forecast\'s reason, no lists');
+{
+  const v = activeOf(advise(F, world('unknown-bill')));
+  ok(v.billsAccountPeriodBalance.status === 'unavailable' && v.stackSummary.billsAccount.status === 'ready'
+    && v.stackSummary.billsAccount.now.amount === 1373.29 && v.stackSummary.billsAccount.transactions.length === 5,
+    'an unknown planned bill withholds the close but leaves both the bank reading and Bills transactions readable');
+}
 for (const [mode, code] of [['stale', 'operating-plan-unavailable'], ['misaligned', 'cash-observation-misaligned'],
-  ['missing', 'bills-cash-unavailable']]) {
-  const v = activeOf(advise(F, world(mode)));
-  const b = v.stackSummary.billsAccount, issue = v.billsAccountPeriodBalance.issues.find(i => i.code === code);
+  ['missing', 'bills-cash-unavailable'], ['window-incomplete', 'posted-window-incomplete']]) {
+  const v = activeOf(advise(F, world(mode))), b = v.stackSummary.billsAccount;
+  const issue = v.billsAccountPeriodBalance.issues.find(i => i.code === code);
   ok(b && b.now.amount === null && b.now.asOf === null && b.now.trust === 'unavailable' && issue && b.now.reason === issue.message,
-    mode + ': no amount, no date, the reason is the close\'s own (' + code + ')', JSON.stringify(b && b.now));
-  ok(b.status === 'unavailable' && b.comingIn === null && b.comingOut === null && b.alreadyOut === null
-    && b.householdToMove.amount === null, mode + ': the lists are withheld with the close', JSON.stringify(b.status));
+    mode + ': unreadable reading is null with the close\'s own reason (' + code + ')', JSON.stringify(b && b.now));
 }
-
-console.log('2a. No chequing observation, or coverage incomplete through as-of: a dash (OD-037; #1607 findings 4 and 9)');
-for (const [mode, code] of [['no-observation', null], ['window-incomplete', 'posted-window-incomplete']]) {
-  const v = activeOf(advise(F, world(mode))), b = v.stackSummary.billsAccount, pub = v.billsAccountPeriodBalance;
-  const issue = code && pub.issues.find(i => i.code === code);
+{
+  const v = activeOf(advise(F, world('no-observation'))), b = v.stackSummary.billsAccount;
   ok(b && b.now.amount === null && b.now.asOf === null && b.now.trust === 'unavailable'
-    && b.now.reason === (code ? issue && issue.message : 'No bank reading of the Bills account is available.'),
-  mode + ': no amount, no date, ' + (code ? 'the close\'s own reason (' + code + ')' : 'the reason is that no bank reading exists'), JSON.stringify(b && b.now));
-  ok(!code ? pub.observedCash === 1373.29 && pub.issues.length === 0 && pub.status === 'ready' : pub.status === 'unavailable',
-    mode + ': the plan row alone still stands in the close; the close is not moved by this change', JSON.stringify([pub.observedCash, pub.status, pub.issues.map(i => i.code)]));
+    && b.now.reason === 'No bank reading of the Bills account is available.',
+    'no-observation: plan row alone is not a reading', JSON.stringify(b && b.now));
+}
+for (const mode of ['stale', 'window-incomplete', 'pending-incomplete', 'no-packet', 'bad-currency', 'bad-date']) {
+  const v = activeOf(advise(F, world(mode))), b = v.stackSummary.billsAccount;
+  ok(b && b.status === 'unavailable' && b.transactions === null && typeof b.reason === 'string' && b.reason.length > 0,
+    mode + ': unreadable transaction list is withheld (null with reason)', JSON.stringify(b && { status: b.status, reason: b.reason }));
 }
 {
-  // The close is byte-equal to main in both worlds: only the card's reading changes.
-  for (const mode of ['no-observation', 'window-incomplete']) {
-    ok(JSON.stringify(activeOf(advise(F, world(mode))).billsAccountPeriodBalance) === JSON.stringify(activeOf(advise(OLD, world(mode))).billsAccountPeriodBalance),
-      mode + ': billsAccountPeriodBalance is byte-equal to main');
-  }
-}
-{
-  // A fresh, complete reading still prints (and the same world with its observation does).
-  const b = activeOf(advise(F, world())).stackSummary.billsAccount;
-  ok(b.now.amount === 1373.29 && b.now.asOf === '2026-08-20' && b.now.reason === null, 'a fresh, complete reading still prints', JSON.stringify(b.now));
-}
-
-console.log('2b. A close withheld for another reason (lead ruling on #1627): the reading still shows; the lists do not');
-const unknownBill = d => { d.plan.bills.push({ id: 'unknown-amount', label: 'Invented unknown bill', frequency: 'once', date: '2026-08-26',
-  amount: null, confidence: 'confirmed', payingAccount: 'chequing-a' }); return d; };
-{
-  const v = activeOf(advise(F, unknownBill(world())));
-  const pub = v.billsAccountPeriodBalance, b = v.stackSummary.billsAccount;
-  ok(pub.status === 'unavailable' && !pub.issues.some(i => ['operating-plan-unavailable', 'cash-observation-misaligned', 'bills-cash-unavailable'].includes(i.code))
-    && pub.observedCash !== null, 'the world: the close is withheld (an unknown bill amount) while the reading itself is fine', JSON.stringify(pub.issues));
-  ok(b.now.amount === pub.observedCash && b.now.asOf === pub.observedAsOf && b.now.trust === 'estimated' && b.status === 'unavailable'
-    && b.comingIn === null && b.comingOut === null && b.alreadyOut === null && b.reason === pub.reason,
-    'the reading is published (gated on the reading alone); the lists are withheld with the close\'s reason', JSON.stringify(b.now));
-}
-
-console.log('2c. A settled bill with an unknown payer is not listed and never withholds the close (review 4684284216)');
-const externalSettled = d => {
-  d.plan.bills.push({ id: 'ext-settled', label: 'Invented external bill', frequency: 'once', date: '2026-08-17', amount: 38.20,
-    confidence: 'confirmed', payingAccount: 'external-payer' });
-  d.liveOverlay.currentPeriodActuals.representedActuals.push({ id: 'ext-settled', date: '2026-08-17', actual: 38.20 });
-  return d;
-};
-{
-  const v = activeOf(advise(F, externalSettled(world())));
-  const oldV = activeOf(advise(OLD, externalSettled(world())));
-  ok(oldV.billsAccountPeriodBalance.status === 'ready' && JSON.stringify(v.billsAccountPeriodBalance) === JSON.stringify(oldV.billsAccountPeriodBalance),
-    'the close is ready and byte-equal to main', JSON.stringify(v.billsAccountPeriodBalance.issues));
-  ok(!v.stackSummary.billsAccount.alreadyOut.some(r => r.id === 'ext-settled') && v.stackSummary.billsAccount.alreadyOut.some(r => r.id === 'paid-bills'),
-    'the bill paid elsewhere is not on Already out; the Bills one still is');
-}
-
-console.log('2d. A settled card-paid bill is not Already out of Bills: the charge went on a card (Neon, #1607 7141216339)');
-const cardSettled = (how) => d => {
-  d.plan.bills.push({ id: 'card-settled', label: 'Invented card bill', frequency: 'once', date: '2026-08-17', amount: 30.00,
-    confidence: 'confirmed', ...(how === 'payer' ? { payingAccount: 'travelvisa' } : { jointCash: false }) });
-  d.liveOverlay.currentPeriodActuals.representedActuals.push({ id: 'card-settled', date: '2026-08-17', actual: 30.00 });
-  return d;
-};
-for (const how of ['payer', 'jointCash']) {
-  const v = activeOf(advise(F, cardSettled(how)(world())));
-  const oldV = activeOf(advise(OLD, cardSettled(how)(world())));
-  ok(JSON.stringify(v.billsAccountPeriodBalance) === JSON.stringify(oldV.billsAccountPeriodBalance),
-    how + ': the close is byte-equal to main', JSON.stringify(v.billsAccountPeriodBalance.issues));
-  ok(v.stackSummary.billsAccount.status === 'ready' && (!v.stackSummary.billsAccount.alreadyOut.some(r => r.id === 'card-settled')
-    && v.stackSummary.billsAccount.alreadyOut.some(r => r.id === 'paid-bills')),
-    how + ': the card-paid bill is not on Already out; the Bills one still is', JSON.stringify(v.stackSummary.billsAccount.alreadyOut));
+  const v = activeOf(advise(F, world('empty-bills'))), b = v.stackSummary.billsAccount;
+  ok(b && b.status === 'ready' && Array.isArray(b.transactions) && b.transactions.length === 0,
+    'empty-bills: complete period with zero Bills transactions is ready with []');
 }
 
 console.log('3. Through the real stack-cards.js');
@@ -279,40 +236,39 @@ const card = cardOf(view);
 ok(card && head(card) === 'Bills account Bank reading Aug 20 $1,373 now', 'closed: "Bills account", "Bank reading Aug 20", "$1,373 now"', head(card || ''));
 ok(!/sc-bar/.test(card), 'no bar on the card head');
 const body = text(card.slice(card.indexOf('</summary>')));
-ok(body === 'Coming in Invented partner salary Aug 25 $643 Coming out · this pay period Invented late bill Aug 18 · late $62 '
-  + 'Invented commitment Aug 23 $27 Invented service Aug 24 $93 Household budget still to move $161 Already out Invented paid utility Aug 16 $45',
-  'open: the three sections, in Forecast\'s order, with Forecast\'s words and amounts', body);
-ok(!/weekly-paid/i.test(card), 'the Weekly-paid bill is not printed');
-ok(/data-stack-sheet="bill:late-bill@2026-08-18"/.test(card) && /data-stack-sheet="bill:service@2026-08-24"/.test(card)
-  && /data-stack-sheet="bill:paid-bills@2026-08-16"/.test(card) && (card.match(/data-stack-sheet=/g) || []).length === 3,
-  'each bill line opens its bill sheet; income, the commitment and the household line do not');
-ok(/sc-check/.test(card) === (paidRow.stackBillPaid === true), 'the paid check follows Forecast\'s paid check');
-{
-  const checked = JSON.parse(JSON.stringify(view));
-  checked.stackSummary.billsAccount.alreadyOut[0].paid = true;
-  ok((cardOf(checked).match(/sc-check/g) || []).length === 1, 'a paid settled bill is ticked, once');
+ok(body === 'Invented Pending Hydro Aug 20 · Pending $58.90 Invented card-debit Aug 20 $111.11 Invented direct-grocery Aug 19 $31.27 '
+  + 'AB123 TFR-TO invented Aug 18 $240.16 Invented Employer Payroll Aug 17 +$412.50',
+  'open: only Bills transactions, newest first, money in with +, pending marked Pending', body);
+ok(/class="sc-row sc-acct sc-pending"/.test(card), 'pending row carries the sc-pending class');
+ok(/class="sc-a sc-in" aria-label="Money in \+\$412\.50">\+\$412\.50<\/span>/.test(card), 'money-in row carries sc-in class and + sign');
+ok(!/Coming in|Coming out|Household budget still to move|Already out|sc-cap|sc-check|data-stack-sheet|sc-why/.test(card),
+  'retired sections, checkmarks, bill sheets, and explanatory sentences are gone from the card');
+for (const excludedText of ['weekly-credit', 'weekly-dining', 'Savings Row', 'card-purchase', 'Prior Period', 'Next Period']) {
+  ok(!card.includes(excludedText), 'other-account or out-of-period row not printed: ' + excludedText);
+}
+for (const mode of ['stale', 'window-incomplete', 'pending-incomplete', 'no-packet', 'bad-currency']) {
+  const v = activeOf(advise(F, world(mode))), h = cardOf(v), b = v.stackSummary.billsAccount;
+  const openBody = text(h.slice(h.indexOf('</summary>')));
+  ok(openBody === '—' && !h.includes(b.reason) && !h.includes('sc-why'),
+    mode + ': unreadable list renders only a dash, never a sentence', openBody);
 }
 for (const mode of ['stale', 'misaligned', 'missing', 'no-observation', 'window-incomplete']) {
   const v = activeOf(advise(F, world(mode))), h = cardOf(v), b = v.stackSummary.billsAccount;
-  ok(h && head(h) === 'Bills account —' && !h.includes(b.now.reason) && !h.includes('sc-why')
-    && (b.status === 'ready' || !/\$/.test(h)), mode + ': the unreadable bank reading is a dash without a sentence');
+  ok(h && head(h) === 'Bills account —' && !h.includes(b.now.reason) && !h.includes('sc-why'),
+    mode + ': unreadable reading head is a dash without a sentence', head(h || ''));
 }
 {
-  // The posted transfer remains visible only when the other inputs needed for the lists are readable.
-  const v = activeOf(advise(F, unknownBill(world('unpaired')))), h = cardOf(v);
+  const h = cardOf(activeOf(advise(F, world('empty-bills'))));
   const openBody = text(h.slice(h.indexOf('</summary>')));
-  ok(v.billsAccountPeriodBalance.issues.some(i => i.code === 'unpaired-bills-transfer')
-    && v.stackSummary.billsAccount.comingOut === null && !h.includes('sc-why') && openBody === '—'
-    && head(h) === 'Bills account Bank reading Aug 20 $1,373 now',
-    'a second blocking issue preserves the readable head and gives the unreadable body a dash');
+  ok(openBody === '' && !h.includes('sc-unavailable'), 'ready empty list prints no unavailable dash and no sentence', openBody);
 }
 {
-  const h = cardOf(unpairedView), openBody = text(h.slice(h.indexOf('</summary>')));
-  ok(!h.includes('sc-why') && !h.includes(unpairedClose.reason)
-    && openBody.endsWith('Already out Invented paid utility Aug 16 $45 Transfer Aug 18 $240')
-    && (openBody.match(/\bTransfer\b/g) || []).length === 1,
-    'the real renderer lists the unpaired transfer once under Already out, with no explanatory sentence');
-  ok(!card.includes('sc-why'), 'the paired control has no explanatory sentence');
+  const d = world();
+  d.liveOverlay.currentPeriodActuals.transactions.push(
+    fx.tx('hostile-payee', 'chequing-a', '2026-08-20', 10.00, 'Utilities', { displayedPayee: '"><img src=x onerror=alert(1)>' }),
+  );
+  const h = cardOf(activeOf(advise(F, d)));
+  ok(!h.includes('<img src=x') && h.includes('&quot;&gt;&lt;img src=x onerror=alert(1)&gt;'), 'hostile payee is escaped');
 }
 {
   const other = advice.payPeriodViews.find(v => v.role !== 'active' && v.stackSummary);
@@ -330,39 +286,56 @@ const mutant = (label, file, from, to, check) => {
   ok(caught, 'mutant caught: ' + label);
 };
 const fresh = sources => activeOf(advise(engine(sources), world())).stackSummary.billsAccount;
-mutant('a settled bill from another account listed', 'public/forecast.js',
-  "&& (!row.payingAccount || row.payingAccount === BILLS_ACCOUNT_ID))", ')',
-  sources => { const d = world(); d.liveOverlay.currentPeriodActuals.representedActuals.push({ id: 'weekly-bill', date: '2026-08-22', actual: 51.30 });
-    const b = activeOf(advise(engine(sources), d)).stackSummary.billsAccount;
-    return !b.alreadyOut.some(r => r.id === 'weekly-bill'); });
-mutant('the late word dropped', 'public/forecast.js', "item.date && item.date < day ? 'late' : 'due'", "'due'",
-  sources => fresh(sources).comingOut.find(r => r.id === 'late-bill').status === 'late');
-mutant('the reading guard dropped', 'public/forecast.js', 'const now = !readingIssue && observed && finite(pub.observedCash)', 'const now = observed && finite(pub.observedCash)',
+// Required mutant: letting a Weekly-account (chequing-b) row in MUST fail!
+mutant('a Weekly-account row leaks into Bills transactions', 'public/forecast.js',
+  'if (loc !== BILLS_ACCOUNT_ID) continue;',
+  'if (loc !== BILLS_ACCOUNT_ID && loc !== WEEKLY_ACCOUNT_ID) continue;',
+  sources => {
+    const txs = fresh(sources).transactions;
+    return !txs.some(r => r.id === 'weekly-dining' || r.id === 'weekly-credit');
+  });
+mutant('rows outside the current pay period leak in', 'public/forecast.js',
+  'if (tx.date < cycle.start || tx.date > cycle.end) continue;',
+  'if (false) continue;',
+  sources => !fresh(sources).transactions.some(r => r.id === 'prior-period-bills' || r.id === 'next-period-bills'));
+mutant('newest-first sort reversed', 'public/forecast.js',
+  'rows.sort((a, b) => b.date.localeCompare(a.date)',
+  'rows.sort((a, b) => a.date.localeCompare(b.date)',
+  sources => fresh(sources).transactions[0].date === '2026-08-20' && fresh(sources).transactions[4].date === '2026-08-17');
+mutant('money-in direction dropped', 'public/forecast.js',
+  "direction: tx.amount < 0 ? 'in' : 'out',",
+  "direction: 'out',",
+  sources => fresh(sources).transactions.find(r => r.id === 'bills-credit').direction === 'in');
+mutant('pending flag dropped', 'public/forecast.js',
+  'const pending = tx.pending === true;\n      const label =',
+  'const pending = false;\n      const label =',
+  sources => fresh(sources).transactions.find(r => r.id === 'bills-pending').pending === true);
+mutant('pending coverage gate dropped', 'public/forecast.js',
+  "if (pendingCoverageStatus(packet) !== 'complete') {",
+  'if (false) {',
+  sources => activeOf(advise(engine(sources), world('pending-incomplete'))).stackSummary.billsAccount.status === 'unavailable');
+mutant('the reading guard dropped', 'public/forecast.js',
+  'const now = !readingIssue && observed && finite(pub.observedCash)',
+  'const now = observed && finite(pub.observedCash)',
   sources => activeOf(advise(engine(sources), world('misaligned'))).stackSummary.billsAccount.now.amount === null);
-mutant('no observation still prints the plan row', 'public/forecast.js', 'const now = !readingIssue && observed && finite',
+mutant('no observation still prints the plan row', 'public/forecast.js',
+  'const now = !readingIssue && observed && finite',
   'const now = !readingIssue && finite',
   sources => activeOf(advise(engine(sources), world('no-observation'))).stackSummary.billsAccount.now.amount === null);
-mutant('an incomplete posted window still prints the reading', 'public/forecast.js', "'posted-window-incomplete']);",
-  "]);",
+mutant('an incomplete posted window still prints the reading', 'public/forecast.js',
+  "'posted-window-incomplete']);",
+  ']);',
   sources => activeOf(advise(engine(sources), world('window-incomplete'))).stackSummary.billsAccount.now.amount === null);
-const listGate = "const ready = Array.isArray(pubItems) && (pub.status === 'ready' || unpairedOnly);";
-mutant('an unpaired transfer withholds every list again', 'public/forecast.js', listGate,
-  "const ready = pub.status === 'ready' && Array.isArray(pubItems);",
-  sources => Array.isArray(activeOf(advise(engine(sources), world('unpaired'))).stackSummary.billsAccount.alreadyOut));
-mutant('the lists published with a withheld close', 'public/forecast.js', listGate,
-  'const ready = Array.isArray(pubItems);',
-  sources => activeOf(advise(engine(sources), world('stale'))).stackSummary.billsAccount.comingOut === null);
-mutant('the settled line uses the scope check that records an issue', 'public/forecast.js',
-  "&& (!row.payingAccount || row.payingAccount === BILLS_ACCOUNT_ID))", '&& billsCashScope(row))',
-  sources => activeOf(advise(engine(sources), externalSettled(world()))).billsAccountPeriodBalance.status === 'ready');
-mutant('a settled card-paid bill listed as Already out', 'public/forecast.js',
-  "&& row.cardPaid !== true\n", '\n',
-  sources => !activeOf(advise(engine(sources), cardSettled('jointCash')(world()))).stackSummary.billsAccount.alreadyOut.some(r => r.id === 'card-settled'));
 {
   const src = read('public/stack-cards.js');
-  const from = "accountRow(r, r.status === 'late' ? 'late' : null, false)";
-  assert.ok(src.includes(from));
-  ok(!/· late/.test(text(cardOf(view, loadCards(src.replace(from, 'accountRow(r, null, false)'))))), 'mutant caught: the page drops the late word');
+  const fromPending = "var pending = item.pending === true;";
+  assert.ok(src.includes(fromPending), 'mutant anchor missing: stack-cards pending');
+  ok(!/· Pending/.test(text(cardOf(view, loadCards(src.replace(fromPending, 'var pending = false;'))))),
+    'mutant caught: stack-cards drops the pending marker');
+  const fromIn = "var incoming = item.direction === 'in';";
+  assert.ok(src.includes(fromIn), 'mutant anchor missing: stack-cards incoming');
+  ok(!/\+\$412\.50/.test(text(cardOf(view, loadCards(src.replace(fromIn, 'var incoming = false;'))))),
+    'mutant caught: stack-cards drops the money-in sign');
 }
 
 console.log(`\n${checks} checks passed`);
