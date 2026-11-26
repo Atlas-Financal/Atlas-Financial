@@ -685,16 +685,22 @@ async function compact(p) {
     const page = await pageFor(r);
     cardTile(page.blockHtml('credit'), line);
   }
-  for (const rename of [false, true]) {
-    const r = observe(p, 'mapped', (x) =>
-      Object.assign(
-        x.payload.transactions.find((tx) => tx.id === 105),
-        { payee: rename ? 'New bill display name' : 'Invented utility', original_name: null }
-      )
-    );
-    const result = [r.s.bills.paid, r.view.budgetHold, r.s.surplus.amount];
-    if (rename) defect(3, 'payee-only bill rename', result, [0, 216, 673]);
-    else assert.deepEqual(result, [16, 200, 689]);
+  const billInput = ledger(p, 'mapped');
+  const utility = billInput.payload.transactions.find(tx => tx.id === 105);
+  utility.original_name = null;
+  const first = Live.fromObservation(billInput);
+  utility.payee = 'New bill display name';
+  billInput.payload.fetchedAt = '2026-09-20T18:10:00Z';
+  const cold = publication(billInput);
+  const renamed = publication({ ...billInput, priorPostedBillReceipts: first.report.postedBillReceipts });
+  const settled = [16, 200, 689];
+  for (const [scenario, r, expected] of [
+    ['original bill', fromServed(first.data), settled],
+    ['unfamiliar payee without prior receipt', cold, [0, 216, 673]],
+    ['renamed bill with prior receipt', renamed, settled]
+  ]) {
+    active = { scenario, receiptId: utility.id };
+    assert.deepEqual([r.s.bills.paid, r.view.budgetHold, r.s.surplus.amount], expected, scenario);
     const page = await pageFor(r);
     const billHead = plain(
       capture(
@@ -707,9 +713,15 @@ async function compact(p) {
     surfaces(r);
   }
   for (const name of ['carry', 'lateCarry']) {
-    const r = observe(p, name);
-    // #1663 should flip both rollover cases to $5 due and $845 Surplus.
-    defect(8, name, [r.s.credit.totals.minimumsDue.amount, r.s.surplus.amount], [0, 850]);
+    const unnamed = observe(p, name);
+    assert.deepEqual([unnamed.s.credit.totals.minimumsDue.amount, unnamed.s.surplus.amount], [0, 850],
+      name + ': an unnamed transfer does not establish a carry');
+    const r = observe(p, name, x => {
+      x.payload.transactions.find(tx => tx.account_id === 3001 && tx.amount === 20).notes = 'card payment: Travel Visa';
+    });
+    const carried = r.view.bills.filter(row => row.carriedRemainder);
+    assert.deepEqual(carried.map(row => row.remaining), [5], name + ': one unpaid remainder');
+    assert.deepEqual([r.s.credit.totals.minimumsDue.amount, r.s.surplus.amount], [5, 845], name);
     const page = await pageFor(r);
     waterfall(r.view, page.sandbox.StackWaterfall.html(page.context(), { creditOpen: true }));
     assert.equal(page.selectPeriod('2026-09-18'), '2026-09-18');
@@ -816,7 +828,7 @@ async function main() {
   const ids = new Set([...defects].map((s) => Number(s.split(' ')[0])));
   assert.deepEqual(
     [...ids].sort((a, b) => a - b),
-    [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    [2, 4, 5, 6, 7, 9, 10, 11, 12]
   );
   for (const label of defects) console.log('KNOWN-DEFECT ' + label);
   console.log(
