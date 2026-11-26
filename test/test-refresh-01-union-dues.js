@@ -230,12 +230,16 @@ function commitmentKey(row) {
     delete copy.label;
     delete copy.note;
   }
+  // Owner-directed savings-goal change: only the amount moved for this
+  // row. Identity and every other field still have to match.
+  if (OWNER_CHRISTMAS_2026_AMOUNT.has(copy.id)) {
+    delete copy.amount;
+  }
   return JSON.stringify(copy);
 }
 // Oct 1 team-fee replacement has its own exact-input/synthetic regression;
 // that authorized replacement is not a union-dues side effect.
-const SUPERSEDED_COMMITMENT_IDS = new Set(['fusion-season', 'warriors', 'home-insurance', 'burrards-team-fees',
-  'christmas-2026']); // owner-raised savings goal (this PR): authorized change, not a union-dues side effect
+const SUPERSEDED_COMMITMENT_IDS = new Set(['fusion-season', 'warriors', 'home-insurance', 'burrards-team-fees']);
 const OWNER_2026_09_23_RETIRED = new Set([
   'downstairs-couch',
   'exterior-painting',
@@ -243,6 +247,7 @@ const OWNER_2026_09_23_RETIRED = new Set([
   'indio-tournament',
 ]);
 const OWNER_2026_09_23_AMOUNT = new Set(['seattle-nov', 'seattle-dec', 'provincials']);
+const OWNER_CHRISTMAS_2026_AMOUNT = new Set(['christmas-2026']);
 const OWNER_DATED_COMMITMENT_IDS = new Set([
   'burrards-team-fees',
   'seattle-nov',

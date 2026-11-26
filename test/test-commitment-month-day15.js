@@ -203,7 +203,7 @@ console.log('\n=== expandEvents dates the occurrences (synthetic when-only + liv
       && decEvents.filter(e => e.id === 'seattle-dec').length === 1,
     'December emits Linden birthday once and seattle-dec once');
   ok(xmas && xmas.date === '2026-12-25' && near(xmas.amount, -4300),
-    'christmas-2026 cash is −4300 on 2026-12-25');
+    'christmas-2026 cash falls on 2026-12-25');
 }
 
 {
@@ -238,7 +238,7 @@ console.log('\n=== December Stage2 planned-spending includes the hand-listed com
   ok(traj.status === 'ready' && dec && dec.stage2 && dec.stage2.commitments,
     'December 2026 Stage2 is published');
   ok(near(dec.stage2.commitments.amount, HAND_DEC_COMMITMENTS_OUT),
-    'December Stage2 commitments equal the hand total $7,200 planned from the 2026-08-19 asOf',
+    'December Stage2 commitments equal the hand total planned from the 2026-08-19 asOf',
     dec && dec.stage2 && String(dec.stage2.commitments.amount));
   const independentStage2 = (dec.stage1.result.amount || 0) - HAND_DEC_COMMITMENTS_OUT;
   ok(near(dec.stage2.result.amount, independentStage2)

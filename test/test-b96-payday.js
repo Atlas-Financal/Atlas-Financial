@@ -216,12 +216,12 @@ console.log('\n=== C. future financial gravity affects today; the payday window 
   const xmas = clone(live);
   const xmasRow = (xmas.plan.commitments || []).find(c => c.id === 'christmas-2026');
   ok(xmasRow && xmasRow.date === '2026-12-25' && near(xmasRow.amount, 4300),
-    'Christmas is the owner-dated $4,300 cash event on 2026-12-25');
+    'Christmas is the owner-dated cash event on 2026-12-25');
   const xmasBefore = F.expandEvents(live.plan, liveAsOf, '2026-12-31', {})
     .filter(e => e.id === 'christmas-2026');
   ok(xmasBefore.length === 1 && xmasBefore[0].date === '2026-12-25'
       && near(xmasBefore[0].amount, -4300),
-    'unsettle Christmas still emits −$4,300 on 2026-12-25');
+    'unsettle Christmas still emits its cash event on 2026-12-25');
   xmasRow.settledOn = liveAsOf;
   const xmasAfter = F.recommend(xmas.plan, liveAsOf, recOpts());
   const xmasEventsAfter = F.expandEvents(xmas.plan, liveAsOf, '2026-12-31', {})
