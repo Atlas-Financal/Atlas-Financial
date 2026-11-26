@@ -5242,6 +5242,7 @@ function observeCore(input, capture) {
     // Part (b): the refusals of this observation's one review, never re-derived.
     recurringRefused: recurringReview.refused,
     onCoverageDiagnostic: input.onCoverageDiagnostic,
+    provedPayerReceipts: input.provedPayerReceipts,
   });
   assembled.currentPeriodActuals = actualsPass.packet;
   // U4: a noted TD minimum payment stays evidence only if card coverage, on
@@ -7908,6 +7909,9 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       && Forecast.cardPaymentDestinationConflict({ ...emittedRow, cardPaymentDestination: payeeDestination })) {
       emittedRow.cardPaymentDestination = payeeDestination;
     }
+    // Server-held proof only. A provider field on the raw row never reaches this list.
+    const carried = Forecast.carriedPayerReceipt(emittedRow, opts.provedPayerReceipts);
+    if (carried) emittedRow.provedPayerReceipt = carried;
     const explicitCardKind = kindHint === 'payment' && String(tx.kind).toLowerCase() === 'card-payment';
     if (amount !== 0 && emittedRow.savingsPostingEvidence === 'posted' && (flags.cardPaymentNoteDestination || explicitCardKind)) {
       const payment = Forecast.payingSidePayment(emittedRow);
