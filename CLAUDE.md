@@ -25,6 +25,9 @@ scaffolding. The rule numbers are kept so existing references (for example
   own, one Merge line, frozen heads, the current address, the real page checked
   privately, and rule 16's owner-decided cases. They narrow the review and
   merge rules; they loosen nothing except rule 16's named cases.
+- **Pace decision** (Dale, 2026-11-26; OD-064): nothing waits but merge
+  order, every open PR has a next action and owner, 60 idle minutes means
+  act at once, no cap on parallel builds. Set out after rule 16 below.
 - **Ledger rule 17** (Dale, 2026-11-11): Grok Bot owns the ledger-side work.
 
 **Roles**
@@ -42,28 +45,44 @@ scaffolding. The rule numbers are kept so existing references (for example
   and advises Dale, and posts a correction where it sees a rule or figure
   problem. It does not dispatch, review of record or merge unless the lead
   or Dale asks.
-- **Review and merge by model (OD-063):** for each PR the lead picks a
-  reviewer of record whose model differs from the model that built it, and a
-  merger that is neither the builder's model nor the reviewer. Dale's
-  example: Claude builds, ChatGPT reviews, Grok merges. The review contract,
-  findings format, Merge gate, private figures diff, Dale's figures look and
-  rule 15 are unchanged, and nobody reviews or merges their own build. It
-  widens only who may review and merge; where an older line below names a
-  narrower set, this line wins.
-- **Reviewers of record:** ChatGPT (Atlas) and Muse, each on a PR it did
-  not build, including figures-moved changes, with one bounded review (Dale,
+- **Review and merge eligibility (OD-063): the one home.** Every other line
+  in this file that names a reviewer of record, a default reviewer, a default
+  merger, a backup merger or a fallback merger means whoever is eligible
+  here, and points here.
+  1. *Reviewer of record:* the lead picks it for each PR. Its model must
+     differ from the model that built the PR, not only its session. ChatGPT
+     (Atlas) and Muse are the usual picks (OD-027); the lead may pick another
+     model that is not barred below.
+  2. *Merger:* the lead picks it for each PR. It is neither the builder's
+     model nor the PR's reviewer, and it makes the merge decision only
+     through the full Merge gate. A merger on a model the builder or the
+     reviewer used is not eligible, whether it is a default, a backup or a
+     10-minute fallback merger, and whether or not it is a separate session.
+     With no eligible merger, the PR waits.
+  3. *A model assignment never lifts a standing limit.* Nobody reviews or
+     merges their own build; Atlas never merges; Astra never reviews of
+     record or merges; Muse does not merge a PR it reviewed; Codex is
+     paused. Dale's example (Claude builds, ChatGPT reviews, Grok merges)
+     names models the lead may choose within these limits. It grants no
+     role to the Grok Bot app and expands no agent's authority.
+  4. *Unchanged:* the review contract, findings format, Merge gate, private
+     figures diff, Dale's figures look and rule 15.
+- **Reviewers of record:** the reviewer picked under "Review and merge
+  eligibility" above, on a PR whose builder used a different model,
+  including figures-moved changes, with one bounded review (Dale,
   2026-11-22; OD-027 in [`docs/OWNER_DECISIONS.md`](docs/OWNER_DECISIONS.md),
   which supersedes the reviewer part of OD-026). The Claude in-house reviewer
   sessions are stood down. The review contract, findings format and merge
   gate are unchanged.
-- **ChatGPT (Atlas):** reviewer of record (OD-027), still the second builder,
-  one item at a time, and gives desk rulings when the lead asks. It never
-  merges.
+- **ChatGPT (Atlas):** reviewer of record (OD-027) when eligible, still the
+  second builder, one item at a time, and gives desk rulings when the lead
+  asks. It never merges.
 - **Muse:** reviewer of record (OD-027) and merger under the merge gate,
-  plus routine monitoring. Muse does not merge a PR it reviewed. Planning and
-  dispatch move to the lead.
+  each only when eligible, plus routine monitoring. Muse does not merge a PR
+  it reviewed. Planning and dispatch move to the lead.
 - **Grok (Grok Bot):** owns the ledger-side work, under rule 17 below. Grok
-  Bot writes no code. It may merge a PR when the lead picks it under OD-063.
+  Bot writes no code. It is the ledger app, not a reviewer or merger; OD-063
+  does not give it either role.
 - **Astra:** approved builder and read-only analyst (Dale, 2026-11-23;
   OD-035). It takes `TASK` (read-only) and `BUILD` items from the lead
   through its mailbox, issue #1611, one at a time, under every builder rule.
@@ -77,11 +96,13 @@ scaffolding. The rule numbers are kept so existing references (for example
 - **Codex:** paused; resuming it is Dale's call.
 - Nobody reviews or merges their own build. Atlas never merges.
 - **Backup merger:** under the full Merge gate, a Claude Code session may
-  merge a PR it neither built nor reviewed, when Muse reviewed that PR
-  (OD-027) or under the 10-minute Merge fallback, if the exact-head review is
-  by another agent or session. Dispatching a build is not
-  building it. Muse stays the default merger; Atlas never merges. (Muse itself
-  merges as soon as the gate completes, #787 6630392842.)
+  merge a PR when Muse reviewed that PR (OD-027) or under the 10-minute Merge
+  fallback, only if it is an eligible merger under "Review and merge
+  eligibility" above: its model is neither the builder's nor the reviewer's,
+  and the exact-head review is by another agent or session. Dispatching a
+  build is not building it. Muse stays the default merger when eligible;
+  Atlas never merges. (Muse itself merges as soon as the gate completes, #787
+  6630392842.)
 
 **Standing practice**
 
@@ -103,7 +124,7 @@ the one owner-decided loosening, limited to exactly the cases it names.
     merged #867). A PR that conflicts with main is caught up by its own
     builder, never folded into another PR.
 12. **One merge list.** The lead keeps one pinned "Merge line" comment on #821:
-    each PR, its exact head and its next step. Muse merges only a PR and head
+    each PR, its exact head and its next step. A merger (Roles, eligibility) merges only a PR and head
     on that list. Slack points to the list; it does not restate it.
 13. **Frozen heads.** Once review is requested, the builder pushes only after a
     `BLOCKERS FOUND` record or the lead's ask, and tells the lead. Immediately
@@ -136,6 +157,25 @@ the one owner-decided loosening, limited to exactly the cases it names.
     and a non-builder records that result on the PR, naming that base and
     head. A head move re-runs the diff first. When any household field
     moves, his look is required.
+
+**Pace decision** (owner decision, Dale, direct, 2026-11-26; OD-064 in
+[`docs/OWNER_DECISIONS.md`](docs/OWNER_DECISIONS.md), with his exact words;
+recorded on #821 7200635066, amended by #821 7201845978). Nothing waits
+unless it has to; the only acceptable wait is merge order. Every open PR
+always has a next action, an owner and a time; a PR with no action for 60
+minutes is acted on at once (pushed forward, reassigned or closed). No idle
+hand-offs: when a step finishes, the next starts immediately. Independent
+work runs in parallel; PRs touching the same files go one at a time in a
+stated order. There is no cap on parallel builds (the amendment replaces the
+original cap of 3). Anything needed from Dale (a figures look, a Grok edit
+preview, an owner stop) is asked in one short plain message with a yes/no
+the moment it is needed. The mailbox watcher checks every 10 minutes. Dale's
+one-off items (clearing #1645, #1657 and #1658 that day; stopping
+`scripts/demo-asset-digests.json` from causing conflicts between PRs as the
+next build after the credit fix) are in OD-064. It loosens no safety rule: a
+different model still reviews and another merges (Roles, "Review and merge
+eligibility"), Dale still does his figures look, Grok Bot still confirms
+ledger work (rule 17), and no PR is bundled with another (rule 11).
 
 **Ledger rule** (owner decision, Dale, 2026-11-11; recorded on #821
 6804776747 and 6805059178).
@@ -248,8 +288,9 @@ Two separate things, and they should not be confused.
    scope and trust forks. It never answers a household fact — those are
    questions for the household and live in `docs/01_OPEN_QUESTIONS.md` — and it
    never holds work items, which live in `BACKLOG.md`.
-2. **The Atlas Contract / Systems Review** — the reviewer of record (ChatGPT
-   (Atlas) or Muse, never the PR's builder; Roles, OD-027) performs it.
+2. **The Atlas Contract / Systems Review** — the reviewer of record (picked
+   under Roles, "Review and merge eligibility"; never the PR's builder or a
+   session on the builder's model) performs it.
    Historical in-house reviewer and Atlas records stay valid. It reads a pull request's exact head and publishes
    factual findings, never a PASS, an approval, or merge permission. It reviews
    every figures-moved pull request. It does not make merge
@@ -293,11 +334,12 @@ their own build:** the builder hands back and a merger decides.
 
 ### Independent agent review — any agent that is not the active builder
 
-The reviewers of record are ChatGPT (Atlas) and Muse, each only on a pull
-request it did not build (OD-027). One of them reviews every pull request,
+The reviewer of record is picked and bound by Roles, "Review and merge
+eligibility" (OD-027, OD-063): never the builder or a session on the
+builder's model. One reviewer of record reviews every pull request,
 including every figures-moved one, so money logic meets one consistent
-standard. When Muse reviewed a pull request, it does not also merge it; the
-backup merger does.
+standard. When Muse reviewed a pull request, it does not also merge it; an
+eligible merger under Roles does.
 Every reviewer uses the same
 factual findings record (below).
 
@@ -308,12 +350,15 @@ status out of a bot's wording, its reactions, or its identity.
 ### Merger — any agent that is not the builder, except Atlas
 
 Only the agents named here make and record merge decisions, and never on a pull
-request they built. Atlas reviews only and never merges. Muse (dispatcher) is
-the default merger, except on a pull request Muse reviewed (OD-027). Claude
-Code is the backup merger under Dale's standing approval, for pull requests it
-neither built nor reviewed: when Muse reviewed the pull request, when Muse
-asks, or through the 10-minute **Merge fallback** below. Under OD-063 the lead may also pick another merger, Grok included, whose model is neither the builder's nor the reviewer's. If no eligible
-merger is available, the pull request waits. The merger decides under
+request they built. Atlas reviews only and never merges. Who is eligible is
+decided once, in Roles, "Review and merge eligibility" (OD-063): a merger's
+model is neither the builder's nor the reviewer's. Muse (dispatcher) is the
+default merger when eligible, except on a pull request Muse reviewed
+(OD-027). Claude Code is the backup merger under Dale's standing approval,
+for pull requests it neither built nor reviewed and only when eligible under
+Roles: when Muse reviewed the pull request, when Muse asks, or through the
+10-minute **Merge fallback** below. If no eligible merger is available, the
+pull request waits. The merger decides under
 Dale's standing instructions and treats review findings as evidence, not as
 delegated permission — see **Merge gate**.
 
@@ -322,22 +367,27 @@ delegated permission — see **Merge gate**.
 Routine review and merge run by rule; the dispatcher steps in only on
 exceptions. Extended 2026-10-30 (owner).
 
-- **Default reviewer, named by the builder in its REVIEW READY post:**
-  ChatGPT (Atlas) or Muse, whichever did not build it (OD-027), for every
-  pull request (figures-moved or not). Its bounded re-review of its own
-  `BLOCKERS FOUND` repairs is expected.
+- **Default reviewer, picked by the lead under Roles, "Review and merge
+  eligibility" (the builder's REVIEW READY post may suggest one, and the
+  lead's pick binds):** a reviewer whose model differs from the builder's
+  (OD-027, OD-063), for every pull request (figures-moved or not). Its
+  bounded re-review of its own `BLOCKERS FOUND` repairs is expected.
 - **Claim before reviewing:** the reviewer posts `Reviewing #<n> at <full head
   SHA>` in the assignment thread before starting. The first claim owns the
   review. If no review is claimed within 30 minutes of REVIEW READY, the
   dispatcher assigns a reviewer.
-- **Merge fallback:** Muse merges by default, unless Muse reviewed the pull
-  request; then a Claude Code lead that neither built nor reviewed it merges
-  after the full **Merge gate** verification, or the pull request waits
-  (OD-027). Otherwise the 10-minute clock (Dale, 2026-11-09; previously 30)
+- **Merge fallback:** Muse merges by default when eligible, unless Muse
+  reviewed the pull request; then a Claude Code lead that neither built nor
+  reviewed it, and whose model is neither the builder's nor the reviewer's
+  (Roles, "Review and merge eligibility"), merges after the full **Merge
+  gate** verification, or the pull request waits (OD-027). Otherwise the
+  10-minute clock (Dale, 2026-11-09; previously 30)
   starts when the exact head first has both green required checks and a
   `NO BLOCKERS FOUND` review. If Muse has not merged by then, the backup
-  merger (Claude Code, never for a pull request it built or reviewed) may
-  merge after the same **Merge gate** verification.
+  merger (Claude Code, never for a pull request it built or reviewed, and
+  never on the builder's or the reviewer's model) may merge after the same
+  **Merge gate** verification. No fallback makes an ineligible session
+  eligible.
 - **The dispatcher still owns build-side coordination:** what is built, by
   whom, in what order, and file reservations. It handles unclaimed reviews,
   stalled merges and conflicts.
@@ -364,7 +414,7 @@ up to eight PRs for over an hour.
 
 |  | Atlas Contract / Systems Review | Independent improvement audit |
 |---|---|---|
-| Performed by | ChatGPT (Atlas) or Muse, never the builder (OD-027) | An agent that is not the active builder |
+| Performed by | The reviewer of record picked under Roles, never the builder or its model (OD-027, OD-063) | An agent that is not the active builder |
 | Status | **Required only when a high-risk trigger fires** | Optional |
 | Question | Is this exact head unsafe or architecturally wrong to merge? | What could be improved? |
 | Result | Factual findings: `BLOCKERS FOUND`, `NO BLOCKERS FOUND`, or `INCOMPLETE` | Findings with dispositions |
@@ -382,8 +432,8 @@ defect remains a blocker because the defect is real.
 > may review; Atlas reviews figures-moved PRs. Historical PASS records remain as
 > history.
 
-**The reviewer of record (ChatGPT (Atlas) or Muse) performs this review by
-default**, and always for a figures-moved pull request (Dale, 2026-11-22;
+**The reviewer of record (picked under Roles, "Review and merge eligibility")
+performs this review by default**, and always for a figures-moved pull request (Dale, 2026-11-22;
 OD-027, which supersedes the reviewer part of OD-026; historical records stay
 valid).
 When a high-risk trigger
@@ -699,7 +749,7 @@ primary label is a projection of that row, not a second judgement.
   systems-review trigger fired. No approval click. A high-risk trigger still
   waits for Atlas Contract / Systems Review `NO BLOCKERS FOUND` on the current
   head.
-- **`figures-moved`** — the reviewer of record (ChatGPT (Atlas) or Muse, OD-027) reviews it, so money logic meets one standard.
+- **`figures-moved`** — the reviewer of record (picked under Roles, "Review and merge eligibility"; OD-027) reviews it, so money logic meets one standard.
   The owner sees the figures diff before the merge. That
   is a *look*, not a sign-off ritual: reconcile the bot's list against the card,
   and if they disagree, one of them is wrong.
