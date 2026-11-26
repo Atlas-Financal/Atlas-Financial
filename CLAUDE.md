@@ -51,11 +51,13 @@ scaffolding. The rule numbers are kept so existing references (for example
 - **Astra:** approved builder and read-only analyst (Dale, 2026-11-23;
   OD-035). It takes `TASK` (read-only) and `BUILD` items from the lead
   through its mailbox, issue #1611, one at a time, under every builder rule.
-  It never reviews of record or merges. Dispatch runs through Slack
-  (OD-046): the brief goes on #1611 first, then the lead asks Atlas
-  in the Plan #6 thread to route it to Astra on a named
-  setting; Atlas asks Dale once if that build and setting are not yet
-  approved. #1611 stays the source of truth.
+  It never reviews of record or merges. Slack is the primary dispatch
+  path (OD-046): the brief goes on #1611 first, then the lead asks Atlas
+  in the Plan #6 thread to route it to Astra on a named setting. Atlas
+  asks Dale once if that build and setting are not yet approved, reuses an
+  eligible existing session before starting a new one, and makes no silent
+  model swap or duplicate builder. #1611 stays the source of truth, and
+  the mailbox timer stays as the backup.
 - **Codex:** paused; resuming it is Dale's call.
 - Nobody reviews or merges their own build. Atlas never merges.
 - **Backup merger:** under the full Merge gate, a Claude Code session may
@@ -158,14 +160,16 @@ the one owner-decided loosening, limited to exactly the cases it names.
     **Card-payment destination inference** (owner decision, Dale,
     2026-11-25; #821 7174658128; OD-044 in
     [`docs/OWNER_DECISIONS.md`](docs/OWNER_DECISIONS.md)): the one place
-    Atlas builds matching of its own. When a payment leaves the paying
-    account with no note naming its card, Atlas may count it toward exactly
-    one card (or the HELOC) when a payment lands on exactly that one for the
-    same amount, posted or pending, or when it closely matches the amount
-    expected for exactly one card that period (then no stronger than
-    `estimated`). Ambiguity counts it toward nothing; a ledger note always
-    wins; Atlas only reads. The tolerance and window are stated and tested
-    in the build. Everything else in this rule is unchanged.
+    Atlas builds matching of its own. It covers only a debit from the Bills
+    account with no note naming its card. Atlas may count that debit toward
+    exactly one card (or the HELOC) in two cases: a payment or credit of the
+    same amount, posted or pending, lands on exactly that one within a short
+    window; or the debit closely matches the amount expected for exactly
+    one card that period (then no stronger than `estimated`). Two candidate
+    cards, or two candidate debits for one receipt or one expected amount,
+    count it toward nothing. A ledger note always wins; Atlas only reads.
+    The tolerance and window are stated and tested in the build. Everything
+    else in this rule is unchanged.
 
 The merge card and its CI checks (`merge-card-check`, risk label) stay as they
 are.
