@@ -137,13 +137,15 @@
   // estimated. None for false or 'unknown', none in a projected or future period, none when no coverage is published
   // (the HELOC's cash minimum included), never guessed.
   const CHECK_TRUST = new Set(['calculated', 'verified', 'estimated']);
-  function minimumCheck(ctx, view, debtId) {
+  function creditLine(ctx, debtId) {
+    const credit = typeof globalThis !== 'undefined' ? globalThis.StackCredit : null;
+    return credit && typeof credit.line === 'function' && debtId != null ? credit.line(ctx, debtId) : null;
+  }
+  function minimumCheck(view, line) {
     const blocks = typeof globalThis !== 'undefined' ? globalThis.StackBlocks : null;
     // A projected period is read through the shell's one rule (isEstimated with no trust word: projected only).
     const projected = !blocks || typeof blocks.isEstimated !== 'function' || blocks.isEstimated(null, view);
     if (!view || view.timelineRole === 'future' || projected) return '';
-    const credit = typeof globalThis !== 'undefined' ? globalThis.StackCredit : null;
-    const line = credit && typeof credit.line === 'function' && debtId != null ? credit.line(ctx, debtId) : null;
     const covered = line && line.minimumCovered;
     // Only a coverage Forecast vouches for (lead ruling, 2026-11-20, on REVIEWER 2's 7047727410): calculated or verified
     // draws a plain check, estimated a soft one; an unavailable, unknown or missing trust draws none.
@@ -182,14 +184,14 @@
         : `<span class="n" data-source="${source}" data-unpublished="true"></span>${DASH}`;
       const due = card ? dueLabel(view, card.debtId) : '';
       return `<li class="wf-card" data-row="card" data-debt-id="${escape(card && card.debtId)}"><span class="wf-name"><b>${escape(cardLabel(ctx, card && card.debtId))}</b>${due ? `<span class="wf-due">${escape(due)}</span>` : ''}</span>`
-        + `<span class="wf-amt">${cell}${minimumCheck(ctx, view, card && card.debtId)}</span></li>`;
+        + `<span class="wf-amt">${cell}${minimumCheck(view, creditLine(ctx, card && card.debtId))}</span></li>`;
     }).join('');
   }
 
   // OD-033 (display only; desk ruling (1), Plan #6): under one plain caption, each card at its Still to pay back. The Credit
   // line stays (E)'s deduction; the rows are what is still owed on each card and do not add up to it (lead, 2026-11-24: the
   // caption says so in plain words). No "Already counted above" row (Dale, 2026-11-24, #1617 7121410691). Every figure is
-  // Forecast's; none is added up here. A withheld figure is a dash, never $0.
+  // Forecast's. When charges are withheld, name the unknown remainder and label any minimum check separately.
   const STILL_CAPTION = 'Still to pay back on each card';
   function targetRows(ctx, view, breakdown) {
     const cell = (amount, source, trustPath) => isAmount(amount)
@@ -197,8 +199,15 @@
       : `<span class="n" data-source="${source}" data-unpublished="true"></span>${DASH}`;
     const cards = breakdown.rows.map((row, i) => {
       const due = row ? dueLabel(view, row.debtId) : '';
+      const line = creditLine(ctx, row && row.debtId);
+      const check = minimumCheck(view, line);
+      const source = `stackSummary.creditBreakdown.rows.${i}.amount`;
+      const chargesUnavailable = row?.amount === null && line?.stillToPayBack?.reasons?.includes('new-charges-unavailable');
+      const figure = chargesUnavailable
+        ? `<span class="n" data-source="${source}" data-unpublished="true"></span><small>Not yet known${check ? `<br>${check} <span aria-hidden="true">Minimum paid</span>` : ''}</small>`
+        : cell(row && row.amount, source, `stackSummary.creditBreakdown.rows.${i}.trust`) + check;
       return `<li class="wf-card" data-row="card" data-debt-id="${escape(row && row.debtId)}"><span class="wf-name"><b>${escape(cardLabel(ctx, row && row.debtId))}</b>${due ? `<span class="wf-due">${escape(due)}</span>` : ''}</span>`
-        + `<span class="wf-amt">${cell(row && row.amount, `stackSummary.creditBreakdown.rows.${i}.amount`, `stackSummary.creditBreakdown.rows.${i}.trust`)}${minimumCheck(ctx, view, row && row.debtId)}</span></li>`;
+        + `<span class="wf-amt">${figure}</span></li>`;
     }).join('');
     const caption = cards ? `<li class="wf-card wf-caption" data-row="still-caption"><span class="wf-name">${escape(STILL_CAPTION)}</span></li>` : '';
     return caption + cards;
