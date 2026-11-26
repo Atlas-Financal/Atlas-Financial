@@ -13,6 +13,7 @@
  *      The head reads $350 / $350, plain (Cash Back's overpayment never covers Travel's shortfall); the dropdown 136 and 0;
  *      the Credit line $136 / $6 (the deduction is unchanged).
  *   3. A card over its limit (the invented card-coverage world): target 200.00, Credit line $200 / $165.
+ *   3b. The dropdown is unchanged on a current period: main's renderer prints it byte for byte.
  *   4. In every case, per card and in total, read from the rendered page: dropdown = tile target − tile paid back
  *      (floored at 0); the Credit line's first figure = Σ the dropdown rows; the head = Σ tile paid back / Σ tile target over
  *      the cards with something to pay back; a card with nothing to pay back has no dropdown row and adds nothing.
@@ -171,6 +172,22 @@ console.log('3. A card over its limit');
   ok(p.drop.get('mbna') === 200 && p.line === '− Credit $200 / $165' && p.headTarget === 200,
     'the dropdown prints 200, the Credit line $200 / $165, and the head\'s target is 200', JSON.stringify([[...p.drop], p.line, p.head]));
   agree(p, 'over limit');
+}
+
+// The dropdown itself is unchanged on a current period (OD-057: "Leave the still to pay back descriptor in the credit card
+// drop down"): main's waterfall renderer (before this change) and this one print byte-identical dropdowns from the same
+// publication. Only the Credit line's own figure changed.
+console.log('3b. The dropdown is unchanged: main\'s waterfall renderer prints the same dropdown on current periods');
+{
+  const cp = require('node:child_process');
+  const MAIN = 'baad05d87a3c02a5ab50cd838ab76ef85860ca7d'; // main before this change
+  const mainWaterfall = cp.execFileSync('git', ['show', MAIN + ':public/stack-waterfall.js'], { cwd: ROOT, encoding: 'utf8' });
+  const onMain = file => (file === 'public/stack-waterfall.js' ? mainWaterfall : read(file));
+  const dropdown = html => (/<ul class="wf-cards"[^>]*>[\s\S]*?<\/ul><\/li>/.exec(html) || [''])[0];
+  const now = current(), then = current(real, onMain);
+  ok(dropdown(now.wf) !== '' && dropdown(now.wf) === dropdown(then.wf) && /Still to pay back on each card/.test(dropdown(now.wf)),
+    'the card week\'s dropdown (caption, rows, ✓) is byte-identical to main\'s renderer');
+  ok(then.line === '− Credit $6' && now.line === '− Credit $136 / $6', 'only the Credit line changed: main printed $6, now $136 / $6', JSON.stringify([then.line, now.line]));
 }
 
 console.log('4. A card with nothing to pay back and no payment evidence does not blank the head');
