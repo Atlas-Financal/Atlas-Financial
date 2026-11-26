@@ -478,6 +478,7 @@
   ["coverage diagnostics: actual branch codes and counts only, without changing figures or qualification","test-coverage-diagnostics.js"],
   ["A1/A2 coverage authority (observer): the stamp reads complete only on positive evidence","test-coverage-positive-evidence.js"],
   ["observation-memory projection keeps the account sync fields so replay equals the live evaluation","test-observation-memory-sync-fields.js"],
+  ["Stack keeps dated card activity when a later observation lacks card sync or covers a shorter window","test-last-known-card-activity.js"],
   ["Fortis confirmed October no-pay requirement","test-fortis-annual-review.js"],
   ["Rehearsal-space monthly estimated timing and no October replay","test-rehearsal-space-bill.js"],
   ["standing Fortis / Shaw / Netflix / TD / YouTube / Spotify / ChatGPT Plus Dale / ChatGPT Plus Amanda / iCloud settlement identities","test-bill-settlement-identities.js"],

@@ -269,7 +269,8 @@ if (!isMainThread) {
       if (attempt && persist) observations.noteAttempt(context, attempt);
       const receipt = attempt || retained.attempt || { source: null, qualified: false,
         checkedAt: null, attemptedAt: null, reason: 'current-observation-unavailable' };
-      const data = require('./live-plan').withLatestCompleteRefresh(retained, receipt);
+      const display = require('./live-plan').withLatestCompleteRefresh(retained, receipt);
+      const data = observations.withLastKnownCardActivity(context, retained.householdAccountId, retained.checkedAt, display);
       return { data, check: data.liveOverlay.retainedRefresh.attempt,
         checkedAt: retained.checkedAt, cashEvidenceAt: retained.cashEvidenceAt || null };
     } catch (_) { return null; }
@@ -731,6 +732,16 @@ if (!isMainThread) {
             job.servedRetained = true;
             return finishJob(job, null, clear.data);
           }
+        }
+        const cardHousehold = completeDisplay && (job.evidence
+          ? observations.replayHousehold(job.context, result.check.checkedAt)
+          : result.check.credentialSource === 'env' && result.check.householdAccountId);
+        if (cardHousehold) {
+          try {
+            const data = observations.withLastKnownCardActivity(displayKey(canonical, env), cardHousehold,
+              result.check.checkedAt, result.data);
+            return finishJob(job, null, data);
+          } catch (_) { /* Incompatible or unreadable display context. */ }
         }
         return result?.data ? finishJob(job, null, result.data) : finishJob(job, unavailable('live-refresh-unavailable'));
         } finally { job.publicationMs = Math.max(0, performance.now() - publicationStarted); }

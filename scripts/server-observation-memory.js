@@ -3,6 +3,7 @@
 // dated display are separate read capabilities, never a canonical store, planner,
 // credential store or restart/deploy survival promise.
 const { isDeepStrictEqual } = require('node:util');
+const Forecast = require('../public/forecast');
 const SCHEMA = 'atlas-provider-observation-memory/v1';
 const ACCOUNT = 'id name display_name institution_name institution type subtype type_name currency balance available_balance available credit_limit limit updated_at balance_as_of balance_last_update date_last_fetched last_fetch plaid_last_successful_update status'.split(' ');
 const CATEGORY = 'id name display_name is_income exclude_from_totals exclude_from_budget is_group is_group_parent archived is_archived group_id'.split(' ');
@@ -217,6 +218,25 @@ function completeTransactionCohort(data) {
 function planWithheld(data) {
   return data?.liveOverlay?.operatingPlan === 'unavailable';
 }
+
+function lastKnownCardActivity(previous, display) {
+  if (!display.householdAccountId) return null;
+  const { context, householdAccountId, data, checkedAt } = display;
+  const current = Forecast.cardActivityForDisplay(data);
+  if (!current) return null;
+  const samePeriod = previous?.householdAccountId === householdAccountId && isDeepStrictEqual(previous.context, context)
+    && previous.start === current.start && previous.end === current.end;
+  const cards = new Map((samePeriod ? previous.cards : []).map(card => [card.id, card]));
+  const asOf = Forecast.budgetAsOf(data);
+  for (const card of current.cards) {
+    const held = cards.get(card.id);
+    if (!held || (Date.parse(checkedAt) > Date.parse(held.observedAt) && asOf >= held.asOf)) {
+      cards.set(card.id, { ...card, asOf, observedAt: checkedAt });
+    }
+  }
+  return { context, householdAccountId, start: current.start, end: current.end, cards: [...cards.values()] };
+}
+
 function create() {
   let slot = null;
   return Object.freeze({
@@ -228,6 +248,10 @@ function create() {
         return null;
       }
       return structuredClone(slot.evidence);
+    },
+    replayHousehold(context, checkedAt) {
+      return slot?.context === context && slot.evidence?.payload.fetchedAt === checkedAt
+        ? slot.sourceHouseholdAccountId : null;
     },
     readDisplay(context) {
       if (!slot?.display || !isDeepStrictEqual(slot.display.context, context)) {
@@ -253,6 +277,19 @@ function create() {
     },
     observeBudget(accountId) {
       if (slot?.display) slot.display.lastBudgetAccountId = accountId;
+      if (slot?.cardActivity && slot.cardActivity.householdAccountId !== accountId) slot.cardActivity = null;
+    },
+    withLastKnownCardActivity(context, householdAccountId, checkedAt, data) {
+      const held = slot?.cardActivity;
+      if (!held || held.householdAccountId !== householdAccountId || !isDeepStrictEqual(held.context, context)
+        || data?.liveOverlay?.applied !== true || planWithheld(data)) return data;
+      const asOf = Forecast.budgetAsOf(data);
+      const period = Forecast.spendingCycle(data.plan, asOf);
+      if (!period || period.start !== held.start || period.end !== held.end) return data;
+      const cards = held.cards.filter(card => card.asOf <= asOf && Date.parse(card.observedAt) < Date.parse(checkedAt));
+      if (!cards.length) return data;
+      return { ...data, liveOverlay: { ...data.liveOverlay,
+        lastKnownCardActivity: structuredClone({ start: held.start, end: held.end, cards }) } };
     },
     noteAttempt(context, attempt) {
       if (slot?.display && isDeepStrictEqual(slot.display.context, context)) slot.display.attempt = structuredClone(attempt);
@@ -274,8 +311,12 @@ function create() {
       const kept = slot?.clearDisplay && isDeepStrictEqual(slot.clearDisplay.context, nextDisplay?.context)
         ? slot.clearDisplay : null;
       const clearDisplay = !nextDisplay ? null : planWithheld(nextDisplay.data) ? kept : nextDisplay;
+      let cardActivity = kept && (!retained || retained.householdAccountId === slot.cardActivity?.householdAccountId)
+        ? slot.cardActivity : null;
+      if (retained && !planWithheld(retained.data)) cardActivity = lastKnownCardActivity(cardActivity, retained);
       slot = { context, evidence: { schema: SCHEMA, payload: sourceInputs(evidence.payload) },
-        display: nextDisplay, clearDisplay };
+        sourceHouseholdAccountId: retained?.credentialSource === 'env' ? retained.householdAccountId : null,
+        display: nextDisplay, clearDisplay, cardActivity };
     },
   });
 }

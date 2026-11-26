@@ -24,6 +24,20 @@
   function stackCardSummary(publication) {
     return CardPeriodMovement.stackCards(publication);
   }
+
+  // The observation store keeps one dated activity reading per card. Use the
+  // same movement publication as the Stack, without the cash or repayment plan.
+  function cardActivityForDisplay(data) {
+    const asOf = budgetAsOf(data);
+    const period = data?.plan && spendingCycle(data.plan, asOf);
+    if (!period || !CardPeriodMovement || !Array.isArray(data.debts)) return null;
+    const publication = cardPeriodMovements(data.plan, data.debts, asOf, period, {
+      currentPeriodActuals: budgetCurrentActuals(data), liveOverlay: data.liveOverlay,
+    });
+    const cards = stackCardSummary(publication).filter(card => Number.isFinite(card.spent.amount))
+      .map(({ id, spent, paid, transactions }) => ({ id, spent, paid, transactions }));
+    return { start: period.start, end: period.end, cards };
+  }
   // Stack Wallet A6b: the Credit lines (paid back of spent, status, the card's
   // minimum from the period's published bills split, minimum covered).
   // `facilities` (optional): { debts, extra, plan }, read through utilisation for each card's over-limit amount (the
@@ -13524,10 +13538,22 @@
           ...(Object.hasOwn(cardCredit, 'remainderTrust') ? { remainderTrust: capTrust(cardCredit.remainderTrust) } : {}) };
         periodCardCreditByPeriod.set(view, cardCredit);
       }
+      let credit = cardCredit?.credit || null;
+      const activity = opts?.lastKnownCardActivity;
+      if (credit && activity?.start === view.start && activity.end === view.end) {
+        const estimatedActivity = figure => Number.isFinite(figure.amount) ? { ...figure, trust: 'estimated' } : figure;
+        credit = { ...credit, lines: credit.lines.map(line => {
+          const held = line.spent.amount === null && activity.cards.find(card => card.id === line.id);
+          if (!held) return line;
+          // These figures and rows describe the same observation. Leave the
+          // current paying-side evidence, targets and coverage checks intact.
+          return { ...line, spent: estimatedActivity(held.spent), paid: estimatedActivity(held.paid),
+            transactions: held.transactions, activityObservedAt: held.observedAt };
+        }) };
+      }
       view.stackSummary = Object.assign(view.stackSummary || {},
         { income: stackIncome(view), bills, surplus: stackSurplus(view, bills), savings: stackSavings(view, result),
-          billsAccount: stackBillsAccount(view),
-          credit: cardCredit ? cardCredit.credit : null, creditBreakdown: stackCreditBreakdown(cardCredit, bills) });
+          billsAccount: stackBillsAccount(view), credit, creditBreakdown: stackCreditBreakdown(cardCredit, bills) });
     }
     return result;
   }
@@ -32098,6 +32124,7 @@
       cardPeriodBalanceEvidence: overlay && overlay.applied === true ? overlay.cardPeriodBalanceEvidence || null : null,
       // Only what the card publication reads of the overlay (its applied flag and per-account overlays).
       cardLiveOverlay: overlay && overlay.applied === true ? { applied: true, overlays: overlay.overlays } : null,
+      ...(overlay?.lastKnownCardActivity ? { lastKnownCardActivity: overlay.lastKnownCardActivity } : {}),
       operatingPlan: overlay && (liveOperatingPlanUnavailable(null, overlay)
         ? 'unavailable' : overlay.operatingPlan),
       observedCash: overlay && overlay.observedCash,
@@ -32135,7 +32162,7 @@
   }
 
   const Forecast = { earlyReceiptLegMembership, earlyReceiptOpeningSeed, earlyReceiptSweptSeed, cardPaymentNoteDestination, cardPaymentDestinationConflict, cardNotePaymentReceipts, periodBankCheck, billPaymentState, fixedBillPartialPayment, billPaymentHistorySummary, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, obligationAmountScheduleSelect, debtPrincipalShareFor, statementOccurrenceDate, statementOccurrenceIdentity, statementPaymentsReflectedThrough, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
-    cardPeriodMovements, payingSidePayment, stackCardSummary, stackCreditLines, stackCreditBreakdown, pendingHoldReleases,
+    cardPeriodMovements, payingSidePayment, stackCardSummary, stackCreditLines, stackCreditBreakdown, pendingHoldReleases, cardActivityForDisplay,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
     spendingCycle, incomeReceivedAmount, calendarIncomeContribution,
