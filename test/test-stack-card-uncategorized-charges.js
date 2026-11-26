@@ -14,22 +14,24 @@ const candidate = (label, extra = {}) => ['card', 37, null, 'purchase', {
   payee: 'Invented merchant', category_name: label, ...extra,
 }];
 
-async function render(row, { Forecast, kindHint } = {}) {
-  const x = world([grocery, row, ['bills', 25, null, 'cash', { notes: 'card payment: Travel Visa' }]], {
+async function render(rows, { Forecast, kindHint, editObservation } = {}) {
+  const x = world([grocery, ...rows, ['bills', 25, null, 'cash', { notes: 'card payment: Travel Visa' }]], {
     edit(x) {
       x.data.plan.budget.excluded = [{ from: 'Invented business' }];
       for (const account of x.payload.accounts) account.last_fetch = x.asOf + 'T17:00:00Z';
+      editObservation?.(x.payload);
     },
   });
   const { data } = Live.fromObservation(x);
-  if (kindHint) data.liveOverlay.currentPeriodActuals.transactions
-    .find(tx => tx.displayedPayee === 'Invented merchant').kindHint = kindHint;
+  const { transactions } = data.liveOverlay.currentPeriodActuals;
+  if (kindHint) transactions.find(tx => tx.displayedPayee === 'Invented merchant').kindHint = kindHint;
   const page = await loadStackPage({ data, Forecast });
   assert.equal(page.status(), 'rendered');
   const ctx = page.context();
   const { stackSummary } = ctx.recommendation.payPeriodViews.find(view => view.start === page.selectedKey());
   return {
     summary: stackSummary,
+    transactions,
     line: stackSummary.credit.lines.find(line => line.id === cardId),
     sheet: page.sandbox.StackSheet.html(ctx, `card:${cardId}`),
     tile: page.blockHtml('credit').match(/<li><button[^>]*data-stack-sheet="card:travelvisa"[\s\S]*?<\/li>/)[0],
@@ -73,16 +75,63 @@ function withOldChargeWithhold() {
 }
 
 (async () => {
-  assertCharge(await render(candidate(null)));
-  assertCharge(await render(candidate('Invented business')), false);
-  assertCharge(await render(candidate('Invented unmapped category')));
+  assertCharge(await render([candidate(null)]));
+  assertCharge(await render([candidate('Invented business')]), false);
+  assertCharge(await render([candidate('Invented unmapped category')]));
+
+  // The served packet still has both IDs. Forecast's existing pairing removes
+  // the pending copy from Spent and the Other spending hold.
+  const pending = candidate(null, { is_pending: true });
+  const pendingOnly = await render([pending]);
+  assertCharge(pendingOnly);
+  assert.ok(pendingOnly.line.spent.reasons.includes('includes-pending'));
+  const pair = await render([pending, candidate(null)]);
+  const copies = pair.transactions.filter(tx => tx.displayedPayee === 'Invented merchant');
+  assert.equal(new Set(copies.map(tx => tx.id)).size, 2, 'both distinct provider IDs reach Forecast');
+  assert.equal(copies.filter(tx => tx.pending).length, 1);
+  assertCharge(pair);
+  assert.ok(!pair.line.spent.reasons.includes('includes-pending'), 'the pending copy adds nothing');
+
+  // A native payment receipt is a credit and stays out of new charges.
+  const payment = await render([candidate(null), ['card', -25, null, 'credit', { kind: 'payment' }]]);
+  assertCharge(payment);
+  assert.equal(payment.line.paid.amount, 25);
+  // An unidentified credit retains the existing fail-closed refund treatment.
+  const refund = await render([candidate(null), ['card', -12, null, 'refund', { kind: 'refund' }]]);
+  assert.equal(refund.line.spent.amount, null);
+  assert.ok(refund.line.spent.reasons.includes('card-credit-purpose-unconfirmed'));
+  assert.doesNotMatch(refund.tile, /stack-credit-x is-good|stack-credit-tick is-on/);
+
+  for (const [scenario, reason, editObservation] of [
+    ['stale coverage', 'posted-coverage-incomplete', payload => {
+      payload.transactionWindow.endDate = '2026-09-19';
+      payload.transactions.forEach(tx => { tx.date = '2026-09-19'; });
+      payload.accounts[3].last_fetch = '2026-09-19T17:00:00Z';
+    }],
+    ['manual balance update', 'account-transaction-evidence-unavailable', payload => {
+      // A fresh balance date alone provides no evidence that the ledger synced.
+      delete payload.accounts[3].last_fetch;
+    }],
+  ]) {
+    const { line, sheet, tile } = await render([candidate(null)], { editObservation });
+    assert.equal(line.spent.amount, null, scenario);
+    assert.equal(line.spent.trust, 'unavailable', scenario);
+    assert.ok(line.spent.reasons.includes(reason), `${scenario}: ${line.spent.reasons.join(', ')}`);
+    assert.equal(line.targetCovered.value, 'unknown', scenario);
+    assert.doesNotMatch(tile, /stack-credit-x is-good|stack-credit-tick is-on/, scenario);
+    assert.match(sheet, /Repayment coverage<\/dt><dd[^>]*>Not yet known/, scenario);
+    if (scenario === 'manual balance update') {
+      assert.equal(line.paidBack.amount, 25, 'the Bills payment remains visible');
+      assert.equal(line.minimumCovered.value, true, 'a paid minimum does not greenlight an unobserved card');
+    }
+  }
 
   for (const [row, options] of [
     [candidate('Transfer')],
     [candidate(null), { kindHint: 'refund' }],
     [candidate(null, { is_income: true })],
   ]) {
-    const { line, sheet, tile } = await render(row, options);
+    const { line, sheet, tile } = await render([row], options);
     assert.equal(line.spent.amount, null);
     assert.ok(line.spent.reasons.includes('card-movement-unconfirmed'));
     assert.equal(line.paidBack.amount, 25);
@@ -94,9 +143,9 @@ function withOldChargeWithhold() {
     assert.match(sheet, /Repayment coverage<\/dt><dd[^>]*>Not yet known/);
   }
 
-  const mutant = await render(candidate(null), { Forecast: withOldChargeWithhold() });
+  const mutant = await render([candidate(null)], { Forecast: withOldChargeWithhold() });
   assert.throws(() => assertCharge(mutant), /the card sheet shows both charges/);
   assert.equal(mutant.line.spent.amount, null);
   assert.equal(mutant.line.target.amount, 25);
-  console.log('Stack card charges, deduction, unknown coverage and old-withhold mutant passed');
+  console.log('Stack card charges, deduction, pending replacement, credit rows, coverage and old-withhold mutant passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });
