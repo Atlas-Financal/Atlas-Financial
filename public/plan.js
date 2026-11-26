@@ -4174,9 +4174,14 @@ function budgetGoalPaidProgressHtml(row) {
   const unpaid = budgetGoalCostFact(cost?.unpaidCost);
   const original = budgetGoalCostFact(cost?.originalCost);
   const stillToFund = budgetGoalStillToFundHtml(row);
-  const barFact = paid?.amount != null ? paid : spent;
+  // The bar's tagged segment follows the tagged-spend tally whenever one is
+  // published (even if Paid differs or is withheld); Paid keeps its own
+  // settlement meaning below and is only the segment's source when no tally
+  // is published (for example a category-only link).
+  const barFact = spent?.amount != null ? spent : paid;
+  const paidGeometry = paid?.amount != null && original?.amount > 0;
   const geometry = barFact?.amount != null && original?.amount > 0;
-  const fullyPaid = ownerFull && unpaid?.amount === 0 || paid?.amount != null && geometry && unpaid?.amount === 0 && paid.amount > 0 && !owner;
+  const fullyPaid = ownerFull && unpaid?.amount === 0 || paidGeometry && unpaid?.amount === 0 && paid.amount > 0 && !owner;
   const state = fullyPaid ? 'paid' : geometry ? 'funding' : 'unknown';
   const paidText = fullyPaid && ownerFull && !paid ? '' : budgetGoalCostText(paid);
   const saved = budgetV3Known(row.saved, row.savedTrust) ? row.saved : null;
@@ -4187,8 +4192,12 @@ function budgetGoalPaidProgressHtml(row) {
       : '';
   const stamp = (name, fact) => fact?.amount != null ? ` data-budget-goal-${name}-amount="${fact.amount}"` : '';
   const gapStamp = stillToFund.known ? ` data-budget-goal-still-to-fund-amount="${stillToFund.amount}"` : '';
-  const spentHtml = spent?.amount != null && spent.amount !== paid?.amount
-    ? `<span><small>Spent</small> <span class="budget-goal-paid-amount" data-budget-goal-spent>${budgetGoalCostText(spent)}${original?.amount > 0 ? ' / ' + money2(original.amount) : ''}</span></span>` : '';
+  const pendingCharge = Number.isFinite(cost.taggedSpend?.pendingAmount) && cost.taggedSpend.pendingAmount > 0 ? cost.taggedSpend.pendingAmount : 0;
+  const pendingRefund = Number.isFinite(cost.taggedSpend?.pendingRefundAmount) && cost.taggedSpend.pendingRefundAmount > 0 ? cost.taggedSpend.pendingRefundAmount : 0;
+  const pendingNote = (pendingCharge ? ` <small data-budget-goal-spent-pending="${pendingCharge}">incl. ${money2(pendingCharge)} pending</small>` : '')
+    + (pendingRefund ? ` <small data-budget-goal-spent-pending-refund="${pendingRefund}">${money2(pendingRefund)} pending refund not yet netted</small>` : '');
+  const spentHtml = spent?.amount != null && (spent.amount !== paid?.amount || pendingNote)
+    ? `<span><small>Spent</small> <span class="budget-goal-paid-amount" data-budget-goal-spent>${budgetGoalCostText(spent)}${original?.amount > 0 ? ' / ' + money2(original.amount) : ''}</span>${pendingNote}</span>` : '';
   return `<div class="budget-goal-paid is-${state}" data-budget-goal-paid-progress="${state}"${stamp('paid', paid)}${stamp('spent', spent)}${stamp('original', original)}${gapStamp}>
         <span class="budget-goal-bar" data-budget-goal-bar aria-hidden="true">${fill}</span>
         <span class="budget-goal-paid-figures" data-budget-goal-paid-figures><span><small>Paid</small> <span class="budget-goal-paid-amount" data-budget-goal-paid>${paidText}</span>${budgetGoalOwnerConfirmationHtml(owner, cost.observedLinked, paid, original, cost.overspend)}</span>${spentHtml}<span><small>Still to fund</small> <span class="budget-goal-paid-amount" data-budget-goal-still-to-fund>${stillToFund.html}</span></span></span>

@@ -294,6 +294,14 @@
     return Number.isFinite(value) ? value : null;
   }
 
+  // The bar's tagged amount: the published tagged-spend tally stamp when
+  // present, else the published Paid stamp (a row with no tally, e.g. a
+  // category-only link). Paid never outranks a published tally.
+  function goalBarTaggedAmount(block) {
+    return stampedAmount(block?.getAttribute('data-budget-goal-spent-amount'))
+      ?? stampedAmount(block?.getAttribute('data-budget-goal-paid-amount'));
+  }
+
   // Magnitude ceiling at dollar precision, cent-exact: any nonzero
   // cents round up to the next dollar; exact dollars and zero are
   // unchanged ($0.00 renders $0). Sign is retained, and a negative
@@ -2406,8 +2414,9 @@
       // progress block. A goal whose published state is paid renders full
       // and green. Rows without that published geometry keep the saved /
       // required band below, unchanged.
-      const paidValue = stampedAmount(progressBlock?.getAttribute('data-budget-goal-paid-amount'))
-        ?? stampedAmount(progressBlock?.getAttribute('data-budget-goal-spent-amount'));
+      // The tagged-spend tally (when published) is the bar's tagged amount;
+      // Paid is the fallback only when no tally is stamped.
+      const paidValue = goalBarTaggedAmount(progressBlock);
       const originalValue = stampedAmount(progressBlock?.getAttribute('data-budget-goal-original-amount'));
       let band = 'is-unknown';
       if (paidState) {
@@ -3127,6 +3136,7 @@
     module.exports.readBadTimeline = readBadTimeline;
     module.exports.badTermNegative = badTermNegative;
     module.exports.stampedAmount = stampedAmount;
+    module.exports.goalBarTaggedAmount = goalBarTaggedAmount;
     module.exports.wholeDollarAmount = wholeDollarAmount;
     module.exports.pairSideText = pairSideText;
     module.exports.replacePrintedAmount = replacePrintedAmount;
