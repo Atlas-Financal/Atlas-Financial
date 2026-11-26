@@ -133,8 +133,9 @@ the one owner-decided loosening, limited to exactly the cases it names.
     hand-resolved files; on any mismatch it stops.
 14. **Current address only.** New sessions start on
     `Atlas-Financal/Atlas-Financial`. Sessions tied to the old address finish
-    their open PR and retire. No new builders while the merge list holds
-    unfinished in-flight work.
+    their open PR and retire. New builders may start in parallel with
+    in-flight work (OD-064); every open PR keeps a next action, owner and
+    time.
 15. **Real page, privately.** A figure-moving change is not reported as done
     until its effect has been checked against the household's real data on
     the private route, with nothing posted to GitHub. After each batch that
