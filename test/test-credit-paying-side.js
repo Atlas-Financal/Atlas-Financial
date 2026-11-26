@@ -720,11 +720,11 @@ test('a genuine incoming card reversal still withholds progress, ticks and still
   }
 });
 
-function assertAmbiguousIdentityWithheld(page) {
+function assertAmbiguousIdentityWithheld(page, reason = 'paying-side-evidence-unconfirmed') {
   const { credit } = page;
   assert.equal(credit.totals.minimumsPaid.amount, null);
   assert.equal(credit.totals.minimumsPaid.trust, 'unavailable');
-  assert.ok(credit.totals.minimumsPaid.reasons.includes('paying-side-evidence-unconfirmed'));
+  assert.ok(credit.totals.minimumsPaid.reasons.includes(reason));
   assert.equal(credit.lines.find(line => line.id === 'travelvisa').stillToPayBack.amount, null);
   assert.equal(credit.lines.find(line => line.id === 'cashback').stillToPayBack.amount, null);
   assert.doesNotMatch(creditLineHtml(page, 'travelvisa'), /stack-credit-tick is-on/);
@@ -737,18 +737,56 @@ function assertAmbiguousIdentityWithheld(page) {
   }
 }
 
+// A posted e-transfer in, flagged because its settlement pairing is ambiguous, with no card identity.
+const FLAGGED_DEPOSIT = {
+  id: 'invented-etransfer-ambiguous', date: FIRST, atlasAccountId: 'chequing-a', accountRole: 'household-cash',
+  categoryLabel: 'Payment, Transfer', kindHint: 'payment', amount: -80, currency: 'cad', pending: false,
+  pendingPostedAmbiguous: true, payee: 'E-TRANSFER ***ab1', original_name: 'E-TRANSFER ***ab1',
+};
+// A posted copy with the deposit's identity but a non-payment classification. It never reaches the
+// paying-side candidate loop itself, so only the deposit's duplicate check can see it.
+const CONFLICTING_COPY = {
+  id: FLAGGED_DEPOSIT.id, date: FIRST, atlasAccountId: 'chequing-a', accountRole: 'household-cash',
+  categoryLabel: 'Groceries', displayedPayee: 'Invented shop', amount: -80, currency: 'cad', pending: false,
+};
+
 test('a flagged outside deposit with no card identity does not hide card payment progress', async () => {
   const baseline = await render(FIRST, GIFT_ROWS);
   assertHandDerivedProgress(baseline);
-  const deposit = {
-    id: 'invented-etransfer-ambiguous', date: FIRST, atlasAccountId: 'chequing-a', accountRole: 'household-cash',
-    categoryLabel: 'Payment, Transfer', kindHint: 'payment', amount: -80, currency: 'cad', pending: false,
-    pendingPostedAmbiguous: true, payee: 'E-TRANSFER ***ab1', original_name: 'E-TRANSFER ***ab1',
-  };
-  const page = await render(FIRST, GIFT_ROWS.concat([deposit]));
+  const page = await render(FIRST, GIFT_ROWS.concat([FLAGGED_DEPOSIT]));
   assertHandDerivedProgress(page);
   assertMatchesWithoutRow(page, baseline);
   assert.ok(!page.credit.totals.minimumsPaid.reasons.includes('paying-side-evidence-unconfirmed'));
+});
+
+test('a flagged outside deposit beside its pending twin does not hide card payment progress', async () => {
+  // The posted row legitimately replaces its pending copy. A pending row is not registered as a posted identity.
+  const baseline = await render(FIRST, GIFT_ROWS);
+  const pendingTwin = { ...FLAGGED_DEPOSIT, pending: true };
+  const page = await render(FIRST, GIFT_ROWS.concat([pendingTwin, FLAGGED_DEPOSIT]));
+  assertHandDerivedProgress(page);
+  assertMatchesWithoutRow(page, baseline);
+  assert.ok(!page.credit.totals.minimumsPaid.reasons.includes('duplicate-identity'));
+});
+
+test('an outside deposit whose identity another posted row shares still withholds progress', async () => {
+  const unflagged = { ...FLAGGED_DEPOSIT, pendingPostedAmbiguous: undefined };
+  const cases = [
+    ['flagged deposit and a conflicting copy with the same id', [FLAGGED_DEPOSIT, CONFLICTING_COPY]],
+    ['conflicting copy listed first', [CONFLICTING_COPY, FLAGGED_DEPOSIT]],
+    ['unflagged deposit and a conflicting copy with the same id', [unflagged, CONFLICTING_COPY]],
+    ['same row in a second household account', [FLAGGED_DEPOSIT, { ...FLAGGED_DEPOSIT, atlasAccountId: 'chequing-b' }]],
+  ];
+  for (const [label, rows] of cases) {
+    const page = await render(FIRST, GIFT_ROWS.concat(rows));
+    assert.doesNotThrow(() => assertAmbiguousIdentityWithheld(page, 'duplicate-identity'), label);
+  }
+  // A different id carrying the same coverage reference is the same provider row.
+  const otherCopy = { ...CONFLICTING_COPY, id: 'invented-other-copy' };
+  const page = await render(FIRST, GIFT_ROWS.concat([FLAGGED_DEPOSIT, otherCopy]), packet => {
+    packet.transactions.find(tx => tx.id === otherCopy.id).coverageRef = 'invented-' + FLAGGED_DEPOSIT.id;
+  });
+  assertAmbiguousIdentityWithheld(page, 'duplicate-identity');
 });
 
 test('a flagged incoming row that names a card still withholds progress', async () => {
@@ -757,6 +795,40 @@ test('a flagged incoming row that names a card still withholds progress', async 
   });
   const page = await render(FIRST, GIFT_ROWS.concat([reversal]));
   assertAmbiguousIdentityWithheld(page);
+});
+
+function withCardPeriodMutant(from, to, run) {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const file = path.join(__dirname, '..', 'public', 'forecast-card-period.js');
+  const source = fs.readFileSync(file, 'utf8');
+  assert.equal(source.split(from).length, 2, 'forecast-card-period.js carries the line to mutate exactly once');
+  const mutant = source.replace(from, to);
+  const read = fs.readFileSync;
+  fs.readFileSync = function (target, ...rest) {
+    return path.resolve(String(target)) === file ? mutant : read.call(this, target, ...rest);
+  };
+  return Promise.resolve().then(run).finally(() => { fs.readFileSync = read; });
+}
+
+test('a mutant that drops the duplicate hold lets a shared-identity deposit publish', async () => {
+  await withCardPeriodMutant('if (keys.some(key => duplicates.has(key))) {', 'if (false) {', async () => {
+    const page = await render(FIRST, GIFT_ROWS.concat([FLAGGED_DEPOSIT, CONFLICTING_COPY]));
+    assert.throws(() => assertAmbiguousIdentityWithheld(page, 'duplicate-identity'), assert.AssertionError,
+      'MUTANT: without the duplicate hold a shared-identity deposit publishes progress');
+    assert.equal(page.credit.totals.minimumsPaid.amount, 43);
+  });
+});
+
+test('a mutant that exits before the duplicate hold lets a shared-identity deposit publish', async () => {
+  // The reviewed head's order: the settlement-ambiguity exception skipped the row before its duplicate check.
+  await withCardPeriodMutant('if (evidenceConflict || (settlementAmbiguous && !outsideDeposit)) {',
+    'if (evidenceConflict || settlementAmbiguous) { if (outsideDeposit && !evidenceConflict) continue;', async () => {
+      const page = await render(FIRST, GIFT_ROWS.concat([FLAGGED_DEPOSIT, CONFLICTING_COPY]));
+      assert.throws(() => assertAmbiguousIdentityWithheld(page, 'duplicate-identity'), assert.AssertionError,
+        'MUTANT: an early exit for the deposit skips the duplicate hold');
+      assert.equal(page.credit.totals.minimumsPaid.amount, 43);
+    });
 });
 
 test('a mutant that ignores card identity no longer withholds a flagged card reversal', async () => {
@@ -787,25 +859,15 @@ test('a mutant that ignores card identity no longer withholds a flagged card rev
 });
 
 test('a mutant that drops the card-identity check no longer withholds a genuine reversal', async () => {
-  const fs = require('node:fs');
-  const path = require('node:path');
-  const file = path.join(__dirname, '..', 'public', 'forecast-card-period.js');
-  const source = fs.readFileSync(file, 'utf8');
-  const from = 'if (value < 0 && typeof primitives.incomingCardReversal === \'function\' && !primitives.incomingCardReversal(tx)) continue;';
-  assert.ok(source.includes(from), 'forecast-card-period.js carries the identity check to drop');
-  const mutant = source.replace(from, 'if (value < 0) continue;');
-  const read = fs.readFileSync;
-  fs.readFileSync = function (target, ...rest) {
-    return path.resolve(String(target)) === file ? mutant : read.call(this, target, ...rest);
-  };
-  try {
-    const reversal = payment(undefined, { id: 'unassigned-reversal', date: FIRST, amount: -43 });
-    const page = await render(FIRST, GIFT_ROWS.concat([reversal]));
-    assert.throws(() => assertReversalWithheld(page), assert.AssertionError,
-      'MUTANT: dropping the identity check lets the genuine reversal publish progress');
-    assert.equal(page.credit.totals.minimumsPaid.amount, 43);
-    assert.equal(page.credit.lines.find(line => line.id === 'travelvisa').stillToPayBack.amount, 0);
-  } finally {
-    fs.readFileSync = read;
-  }
+  // One identity check decides both the settlement-ambiguity exception and the skip of an outside deposit.
+  await withCardPeriodMutant(
+    'const outsideDeposit = !bucket && value < 0 && typeof primitives.incomingCardReversal === \'function\' && !primitives.incomingCardReversal(tx);',
+    'const outsideDeposit = !bucket && value < 0;', async () => {
+      const reversal = payment(undefined, { id: 'unassigned-reversal', date: FIRST, amount: -43 });
+      const page = await render(FIRST, GIFT_ROWS.concat([reversal]));
+      assert.throws(() => assertReversalWithheld(page), assert.AssertionError,
+        'MUTANT: dropping the identity check lets the genuine reversal publish progress');
+      assert.equal(page.credit.totals.minimumsPaid.amount, 43);
+      assert.equal(page.credit.lines.find(line => line.id === 'travelvisa').stillToPayBack.amount, 0);
+    });
 });

@@ -146,10 +146,12 @@
         // settlement ambiguity. A card candidate, or a conflict that could hide a debit or
         // reversal, still opens the gap.
         const outsideDeposit = !bucket && value < 0 && typeof primitives.incomingCardReversal === 'function' && !primitives.incomingCardReversal(tx);
-        if (evidenceConflict || settlementAmbiguous) {
-          if (!(outsideDeposit && settlementAmbiguous && !evidenceConflict)) gaps.add('paying-side-evidence-unconfirmed');
+        if (evidenceConflict || (settlementAmbiguous && !outsideDeposit)) {
+          gaps.add('paying-side-evidence-unconfirmed');
           continue;
         }
+        // Before any skip below: a copy with this identity can carry another classification and
+        // never reach this loop, so only a row with a unique identity is passed over as a deposit.
         if (keys.some(key => duplicates.has(key))) {
           gaps.add('duplicate-identity');
           continue;
@@ -158,8 +160,8 @@
         // An internal debit can show the payer was observed without supplying a card payment or reversal.
         if (primitives.unnotedHouseholdMovement?.(tx)) continue;
         if (!bucket) {
-          // No card identity: an incoming deposit is not a payment and not a reversal.
-          if (value < 0 && typeof primitives.incomingCardReversal === 'function' && !primitives.incomingCardReversal(tx)) continue;
+          // No card identity, and a unique identity: an incoming deposit is not a payment and not a reversal.
+          if (outsideDeposit) continue;
           unassigned.push({ tx, value, destination });
         } else if (value < 0) {
           bucket.gaps.add('payment-direction-unresolved');
