@@ -83,6 +83,27 @@ console.log('4. The event stream follows (one reader)');
     JSON.stringify(ev.map(e => [e.date, e.amount, e.confidence])));
 }
 
+console.log('4b. The un-noted payment inference (#1650) reads the same carried minimum');
+{
+  const p = plan();
+  const m = F.expectedCreditLineMinimumCents(p, '2026-11-01', '2026-11-30');
+  ok(JSON.stringify(m.get('travelvisa')) === '[6100]', 'the November Travel minimum the inference matches is 61 (carried), not the plan\'s 25',
+    JSON.stringify(m.get('travelvisa')));
+  ok(JSON.stringify(m.get('triangle')) === '[4000]', 'a card with no statement: the inference still reads its plan amount (40)', JSON.stringify(m.get('triangle')));
+  const FILE = path.join(__dirname, '..', 'public', 'forecast.js');
+  const source = fs.readFileSync(FILE, 'utf8');
+  const anchor = 'for (const occ of obligationOccurrences(o, from, to, undefined, plan)) addMinimum(id, occ.amount);';
+  assert.equal(source.split(anchor).length, 2, 'inference mutant anchor found exactly once');
+  const mod = new Module(FILE, module);
+  mod.filename = FILE;
+  mod.paths = Module._nodeModulePaths(path.dirname(FILE));
+  mod._compile(source.replace(anchor, 'for (const occ of obligationOccurrences(o, from, to)) addMinimum(id, occ.amount);'),
+    FILE.replace(/\.js$/, '-inference-plan-amount.js'));
+  const mm = mod.exports.expectedCreditLineMinimumCents(plan(), '2026-11-01', '2026-11-30');
+  ok(JSON.stringify(mm.get('travelvisa')) === '[2500]', 'MUTANT (inference reads the plan amount): 25, which the check above rejects',
+    JSON.stringify(mm.get('travelvisa')));
+}
+
 console.log('5. Mutant: the carry removed');
 {
   const FILE = path.join(__dirname, '..', 'public', 'forecast.js');
