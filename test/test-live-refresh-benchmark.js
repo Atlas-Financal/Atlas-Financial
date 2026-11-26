@@ -35,7 +35,10 @@ const snapshots = {
     // Re-pinned for the HELOC's paying-side Paid back (Dale, #821 7161929211): these invented cases have no HELOC account, so
     // only each HELOC line's minimumCovered.reasons change (from not-a-spend-card to its paid figure's reasons; the value stays
     // unknown). Restoring those reasons on every HELOC line reproduces the previous digest exactly; no amount or trust moved.
-    forecast: '88ac55ceb27f000a6ed3582d42fba040c5ae8cf7ca77f8d964750838018c8704',
+    // Re-pinned for Dale's Bills account transactions decision (#821; lead brief #1620 7181064255): stackSummary.billsAccount
+    // retires comingIn/comingOut/householdToMove/alreadyOut and publishes transactions (the Bills account's own current-period
+    // ledger rows); stripping stackSummary.billsAccount reproduces main 5f8d00aa byte for byte, and data is unchanged.
+    forecast: '3b3167b421461c35f968b76dbe176e8672d4d18f1f644040bc71cad44b12c983',
   },
   cards: {
     data: 'a94fdc3c78fb627a805f6dd90c23cbb578d5dddc26d0badc09057ec449185e4a',
@@ -53,7 +56,10 @@ const snapshots = {
     // Re-pinned for the HELOC's paying-side Paid back (Dale, #821 7161929211): these invented cases have no HELOC account, so
     // only each HELOC line's minimumCovered.reasons change (from not-a-spend-card to its paid figure's reasons; the value stays
     // unknown). Restoring those reasons on every HELOC line reproduces the previous digest exactly; no amount or trust moved.
-    forecast: '91f87064464d2a77111e9a8c49088ec0ef8de2b62ce7659d06d187b8256d1083',
+    // Re-pinned for Dale's Bills account transactions decision (#821; lead brief #1620 7181064255): stackSummary.billsAccount
+    // retires comingIn/comingOut/householdToMove/alreadyOut and publishes transactions; stripping stackSummary.billsAccount
+    // reproduces main 5f8d00aa byte for byte, and data is unchanged.
+    forecast: '6cab07a62b40f7dfc7d0927c0bbd0e4e69a39cb0585621ee635b242efb0972c8',
   },
   history: {
     data: 'c04e408eb8bcd7566e10fc0dbe71f3f09330a7d587070cd008a9829db93b3ba7',
@@ -71,7 +77,10 @@ const snapshots = {
     // Re-pinned for the HELOC's paying-side Paid back (Dale, #821 7161929211): these invented cases have no HELOC account, so
     // only each HELOC line's minimumCovered.reasons change (from not-a-spend-card to its paid figure's reasons; the value stays
     // unknown). Restoring those reasons on every HELOC line reproduces the previous digest exactly; no amount or trust moved.
-    forecast: 'dc8b1bbcb79024063775d5e0a70ea7a23293060a387e9b3b3af0deb6ca7eaed7',
+    // Re-pinned for Dale's Bills account transactions decision (#821; lead brief #1620 7181064255): stackSummary.billsAccount
+    // retires comingIn/comingOut/householdToMove/alreadyOut and publishes transactions; stripping stackSummary.billsAccount
+    // reproduces main 5f8d00aa byte for byte, and data is unchanged.
+    forecast: '98db0b29d1da0a97ff31f804f0ed4faf3f1231e5cfdd49f479bb89e6e8f5b4ea',
   },
 };
 const digest = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');

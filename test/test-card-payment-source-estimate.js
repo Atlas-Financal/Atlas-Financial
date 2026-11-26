@@ -280,8 +280,7 @@ console.log('9. Every published figure, never above the truth');
   const Snapshot = require('../scripts/figures-snapshot');
   const snapOf = (rows, opts) => { const o = Live.fromObservation(world(rows, opts)); return Snapshot.buildFiguresSnapshot(o.data, o.data.periods || null); };
   const CAUTIOUS = [/^totals\.obligations$/, /^period\.[^.]+\.remainingBills$/,
-    // The Bills account card's owed lines (Household budget still to move, Coming out) are what still leaves Bills: higher is cautious.
-    /^period\.[^.]+\.stackBillsAccountHousehold$/, /^period\.[^.]+\.stackBillsAccountOut\.[^.]+\.amount$/, /reserve/i, /[Rr]equired/, /[Ss]hortfall/,
+    /reserve/i, /[Rr]equired/, /[Ss]hortfall/,
     /[Cc]onsumerDebt/, /^balance\.debts$/, /^revolving\.[^.]+\.(posted|used)$/];
   // The single named pre-existing exception (#1358): the Plan tab's raw walk,
   // drawn only inside the hidden, inert #road-ahead (#1365).

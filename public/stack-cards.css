@@ -50,13 +50,13 @@ html.stack-view .sc-cv{flex:none;width:14px;height:14px;opacity:.68}
 html.stack-view .sc-f>[role=img]{font-size:.6em;font-weight:600;opacity:.68}
 html.stack-view .sc-ck{display:flex;justify-content:flex-end}
 html.stack-view .sc-check{color:#0f7a43;font-size:20px;font-weight:800;line-height:1}
-/* Bills account (lead dispatch 2026-11-24): sky blue, its own rules and secondary ink. */
+/* Bills account (Dale's decision on #821): sky blue, its own rules and secondary ink. */
 html.stack-view .sc-billsacct{--sc-line:#9fcbe8;--sc-muted:#2f5d7c}
 html.stack-view .sc-billsacct .sc-s,html.stack-view .sc-billsacct .sc-f i{color:var(--sc-muted);opacity:1}
-html.stack-view .sc-cap{font-size:13.5px;font-weight:700;color:var(--sc-muted);padding:18px 0 4px}
-html.stack-view .sc-acct{grid-template-columns:minmax(0,1fr) auto 22px}
-html.stack-view .sc-acct.sc-go-row{grid-template-columns:minmax(0,1fr) auto 22px 14px}
+html.stack-view .sc-acct .sc-n{overflow-wrap:anywhere}
 html.stack-view .sc-acct .sc-d{display:block;font-size:13.5px;font-weight:500;color:var(--sc-muted);margin-top:2px}
+html.stack-view .sc-acct .sc-in{color:#0a6636}
+html.stack-view .sc-acct.sc-pending{opacity:.72}
 html.stack-view .sc-unavailable{margin:14px 0 0;font-size:15px;color:var(--sc-muted)}
 /* On the narrowest phones the Bills account figure's "now" drops under the amount, so the title and the smaller sub line keep room to stay one line each and the closed head holds its height. */
 @media (max-width:359px){html.stack-view .sc-billsacct:not([open])>summary{column-gap:8px}html.stack-view .sc-billsacct:not([open]) .sc-f{white-space:normal;text-align:right;font-size:21px}html.stack-view .sc-billsacct:not([open]) .sc-s{font-size:12px}html.stack-view .sc-billsacct:not([open]) .sc-f i{display:block;line-height:1.1}}

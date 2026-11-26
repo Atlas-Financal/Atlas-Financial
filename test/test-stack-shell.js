@@ -178,7 +178,16 @@ console.log('7. The one money format: whole dollars, printed by StackBlocks.mone
   });
   ok(!own.length, 'every block prints money through StackBlocks.money and formats none itself', own.join(', '));
   const cuts = BLOCKS.flatMap(n => (read(`public/stack-${n}.js`).match(/cents: true/g) || []).map(() => n));
-  ok(JSON.stringify(cuts) === JSON.stringify(['sheet']), 'only the sheet asks for cents, once (its transaction lines)', cuts.join(', '));
+  ok(JSON.stringify(cuts) === JSON.stringify(['cards', 'sheet']),
+    'only the sheet (its transaction lines) and cards (Bills account ledger transactions, #821) ask for cents, once each', cuts.join(', '));
+  // Guard that cents: true in stack-cards.js is confined strictly to Bills account transaction rows (txMoney -> accountRow),
+  // never the Bills, Budget, Savings cards or the Bills account closed head.
+  const cardsSrc = read('public/stack-cards.js').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  const txMoneyFn = /function txMoney\([^)]*\)\s*\{[^}]*\}/.exec(cardsSrc);
+  const accountRowFn = /function accountRow\([^)]*\)\s*\{[^}]*\}/.exec(cardsSrc);
+  ok(!!txMoneyFn && /cents: true/.test(txMoneyFn[0]) && (cardsSrc.match(/txMoney\(/g) || []).length === 2
+    && !!accountRowFn && /txMoney\(/.test(accountRowFn[0]),
+  'in stack-cards.js, cents: true lives only in txMoney and is called only by accountRow (Bills account transactions)');
 }
 
 console.log('8. a sheet holds the page still (the browser proof is test/browser-stack-sheet-scroll.js, local; iOS Safari bug, owner phone, 2026-11-20)');

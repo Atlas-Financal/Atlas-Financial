@@ -7,9 +7,9 @@
  * marked row's stackBillPaid, which the card's check reads, so paid is the sum of the checked rows by construction.
  * Trust (lead rulings, 2026-11-20): nothing checked is 0 with the split's own trust; otherwise the weakest of the paid
  * rows' own amount trust; withheld (null, 'unavailable', a reason) when the split, the marks or a paid row's trust is
- * unpublished. A period whose posted evidence is not complete under Budget's own actuals gate
- * (budgetProgress.coverage.complete) withholds paid: no packet, incomplete coverage, a past period before the ledger
- * window (ATLAS REVIEWER 2, 7053664784); a later period reads 0. The card head prints paid / owed and its bar fills
+ * unpublished. With incomplete period coverage under Budget's actuals gate, a positive sum of checked rows is
+ * estimated (OD-045). An unread period, or incomplete coverage with no positive checked sum, withholds paid
+ * (ATLAS REVIEWER 2, 7053664784). A later period can still read 0. The card prints paid / owed and fills its bar
  * through the shell's shared barWidth.
  *
  * Proof, independent of the publisher: invented acceptance-harness households with two Bills rows, hydro 90 and
@@ -36,7 +36,7 @@ const cents = v => Math.round(v * 100);
 // The evidence the paid check shows, written out here (not read from Forecast): #1465 and #1497.
 const PAID_EVIDENCE = new Set(['posted-equal', 'posted-verified']);
 const FILE = path.join(__dirname, '..', 'public', 'forecast.js');
-const SOURCE = fs.readFileSync(FILE, 'utf8');
+const SOURCE = fs.readFileSync(FILE, 'utf8').replace(/\r\n/g, '\n');
 const EXPORT = "  if (typeof module !== 'undefined' && module.exports) module.exports = Forecast;";
 const replaceOnce = (text, from, to, label) => {
   const parts = text.split(from);
@@ -123,18 +123,35 @@ for (const [label, payments, paid, trust, checked] of CASES) {
   ok(Number(r.bar) === paid / 150 * 100, `${label}: the bar fills ${paid}/150`, r.bar);
 }
 
-// ---- 1b. Paid needs the ledger read for the period; a later period cannot be paid yet ----
-console.log('1b. The ledger not read: no packet, incomplete coverage, a past period before the window; a later period');
+// ---- 1b. Partial period coverage and the unread-ledger guard ----
+console.log('1b. Incomplete period coverage: checked payments stand; an unread zero is withheld');
 const BOTH = [pay('Invented hydro', '2026-10-12', 90), pay('Invented internet', '2026-10-13', 60)];
+const shortenedWindow = p => ({ ...p, coverageStart: '2026-10-11' });
+const partialRead = Forecast => world(Forecast, BOTH, shortenedWindow);
+const hasEstimatedPaid = bills => bills.other === 150 && bills.paid === 150
+  && bills.paidTrust === 'estimated' && !('paidReason' in bills);
+const hasWithheldPaid = bills => bills.paid === null && bills.paidTrust === 'unavailable'
+  && typeof bills.paidReason === 'string';
+{
+  const v = partialRead(F), b = v.stackSummary.bills, h = billsCard(v);
+  const paidRows = v.bills.filter(r => r.stackBillPart === 'other' && r.stackBillPaid);
+  ok(v.budgetProgress.coverage.complete === false && paidRows.length === 2
+    && paidRows.every(r => r.stackBillPaymentEvidence === 'posted-equal' && r.stackBillAmountTrust === 'calculated'),
+    'the ledger window misses the period start and still proves the two posted payments');
+  ok(hasEstimatedPaid(b), 'the two confirmed payments of 90 and 60 total 150, estimated', JSON.stringify(b));
+  ok(headOf(h) === 'Bills $150 / $150' && checkedCents(v, h) === 15000 && Number(barOf(h)) === 100,
+    'the real card renders the amount and checks both bills', headOf(h));
+}
 const UNREAD = [
-  // [label, packet transform, period start, extra payments]
+  // [label, packet transform, period start]
   ['no ledger packet at all', () => null, '2026-10-09'],
   ['transaction coverage marked incomplete (both exact payments present)', p => ({ ...p, transactionCoverage: 'incomplete' }), '2026-10-09'],
+  ['coverage through Oct 13 lags Oct 14 (both exact payments present)', p => ({ ...p, coverageThrough: '2026-10-13' }), '2026-10-09'],
   ['a past period (Jul 31-Aug 13) before the ledger window (Sep 1 on)', p => p, '2026-07-31'],
 ];
 for (const [label, packetOf, start] of UNREAD) {
   const v = world(F, BOTH, packetOf, start), b = v.stackSummary.bills, h = billsCard(v);
-  ok(b.other === 150 && b.paid === null && b.paidTrust === 'unavailable' && typeof b.paidReason === 'string',
+  ok(b.other === 150 && hasWithheldPaid(b),
     `${label}: paid is withheld, not 0 (Bills owed 150)`, JSON.stringify(b));
   ok(!(v.budgetProgress.coverage && v.budgetProgress.coverage.complete === true), `${label}: Budget's own actuals gate is not complete there too`);
   ok(/—/.test(headOf(h)) && !/\$0/.test(headOf(h)) && Number(barOf(h)) === 0, `${label}: the head prints a dash and an empty bar`, headOf(h));
@@ -224,8 +241,13 @@ const runPaid = (Forecast, rows, bills = { other: rows.filter(r => r.stackBillPa
   ok(ticked.other === 50 && ticked.paid === 30, 'a ticked mortgage row and a ticked card minimum stay out of Bills paid (30 of 50)', JSON.stringify(ticked));
   const noProgress = runPaid(exposed, [row('a', 30, true, 'calculated')], undefined, null);
   ok(noProgress.paid === null && noProgress.paidTrust === 'unavailable', 'no published Budget progress for the period: withheld', JSON.stringify(noProgress));
-  const partial = runPaid(exposed, [row('a', 30, true, 'calculated')], undefined, { role: 'past', coverage: { complete: false } });
-  ok(partial.paid === null, 'incomplete posted evidence withholds even a checked row', JSON.stringify(partial));
+  const partialCoverage = { role: 'past', coverage: { complete: false } };
+  const partial = runPaid(exposed, [row('a', 30, true, 'estimated')], undefined, partialCoverage);
+  ok(partial.paid === 30 && partial.paidTrust === 'estimated', 'incomplete coverage preserves a checked amount that was already estimated', JSON.stringify(partial));
+  const partialUnknown = runPaid(exposed, [row('a', 30, true)], undefined, partialCoverage);
+  ok(hasWithheldPaid(partialUnknown), 'incomplete coverage still withholds a checked amount whose trust is missing', JSON.stringify(partialUnknown));
+  const partialZero = runPaid(exposed, [row('a', 0, true, 'calculated'), row('b', 20, false, 'calculated')], undefined, partialCoverage);
+  ok(hasWithheldPaid(partialZero), 'a checked zero cannot establish the total paid under incomplete coverage', JSON.stringify(partialZero));
   const future = runPaid(exposed, [row('a', 30, false, 'estimated')], { other: 30, trust: 'estimated' }, { role: 'future', coverage: { complete: false } });
   ok(future.paid === 0 && future.paidTrust === 'estimated', 'a later period with no evidence: 0 with the split\'s trust', JSON.stringify(future));
   const flag = runPaid(exposed, [{ ...row('a', 30, true, 'calculated'), stackBillPaid: 'yes' }]);
@@ -250,18 +272,23 @@ console.log('5. Mutants');
   const mv = anyPart.recommend(d.plan, d.meta.asOf, { ...d.liveOverlay, debts: d.debts }).payPeriodViews.find(p => p.timelineRole === 'current');
   ok(mv.stackSummary.bills.paid !== 0, 'counting the mortgage or a card minimum in Bills paid is caught', JSON.stringify(mv.stackSummary.bills));
   const fixed = compile(replaceOnce(replaceOnce(SOURCE, EXPORT, '  Forecast.__billsPaid = stackBillsPaid;\n' + EXPORT, 'expose'),
-    "    Object.assign(bills, { paid: cents / 100, paidTrust: trust });", "    Object.assign(bills, { paid: cents / 100, paidTrust: 'calculated' });", 'fixed trust'));
+    "    Object.assign(bills, { paid: cents / 100, paidTrust });", "    Object.assign(bills, { paid: cents / 100, paidTrust: 'calculated' });", 'fixed trust'));
   ok(runPaid(fixed, [row('a', 30, true, 'calculated'), row('b', 20, true, 'estimated')]).paidTrust === 'calculated', 'a fixed calculated trust is caught (an estimated paid row reads calculated)');
   const NONE_TRUST = "      ? row.stackBillAmountTrust : worst, 'calculated') : bills.trust;";
   const noneCalc = compile(replaceOnce(replaceOnce(SOURCE, EXPORT, '  Forecast.__billsPaid = stackBillsPaid;\n' + EXPORT, 'expose'),
     NONE_TRUST, "      ? row.stackBillAmountTrust : worst, 'calculated') : 'calculated';", 'none calculated'));
   ok(runPaid(noneCalc, [row('a', 30, false, 'estimated')], { other: 30, trust: 'estimated' }).paidTrust === 'calculated',
     'a nothing-paid zero fixed at calculated is caught (an estimated split reads calculated)');
-  const GATE = "    if (!progress || typeof progress !== 'object' || (progress.role !== 'future'\n        && !(progress.coverage && progress.coverage.complete === true))) {";
+  const GATE = "    if (!progress || typeof progress !== 'object' || (incomplete\n        && (!progress.coverage || progress.coverage.status === 'absent' || cents === 0))) {";
   const noGate = compile(replaceOnce(SOURCE, GATE, '    if (false) {', 'no gate'));
   const ng = world(noGate, BOTH, () => null).stackSummary.bills;
-  ok(ng.paid === 0, 'dropping the ledger gate is caught (no packet reads a firm 0)', JSON.stringify(ng));
-  const gateFuture = compile(replaceOnce(SOURCE, GATE, "    if (!progress || typeof progress !== 'object' || !(progress.coverage && progress.coverage.complete === true)) {", 'gate future'));
+  ok(!hasWithheldPaid(ng) && ng.paid === 0, 'dropping the ledger gate fails the unread assertion (no packet reads 0)', JSON.stringify(ng));
+  const noCap = compile(replaceOnce(SOURCE, "    const paidTrust = incomplete ? 'estimated' : trust;", "    const paidTrust = trust;", 'no partial-coverage trust cap'));
+  const uncapped = partialRead(noCap).stackSummary.bills;
+  ok(!hasEstimatedPaid(uncapped) && uncapped.paid === 150 && uncapped.paidTrust === 'calculated',
+    'dropping the trust cap fails the estimated assertion (the partial sum reads calculated)', JSON.stringify(uncapped));
+  const gateFuture = compile(replaceOnce(SOURCE, "    const incomplete = progress?.role !== 'future' && progress?.coverage?.complete !== true;",
+    "    const incomplete = progress?.coverage?.complete !== true;", 'gate future'));
   ok(world(gateFuture, BOTH, p => p, '2026-11-06').stackSummary.bills.paid === null, 'gating a later period too is caught (it reads withheld, not 0)');
   // The card checks from its own rule (every matched payment) instead of Forecast's flag.
   const ownRule = loadCards(replaceOnce(fs.readFileSync(CARDS_FILE, 'utf8'), "var exact = r.stackBillPaid === true;", "var exact = r.stackBillPaymentEvidence !== 'none';", 'card rule'));

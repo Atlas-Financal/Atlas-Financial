@@ -716,21 +716,17 @@ function putPayPeriods(put, putField, advice) {
         ['unallocated', 'stackSavingsUnallocated'], ['trust', 'stackSavingsTrust'], ['balanceHeadTrust', 'stackSavingsBalanceHeadTrust']])
         putField(p + '.' + key, savingsTotals, field);
     }
-    // The Bills account card (lead dispatch 2026-11-24): the reading now, the Household budget still to move, and each
-    // listed line's amount, date and word, copied as published (the active period only).
+    // The Bills account card (Dale's decision recorded on #821; lead brief #1620 7181064255): the reading now and the
+    // Bills account's own current-period ledger transactions, copied as published (the active period only).
     const account = view.stackSummary && view.stackSummary.billsAccount;
     if (account) {
       putField(p + '.stackBillsAccountStatus', account, 'status');
       for (const [field, key] of [['amount', 'stackBillsAccountNow'], ['asOf', 'stackBillsAccountNowAsOf'], ['trust', 'stackBillsAccountNowTrust']])
         putField(p + '.' + key, account.now, field);
-      for (const [field, key] of [['amount', 'stackBillsAccountHousehold'], ['trust', 'stackBillsAccountHouseholdTrust']])
-        putField(p + '.' + key, account.householdToMove, field);
-      for (const [list, name] of [['comingIn', 'In'], ['comingOut', 'Out'], ['alreadyOut', 'Settled']]) {
-        const keys = new Set();
-        for (const line of Array.isArray(account[list]) ? account[list] : []) {
-          const k = uniqueKey(keys, p + '.stackBillsAccount' + name + '.' + segment(line && line.id) + '@' + segment(line && line.date));
-          for (const field of ['amount', 'trust', 'status', 'paid']) if (line && Object.hasOwn(line, field)) putField(k + '.' + field, line, field);
-        }
+      const txKeys = new Set();
+      for (const line of Array.isArray(account.transactions) ? account.transactions : []) {
+        const k = uniqueKey(txKeys, p + '.stackBillsAccountTx.' + segment(line && line.id) + '@' + segment(line && line.date));
+        for (const field of ['amount', 'direction', 'pending', 'trust']) if (line && Object.hasOwn(line, field)) putField(k + '.' + field, line, field);
       }
     }
     const goalKeys = new Set();
