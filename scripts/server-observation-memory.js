@@ -221,13 +221,18 @@ function create() {
   let slot = null;
   return Object.freeze({
     clear() { slot = null; },
-    clearCurrent() { if (slot) { slot.context = null; slot.evidence = null; } },
+    clearCurrent() {
+      if (slot) { slot.context = null; slot.evidence = null; slot.postedBills = null; }
+    },
     read(context) {
       if (!slot || slot.context !== context) {
         if (slot) { slot.context = null; slot.evidence = null; }
         return null;
       }
       return structuredClone(slot.evidence);
+    },
+    readPostedBills(context) {
+      return slot?.postedBills?.context === context ? structuredClone(slot.postedBills) : null;
     },
     readDisplay(context) {
       if (!slot?.display || !isDeepStrictEqual(slot.display.context, context)) {
@@ -257,7 +262,7 @@ function create() {
     noteAttempt(context, attempt) {
       if (slot?.display && isDeepStrictEqual(slot.display.context, context)) slot.display.attempt = structuredClone(attempt);
     },
-    publish(context, evidence, display) {
+    publish(context, evidence, display, billContext) {
       if (evidence?.schema !== SCHEMA) throw new Error('observation-input-invalid');
       const incompleteCandidate = display && !completeTransactionCohort(display.data);
       const retained = display && display.context != null
@@ -274,8 +279,10 @@ function create() {
       const kept = slot?.clearDisplay && isDeepStrictEqual(slot.clearDisplay.context, nextDisplay?.context)
         ? slot.clearDisplay : null;
       const clearDisplay = !nextDisplay ? null : planWithheld(nextDisplay.data) ? kept : nextDisplay;
-      slot = { context, evidence: { schema: SCHEMA, payload: sourceInputs(evidence.payload) },
-        display: nextDisplay, clearDisplay };
+      const receipts = evidence.postedBillReceipts?.length ? structuredClone(evidence.postedBillReceipts) : null;
+      const postedBills = receipts && billContext ? { ...billContext, receipts } : null;
+      slot = { context, evidence: { schema: SCHEMA, payload: sourceInputs(evidence.payload),
+        ...(receipts ? { postedBillReceipts: receipts } : {}) }, postedBills, display: nextDisplay, clearDisplay };
     },
   });
 }

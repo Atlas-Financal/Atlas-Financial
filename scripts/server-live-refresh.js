@@ -114,6 +114,7 @@ if (!isMainThread) {
       .catch(() => parentPort.postMessage({ error: 'live-refresh-unavailable' }));
   } else {
     StageTiming.run(() => Live.applyForServer(workerData.canonical, process.env, { signal: controller.signal,
+      priorPostedBillReceipts: workerData.priorPostedBillReceipts,
       evidence: workerData.evidence, onObservation: value => { check = value; },
       onCoverageDiagnostic: counts => CoverageDiagnostics.merge(check.coverageDiagnostics ||= {}, counts),
       onHouseholdIdentity: value => parentPort.postMessage({ type: 'household-identity', accountId: value }) }),
@@ -232,10 +233,11 @@ if (!isMainThread) {
       env[Observer.MAP_PATH_ENV] && path.resolve(env[Observer.MAP_PATH_ENV]),
       !Credentials.envToken(env) && process.platform === 'win32'
         ? Credentials.defaultCredentialPath(env) : null].filter(Boolean).map(file => fileRevision(file, metadata));
-    const day = financialDay();
-    return crypto.createHmac('sha256', keySalt)
+    // Receipt continuity uses the same compatibility inputs across day boundaries.
+    metadata.billContext = crypto.createHmac('sha256', keySalt)
       .update(JSON.stringify(contextValue([canonical, Object.entries(env).sort(([a], [b]) => a.localeCompare(b)),
-        day, process.execArgv, runtime, files, generation]))).digest('hex');
+        process.execArgv, runtime, files, generation]))).digest('hex');
+    return crypto.createHmac('sha256', keySalt).update(metadata.billContext + financialDay()).digest('hex');
   }
   // DISPLAY identity only. No day, runtime version, browser auth or write
   // generation is included. Household identity is separately attested by /me.
@@ -571,7 +573,8 @@ if (!isMainThread) {
       return;
     }
     try {
-      const worker = job.worker = new Worker(__filename, { workerData: { canonical, evidence: job.evidence, acquire: job.acquire === true }, env });
+      const worker = job.worker = new Worker(__filename, { workerData: { canonical, evidence: job.evidence,
+        priorPostedBillReceipts: job.priorPostedBillReceipts, acquire: job.acquire === true }, env });
       active.add(worker);
       worker.once('online', () => { if (!job.settled) job.online = performance.now(); });
       worker.on('message', result => {
@@ -650,6 +653,8 @@ if (!isMainThread) {
                 context: displayKey(canonical, env), householdAccountId: accountId, lastBudgetAccountId: accountId, credentialSource: 'env',
                 checkedAt: result.check.checkedAt, data: result.data,
                 ...(typeof result.check.cashEvidenceAt === 'string' ? { cashEvidenceAt: result.check.cashEvidenceAt } : {}),
+              } : undefined, completeDisplay && accountId ? {
+                context: metadata.billContext, householdAccountId: accountId,
               } : undefined);
               published = true;
             } catch (_) { /* Live path only. */ }
@@ -796,6 +801,7 @@ if (!isMainThread) {
       // invalidator.
       if (!evidence) observationEpoch++;
       job = { key, context, evidence, contextInput: input, contextEnv: workerEnv, reuseKey, reused,
+        priorPostedBillReceipts: !evidence && metadata.readable ? observations.readPostedBills(metadata.billContext) : null,
         cacheable: metadata.readable, day: financialDay(), generation, observationEpoch,
         started: performance.now(), waiters: new Set(), waiterCount: 0,
         peakWaiters: 0, cancelledWaiters: 0, timedOutWaiters: 0, settled: false, hadForcedWaiter: false };
