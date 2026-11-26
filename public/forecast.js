@@ -11897,9 +11897,13 @@
     }
     const coverage = known || probeCardCoverage(plan, asOf, opts);
     if (!coverage || coverage.status !== 'ready' || !Array.isArray(coverage.minimumCoverage)) return null;
-    if (event.carriedRemainder) return null;
-    const matches = coverage.minimumCoverage.filter(row => row && !row.carriedFrom && row.obligationId === event.id
-      && row.date === event.date && row.scheduledDate === (event.scheduledDate || event.date));
+    // A carried line (carriedCardRemainderEvents) is matched to its own ledger line, by origin and target period,
+    // never to the old occurrence's row: its due is the carried amount, its covered what this period paid toward it.
+    const carried = event.carriedRemainder;
+    const matches = coverage.minimumCoverage.filter(row => row && (carried
+      ? row.carriedFrom === carried.from && row.carriedInto === carried.into && row.obligationId === carried.obligationId
+      : !row.carriedFrom && row.obligationId === event.id && row.date === event.date
+        && row.scheduledDate === (event.scheduledDate || event.date)));
     if (matches.length !== 1) return null;
     const row = matches[0], due = savingsCents(row.due), covered = savingsCents(row.covered);
     if (!(due > 0) || !(covered > 0) || covered > due || !Array.isArray(row.paymentIds) || !row.paymentIds.length
@@ -11910,14 +11914,23 @@
   }
 
   // The card ledger's carried lines (an unpaid remainder of the pay period just closed, rolled once into the
-  // current one) as walk events: one event per line, still owed = the carried amount less what this period's
-  // payments already put toward it, dated as-of (it is past due), estimated, labelled "carried from" its original
-  // date. The ledger is the one authority; the walk and the Bills rows both read these same lines. Only lines whose
-  // pay period overlaps [start, end] and that still owe something; none without a ready ledger.
+  // current one) as events: one event per line, worth the carried amount, dated as-of (it is past due), estimated,
+  // labelled "carried from" its original date. Like any card minimum, what this period's payments put toward it is
+  // the ledger's coverage of that line (coveredCardMinimum): the walks take only the uncovered remainder out
+  // (withCoveredCardMinimums), and the Bills row keeps the carried amount planned with the paid part as actual, so
+  // paying it never puts that cash back into the period (ARCHITECTURE.md, Balance After Deductions). The ledger is the
+  // one authority; the walk and the Bills rows both read these same lines. Only lines whose pay period overlaps
+  // [start, end]; none without a ready ledger.
   // Each line has an identity of its own (`<obligation>#carried@<from>`), so the coupled debt and cash walks key it
   // apart from a minimum of the same obligation due the same day; carriedRemainder.obligationId names its debt. The
   // cash walk caps it at what the debt walk absorbed (`cap`, opts.obligationAbsorbed), like every other obligation: an
   // explicit null is unknown (omitted), a missing or zero absorption takes nothing out of cash.
+  // The plan obligation a bill row or walk event is an occurrence of. A carried line has an identity of its own
+  // (`<obligation>#carried@<from>`); every reader that maps a row to its plan obligation, card or debt reads it here.
+  function billRowObligationId(row) {
+    return row && row.carriedRemainder ? row.carriedRemainder.obligationId : row && row.id;
+  }
+
   function carriedCardRemainderEvents(plan, asOf, coverage, start, end, cap) {
     if (!coverage || coverage.status !== 'ready' || !Array.isArray(coverage.minimumCoverage)) return [];
     const cycle = spendingCycle(plan, asOf);
@@ -11928,21 +11941,23 @@
     for (const row of coverage.minimumCoverage) {
       if (!row || !row.carriedFrom || row.carriedInto !== cycle.start) continue;
       const due = savingsCents(row.due), covered = savingsCents(row.covered);
-      if (!(due > 0) || covered == null || covered < 0 || covered >= due) continue;
+      if (!(due > 0) || covered == null || covered < 0 || covered > due) continue;
       const obligation = (plan.obligations || []).find(o => o && o.id === row.obligationId);
       if (!obligation || obligation.debtId === 'heloc') continue;
       const id = row.obligationId + '#carried@' + row.carriedFrom;
-      let left = (due - covered) / 100;
+      // The cash walk's cap is what the debt walk absorbed of the uncovered remainder, the rule expandEvents applies
+      // to every obligation: a capped line is already its remainder, so coverage is not taken off it again.
+      let amount = due / 100;
       if (cap) {
         const key = date + ':' + id;
         if (Object.prototype.hasOwnProperty.call(cap, key) && cap[key] === null) continue;
-        left = Math.min(left, cap[key] || 0);
-        if (!(left > 0)) continue;
+        amount = Math.min(amount, cap[key] || 0);
+        if (!(amount > 0)) continue;
       }
-      out.push({ date, amount: -left, kind: 'obligation', effect: 'payment', id,
+      out.push({ date, amount: -amount, kind: 'obligation', effect: 'payment', id,
         label: (obligation.label || obligation.name || row.obligationId) + ' (carried from ' + row.carriedFrom + ')',
         debtId: obligation.debtId, payingAccount: obligation.payingAccount, confidence: 'estimated',
-        carriedRemainder: { obligationId: row.obligationId, from: row.carriedFrom, scheduledDate: row.scheduledDate, due: due / 100,
+        carriedRemainder: { obligationId: row.obligationId, from: row.carriedFrom, into: row.carriedInto, scheduledDate: row.scheduledDate, due: due / 100,
           covered: covered / 100, left: (due - covered) / 100, source: coverage.source || 'Forecast.visaPaymentReconciliation',
           trust: 'calculated' } });
     }
@@ -15693,7 +15708,7 @@
   function stackBillPartOf(row, context) {
     if (!billInPeriodAssignedLoad(row)) return null;
     if (row.scheduledFeeAllowance || row.kind !== 'obligation' || row.id == null) return { part: 'other', debtId: null };
-    const id = String(row.id);
+    const id = String(billRowObligationId(row));
     if (context.mortgageIds.has(id)) return { part: 'mortgage', debtId: null };
     const line = row.cashMinimum === true ? context.cashMinimumOf.get(id) : context.cardOf.get(id);
     return line ? { part: 'cardMinimum', debtId: line } : { part: 'other', debtId: null };
@@ -18127,7 +18142,7 @@
     if (kind !== 'cutover' && kind !== 'close') return unknown('basis-unavailable');
     const obligations = new Map(((plan && plan.obligations) || []).filter(o => o && o.id).map(o => [o.id, o]));
     const cardPaymentRow = row => {
-      const source = row && row.kind === 'obligation' ? obligations.get(row.id) : null;
+      const source = row && row.kind === 'obligation' ? obligations.get(billRowObligationId(row)) : null;
       return source && (source.effect === 'payment' || source.debtId != null) ? source : null;
     };
     // Each recon row is classified from its own packet transaction with the
@@ -25921,6 +25936,16 @@
     const omissionTrace = scheduledAmounts.unknowns.some(u => u.carrier === 'obligation') ? {} : null;
     const events = withCoveredCardMinimums(plan, asOf,
       expandEventsForDebtWalk(plan, start, end, opts, omissionTrace), opts, { start, end });
+    // The walk below reads the omission trace when one is active; the card ledger's carried lines are added there
+    // too (withCoveredCardMinimums adds them to the events only), in the same stable date order, so an unrelated
+    // unknown obligation never drops a carried remainder from the debt walk.
+    if (omissionTrace && Array.isArray(omissionTrace.items)) {
+      const carriedLines = events.filter(e => e && e.carriedRemainder);
+      if (carriedLines.length) {
+        omissionTrace.items = omissionTrace.items.concat(carriedLines).map((e, i) => [e, i])
+          .sort((a, b) => String(a[0] && a[0].date).localeCompare(String(b[0] && b[0].date)) || a[1] - b[1]).map(p => p[0]);
+      }
+    }
     const byId = {};
     const state = (debts || []).map(x => {
       // Carrying pending charges from the opening balance is what makes
@@ -26252,7 +26277,7 @@
           continue;
         }
         if (e.kind === 'obligation') {
-          const t = targetFor(e.carriedRemainder ? e.carriedRemainder.obligationId : e.id);
+          const t = targetFor(billRowObligationId(e));
           if (!t) continue;
           if (e.minimumPayment) {
             // Bank-side sent evidence supplies no receiving-side credit or

@@ -6,12 +6,16 @@
  * that same line.
  *   1. Partly paid (20 of 25): 5.00 is carried; the Bills row says "carried from", 5.00 still due, estimated; the cash
  *      walk deducts it once.
- *   2. Paid this period: a 5.00 payment clears it (no row); a 2.00 payment leaves 3.00. Either way cash counts the
- *      carry once.
+ *   2. Paid this period: like any card minimum, the row keeps the 5.00 planned and shows what was paid as actual (a
+ *      5.00 payment marks it paid, a 2.00 payment leaves 3.00), so paying it never puts the cash back into the period's
+ *      bill load, Balance After Deductions or the next opening (T3 review of record on #1663, finding 1). Either way
+ *      cash counts the carry once.
  *   3. No carry: paid in full, or not paid at all (the remainder is not known).
  *   4. Once: two pay periods later nothing is carried.
  *   5. No carry onto a recorded statement this period (it already includes the past-due amount).
- *   6. Mutants: the carry removed; the carry ignoring this period's payments (a double count).
+ *   6. Mutants: the carry removed; the carry ignoring this period's payments (a double count); and one per repair.
+ *   7. The Stack bills split counts the carry as its card's minimum, so Credit nets it once (finding 2).
+ *   8. An unrelated unknown-amount bill does not drop the carry from the debt or cash walk (finding 3).
  * Invented world (test/fixtures/card-coverage-aggregate-world.js): pay periods 09-18..10-01, 10-02..10-15,
  * 10-16..10-29; Bills 500; one 25 card minimum due 2026-09-25. Every expectation is written by hand.
  * `node test/test-card-remainder-rolls-once.js` */
@@ -59,11 +63,23 @@ console.log('2. Paid this period: the carry is paid first, and cash counts it on
 {
   const cleared = run(world([...pay(20, '2026-09-26'), ...pay(5, '2026-10-03')], OPTS));
   const line = carriedLines(cleared)[0];
-  ok(line && line.status === 'covered-by-payment' && carriedRows(cleared).length === 0,
-    'a 5.00 payment on 10-03 covers the carried line; no carried row remains', J(line));
+  const paidRow = carriedRows(cleared);
+  ok(line && line.status === 'covered-by-payment' && paidRow.length === 1 && cents(paidRow[0].planned) === 500
+    && cents(paidRow[0].actual) === 500 && cents(paidRow[0].remaining) === 0 && paidRow[0].status === 'PAID',
+    'a 5.00 payment on 10-03 covers the carried line: the row stays, 5.00 planned, 5.00 paid, nothing left, PAID',
+    J(paidRow.map(r => [r.planned, r.actual, r.remaining, r.status])));
   const part = run(world([...pay(20, '2026-09-26'), ...pay(2, '2026-10-03')], OPTS));
   const rows = carriedRows(part);
-  ok(rows.length === 1 && cents(rows[0].remaining) === 300, 'a 2.00 payment leaves 3.00 still due', J(rows.map(r => r.remaining)));
+  ok(rows.length === 1 && cents(rows[0].planned) === 500 && cents(rows[0].actual) === 200 && cents(rows[0].remaining) === 300,
+    'a 2.00 payment: 5.00 planned, 2.00 paid, 3.00 still due', J(rows.map(r => [r.planned, r.actual, r.remaining])));
+  // Paying a bill during the period never puts its cash back (ARCHITECTURE.md, Balance After Deductions): the
+  // period's bill load stays the 5.00 carry, and Balance After Deductions (1,000 income − 5.00 − 150 hold = 845.00)
+  // and the next period's opening are the same unpaid, part paid and paid.
+  const shape = s => [cents(s.period.periodBillLoad), cents(s.period.balanceAfterDeductions),
+    cents((s.advice.payPeriodViews.find(v => v.start === '2026-10-16') || {}).opening)];
+  ok([partial, part, cleared].every(s => J(shape(s)) === J([500, 84500, shape(partial)[2]])),
+    'paying the carry moves no cash back: bill load 5.00 and Balance After Deductions 845.00 unpaid, part paid and paid; the next opening unchanged',
+    J([partial, part, cleared].map(shape)));
   // What was paid this period plus what the walk still takes out is the 5.00 carry, once: 5 + 0, 2 + 3, 0 + 5.
   ok(walked(cleared) === 0 && walked(part) === 300,
     'the walk takes out 0.00 after the 5.00 payment and 3.00 after the 2.00 one: the carry leaves cash exactly once',
@@ -136,6 +152,48 @@ const payDownCarry = () => run(world([payDown(10, '2026-09-26'), payDown(60, '20
     J(nextRow && nextRow.remaining));
 }
 
+console.log('7. The Stack bills split: the carry is its card\'s minimum (T3 review of record on #1663, finding 2)');
+{
+  const row = carriedRows(partial)[0];
+  const split = partial.period.stackSummary && partial.period.stackSummary.bills;
+  ok(row && row.stackBillPart === 'cardMinimum' && row.stackBillDebtId === 'travelvisa'
+    && J(split && split.cardMinimums) === J([{ debtId: 'travelvisa', amount: 5 }]) && split.other === 0,
+    'the carried row is the Travel card\'s minimum (5.00), not "other"', J([row && row.stackBillPart, split]));
+}
+{
+  // Credit (Desk ruling E): a 50.00 card purchase this period, synced card: target max(5.00 carried
+  // minimum, 50.00) = 50.00, all of it already in the groceries hold, so the deduction is 0 and the adjustment takes the
+  // 5.00 minimum back once: 1,000 − 5.00 − 150 + 5.00 = 850.00. Counted as "other", the 5.00 was deducted beside the
+  // purchase it repays (845.00).
+  const Live = require('../scripts/live-plan');
+  const x = world([...pay(20, '2026-09-26'), ['card', 50, '2026-10-03', 'purchase']], { ...OPTS, edit: w => {
+    w.payload.accounts[3].last_fetch = w.asOf + 'T17:00:00Z'; w.payload.accounts[3].plaid_last_successful_update = w.asOf + 'T17:00:00Z'; } });
+  const o = Live.fromObservation(x), ov = o.data.liveOverlay;
+  const r = F.recommend(o.data.plan, x.asOf, { debts: o.data.debts, currentPeriodActuals: ov.currentPeriodActuals,
+    cardPeriodBalanceEvidence: ov.cardPeriodBalanceEvidence, cardLiveOverlay: { applied: true, overlays: ov.overlays } });
+  const v = r.payPeriodViews.find(p => p.start === '2026-10-02');
+  ok(v && cents(v.balanceAfterDeductions) === 85000 && cents(v.predictedEndingBalanceTerms.cardRepaymentAdjustment) === -500,
+    'Credit nets the carried minimum once beside the purchase it repays: 850.00, adjustment −5.00',
+    J(v && [v.balanceAfterDeductions, v.predictedEndingBalanceTerms.cardRepaymentAdjustment]));
+}
+
+console.log('8. An unrelated unknown amount does not drop the carry (T3 review of record on #1663, finding 3)');
+// An invented monthly bill with a malformed amount (unknown) turns on the debt walk's omission trace.
+const unknownGym = w => { const o = w.data.plan.obligations[0];
+  w.data.plan.obligations.push({ id: 'gym', label: 'Invented gym', effect: 'payment', frequency: 'monthly', day: 10, amount: '1,900',
+    confidence: 'estimated', payingAccount: o.payingAccount }); };
+function absorbedWithUnknown() {
+  const s = run(world(pay(20, '2026-09-26'), { ...OPTS, edit: unknownGym }));
+  return F.projectDebts(s.observed.data.plan, s.observed.data.debts, OPTS.asOf, { currentPeriodActuals: s.packet }).obligationAbsorbed || {};
+}
+{
+  const absorbed = absorbedWithUnknown();
+  ok(absorbed['2026-10-05:travel#carried@2026-09-25'] === 5, 'the debt walk still pays the 5.00 carry down on the card', J(absorbed));
+  const s = run(world(pay(20, '2026-09-26'), { ...OPTS, edit: unknownGym }));
+  const ev = (s.advice.sim.events || []).filter(e => e.carriedRemainder).map(e => [e.date, cents(-e.amount)]);
+  ok(J(ev) === J([['2026-10-05', 500]]), 'the cash walk still takes the 5.00 carry out on the as-of', J(ev));
+}
+
 console.log('6. Mutants');
 {
   const FILE = path.join(__dirname, '..', 'public', 'forecast.js');
@@ -153,7 +211,7 @@ console.log('6. Mutants');
   const m1 = withEngine(noCarry, () => run(world(pay(20, '2026-09-26'), OPTS)));
   ok(carriedRows(m1).length === 0 && walked(m1) === 0,
     'MUTANT (no carry): the 5.00 drops out of the walk and the Bills rows, which section 1 rejects', J([carriedRows(m1).length, walked(m1)]));
-  const ignorePaid = compile('let left = (due - covered) / 100;', 'let left = due / 100;', 'ignore-paid');
+  const ignorePaid = compile('const carried = event.carriedRemainder;', 'const carried = null;', 'ignore-paid');
   const m2 = withEngine(ignorePaid, () => run(world([...pay(20, '2026-09-26'), ...pay(2, '2026-10-03')], OPTS)));
   ok(walked(m2) === 500, 'MUTANT (carry ignores this period\'s payments): the walk still takes 5.00 after 2.00 was paid (7.00 counted), which section 2 rejects',
     J(walked(m2)));
@@ -182,6 +240,20 @@ console.log('6. Mutants');
   const noCap = compile('      if (cap) {\n        const key = date + \':\' + id;', '      if (false) {\n        const key = date + \':\' + id;', 'no-cap');
   const m4 = withEngine(noCap, () => run(world(pay(20, '2026-09-26'), { ...OPTS, edit: x => { x.payload.accounts[3].balance = 3; } })));
   ok(walked(m4) === 500, 'MUTANT (no debt cap on the carry): cash takes out 5.00 with only 3.00 owing, which section 5b rejects', J(walked(m4)));
+  const shrinkOnPay = compile('      let amount = due / 100;\n', '      let amount = (due - covered) / 100;\n', 'shrink-on-pay');
+  const m6 = withEngine(shrinkOnPay, () => run(world([...pay(20, '2026-09-26'), ...pay(5, '2026-10-03')], OPTS)));
+  ok(carriedRows(m6).every(r => cents(r.planned) !== 500) && cents(m6.period.balanceAfterDeductions) !== 84500,
+    'MUTANT (the row shrinks as it is paid): the paid carry leaves the bill load and its cash returns to Balance After Deductions, which section 2 rejects',
+    J([carriedRows(m6).map(r => r.planned), m6.period.balanceAfterDeductions]));
+  const ownId = compile('return row && row.carriedRemainder ? row.carriedRemainder.obligationId : row && row.id;', 'return row && row.id;', 'own-id');
+  const m7 = withEngine(ownId, () => run(world(pay(20, '2026-09-26'), OPTS)));
+  ok(carriedRows(m7).every(r => r.stackBillPart === 'other'),
+    'MUTANT (rows mapped to a plan obligation by their own id): the carry is split as "other", not its card\'s minimum, which section 7 rejects',
+    J(carriedRows(m7).map(r => r.stackBillPart)));
+  const noTrace = compile('    if (omissionTrace && Array.isArray(omissionTrace.items)) {\n      const carriedLines', '    if (false) {\n      const carriedLines', 'no-trace');
+  const m8 = withEngine(noTrace, () => absorbedWithUnknown());
+  ok(!(m8['2026-10-05:travel#carried@2026-09-25'] > 0),
+    'MUTANT (the carry left out of the omission trace): an unrelated unknown amount drops it from the debt walk, which section 8 rejects', J(m8));
 }
 
 console.log(`\n${failures ? 'FAIL' : 'PASS'} card remainder rolls once (${checks - failures}/${checks})`);
