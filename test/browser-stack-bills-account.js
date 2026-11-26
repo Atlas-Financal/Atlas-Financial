@@ -11,8 +11,8 @@
  *   4. A stale or missing reading: the head is a dash without explanatory text.
  *   4b. An unpaired Bills debit: all three lists are visible, with the transfer once under Already out.
  *   6. Closed cards are all the same height whichever card is last (the Bills account card has no bar and a two-line head):
- *      the closed heads are equal, and each card's visible strip (its top to the next card's top, or its foot) agrees within
- *      the 4px by which the last card's foot padding (22px) exceeds the 18px of padding the next card leaves showing.
+ *      the closed heads are equal, every card (the last included, Dale 2026-11-25) is the same full height, and each card
+ *      above the last shows the same visible strip (its top to the next card's top).
  *   5. No page errors; the other cards are unchanged in number and order.
  *
  * Optional: STACK_BILLS_ACCOUNT_SHOTS=<dir> writes screenshots. `node test/browser-stack-bills-account.js`
@@ -114,10 +114,9 @@ async function open(browser, width, mode) {
         const m = await measure(), cards = m.filter(x => x.id !== 'credit'), info = JSON.stringify(m);
         ok(cards.length >= 3 && cards.some(x => x.id === 'billsacct'), width + ' ' + label + ': the cards are there', info);
         ok(new Set(cards.map(x => x.head)).size === 1, width + ' ' + label + ': every closed card head is the same height', info);
-        const notLast = cards.filter(x => !x.last);
-        ok(new Set(notLast.map(x => x.card)).size === 1, width + ' ' + label + ': every card with another below it is the same height', info);
-        const strips = cards.map(x => x.strip);
-        ok(Math.max(...strips) - Math.min(...strips) <= 4, width + ' ' + label + ': the visible strip of every card agrees within 4px', info);
+        ok(new Set(cards.map(x => x.card)).size === 1, width + ' ' + label + ': every card is the same height, the last included', info);
+        const strips = cards.filter(x => !x.last).map(x => x.strip);
+        ok(new Set(strips).size === 1, width + ' ' + label + ': every card above the last shows the same visible strip', info);
         return m;
       };
       await check('default order');

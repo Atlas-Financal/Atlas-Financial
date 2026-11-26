@@ -48,7 +48,7 @@ const STUB = `;(function (F) {
           { date: '2026-08-18', name: 'Payment thank you', amount: -400, kind: 'payment', payment: true, pending: false },
           { date: '2026-08-19', name: 'Pending Cafe', amount: 12.5, kind: 'purchase', payment: false, pending: true }] },
       { id: 'cashback', label: 'Green Card', paid: fig(100), spent: fig(260, 'estimated'), net: fig(160, 'estimated'), minimum: fig(30), toGo: fig(160, 'estimated'),
-        target: { amount: 260, trust: 'estimated', reasons: [], newCharges: 260, minimum: 30, overLimitBy: 0 }, status: 'to-go', minimumCovered: covered(false), transactions: [] },
+        target: { amount: 260, trust: 'estimated', reasons: [], newCharges: 260, minimum: 30, overLimitBy: 18 }, status: 'to-go', minimumCovered: covered(false), transactions: [] },
       { id: 'tdcc', label: 'Red Card', paid: fig(null, 'unknown'), spent: fig(null, 'unknown'), net: fig(null, 'unknown'),
         minimum: fig(15), toGo: fig(null, 'unknown'), status: null, minimumCovered: covered('unknown'), transactions: [] },
       { id: 'mbna', label: 'Gold Card', paid: fig(0), spent: fig(0), net: fig(0), minimum: fig(10), toGo: fig(null),
@@ -151,7 +151,7 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
     await page.click('[data-stack-sheet="card:travelvisa"]');
     await page.waitForSelector('.stack-sheet');
     const sheet = await textOf(page, '.stack-sheet');
-    if (stub) ok(/Blue Visa \+\$400 \/ \$25 Paid back \$400 New charges \$400 Minimum \$25 ✓ Target \$25/.test(sheet) && /Payment thank you \+\$400/.test(sheet) && !/estimated|calculated|≈/i.test(sheet),
+    if (stub) ok(/Blue Visa \+\$400 \/ \$25 New charges \$400 Minimum \$25 ✓ Paid back \$400 Target \$25/.test(sheet) && /Payment thank you \+\$400/.test(sheet) && !/estimated|calculated|≈/i.test(sheet),
       'the sheet prints the line\'s "X / minimum", its rows, payments with +, no tag', sheet);
     if (stub) {
       const big = await page.$eval('.stack-sheet-big', el => ({ size: getComputedStyle(el).fontSize, x: getComputedStyle(el.querySelector('.stack-credit-x')).color }));
@@ -187,7 +187,7 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
       const big = await fp.$eval('.stack-sheet-big', el => ({ size: getComputedStyle(el).fontSize, x: getComputedStyle(el.querySelector('.stack-credit-x')).color, t: el.innerText.replace(/\s+/g, ' ').trim() }));
       ok(big.size === '64px' && big.x === 'rgb(15, 122, 67)' && big.t === '+$400 / $25', 'the sheet\'s big figure is the same "X / min", 64px and green', JSON.stringify(big));
       const sh = await textOf(fp, '.stack-sheet');
-      ok(/Paid back \$400 New charges \$400 Minimum \$25 ✓ Target \$25/.test(sh), 'the sheet rows: Paid back, New charges, Minimum with its ✓, Target', sh);
+      ok(/New charges \$400 Minimum \$25 ✓ Paid back \$400 Target \$25/.test(sh), 'the sheet rows: New charges, Minimum with its ✓, Paid back, Target', sh);
       // A pending row: dimmed, with a drawn hollow dot named "pending" (rule B5: no printed word); posted rows have none.
       const dots = await fp.$$eval('.stack-sheet-tx li', els => els.map(li => {
         const d = li.querySelector('.stack-sheet-txp');
@@ -202,6 +202,18 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
       ok(dots.length === 4 && dots.every(r => r.pending === r.dot) && dots.filter(r => r.pending).every(r => r.name === 'pending' && r.drawn && r.oneLine && r.opacity === '0.62'),
         'in the browser the pending row is dimmed and shows a drawn hollow dot named "pending", on one line; posted rows show none', JSON.stringify(dots));
       await fp.keyboard.press('Escape');
+      const assertSheetOrder = async (id, expected, hasTransactions) => {
+        await fp.click(`[data-stack-sheet="card:${id}"]`);
+        await fp.waitForSelector('.stack-sheet');
+        const rows = await fp.$$eval('.stack-sheet dl dt', els => els.map(el => el.textContent));
+        ok(JSON.stringify(rows) === JSON.stringify(expected), `390px sheet row order: ${id}`, rows.join(', '));
+        const afterSummary = await fp.$('.stack-sheet dl + h4[aria-label="Card transactions"]');
+        ok(Boolean(afterSummary) === hasTransactions, `390px transaction heading after summary: ${id}`);
+        await fp.keyboard.press('Escape');
+      };
+      await assertSheetOrder('travelvisa', ['New charges', 'Minimum', 'Paid back', 'Target'], true);
+      await assertSheetOrder('cashback', ['New charges', 'Minimum', 'Paid back', 'Over the limit by', 'Target'], true);
+      await assertSheetOrder('heloc', ['Minimum'], false);
       await fp.click('[data-stack-sheet="card:tdcc"]');
       await fp.waitForSelector('.stack-sheet');
       ok(/Red Card \u2014 \/ \$15 .*Minimum \$15/.test(await textOf(fp, '.stack-sheet')), 'an unpublished paid and spent: "— / $15" and the minimum');

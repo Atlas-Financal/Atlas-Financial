@@ -88,7 +88,9 @@ console.log('\n=== the incumbent gates still apply to a linked row ===');
 {
   const r = { recurring_id: LINK, payee: 'Renamed', original_name: 'X' };
   ok(hits(observe([row(Object.assign({}, r, { is_pending: true }))], withLink), POWER).length === 0, 'pending: no link');
-  ok(hits(observe([row(Object.assign({}, r, { account_id: 1002 }))], withLink), POWER).length === 0, 'other account: no link');
+  // A card account is still refused; Weekly spend (1002), the other household chequing account, is accepted for a tied bill
+  // (Dale, #821 7168507103).
+  ok(hits(observe([row(Object.assign({}, r, { account_id: 2001 }))], withLink), POWER).length === 0, 'card account: no link');
   ok(hits(observe([row(Object.assign({}, r, { amount: -63.21 }))], withLink), POWER).length === 0, 'credit: no link');
   ok(hits(observe([row(Object.assign({}, r, { currency: 'usd' }))], withLink), POWER).length === 0, 'other currency: no link');
 }

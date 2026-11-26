@@ -37,6 +37,22 @@
     return CardPeriodMovement.stackCreditLines(publication, bills, util ? util.rows : null,
       beyondMinimumPaid instanceof Map ? beyondMinimumPaid : undefined);
   }
+  function expectedCreditLineMinimumCents(plan, from, to) {
+    const out = new Map();
+    if (!savingsDate(from) || !savingsDate(to) || from > to) return out;
+    const addMinimum = (id, amount) => {
+      const c = savingsCents(amount);
+      if (c != null && c > 0) out.set(id, (out.get(id) || []).concat([c]));
+    };
+    for (const o of (plan && plan.obligations) || []) {
+      if (!o || o.debtId == null || !isStackCreditLine(o.debtId)) continue;
+      const id = String(o.debtId);
+      if (o.nonCash) { for (const occ of capitalisingCashMinimumOccurrences(o, from, to)) addMinimum(id, occ.amount); continue; }
+      if (o.effect !== 'payment') continue;
+      for (const occ of obligationOccurrences(o, from, to)) addMinimum(id, occ.amount);
+    }
+    return out;
+  }
   function cardPeriodMovements(plan, debts, asOf, window, opts) {
     opts = opts || {};
     const cycle = savingsDate(window?.start) ? spendingCycle(plan, window.start) : null;
@@ -56,6 +72,27 @@
       date: savingsDate, cents: savingsCents, money: cardMoneyCents, addDays, skipParent: skipSplitParent,
       payingSidePayment,
       unnotedHouseholdMovement: tx => provenInternalMovementForTx(tx, opts) && !cardPaymentNoteEvidence(tx),
+      // Inferred destination (Dale, #821 7174658128): whether a debit carries a `card payment:` note (a note always wins),
+      // and the minimum Forecast expects per credit line over a window: the plan's own scheduled occurrences (a card's
+      // payment rows, the HELOC's cash leg), read from the plan, never from a settled row, so this reading cannot loop.
+      cardPaymentNote: tx => !!cardPaymentNoteEvidence(tx),
+      // The line the debit's own row names (the observer's payee identity or minimum category), or 'conflict' when two
+      // name different lines: inference may only confirm that line, never pick another (pre-review on #1650).
+      namedDestination: tx => {
+        const named = [...new Set([tx && tx.cardPaymentDestination, tx && tx.minimumCategoryDebt]
+          .filter(v => typeof v === 'string' && v !== ''))];
+        return named.length === 1 ? named[0] : named.length > 1 ? 'conflict' : null;
+      },
+      // A card-side row that reads as a payment or transfer receipt (the categories and kinds the paying side reads as a
+      // payment): only these can be a landing, never a purchase refund.
+      cardPaymentLanding: tx => {
+        if (!tx) return false;
+        const label = normalizeCategoryLabel(tx.categoryLabel);
+        const hint = normalizeCategoryLabel(tx.kindHint || tx.kind);
+        return TRANSFER_CATEGORY_LABELS.has(label) || ['card-payment', 'payment', 'transfer', 'internal-transfer', 'bill-payment'].includes(hint)
+          || tx.cardPaymentIdentity === true || tx.tdCardPaymentIdentity === true || tx.tdCardPaymentCredit === true;
+      },
+      expectedMinimumCents: (from, to) => expectedCreditLineMinimumCents(plan, from, to),
       // Stack credit balance snapshot: Forecast's statement-cycle verdict on
       // the snapshot's own published date, never re-derived in the module.
       balanceFreshness: (debt, shownDate) => cardBalanceAssessment(debt, plan, asOf, shownDate),
@@ -9623,6 +9660,8 @@
         postedOn,
         // How many linked posted entries name this occurrence (D2 reads one).
         entries: (prior ? prior.entries : 0) + 1,
+        // The bill-paid tie (observer billPaidTie) on every linked posted entry of the occurrence.
+        ...(row.paidTie === true && (!prior || prior.paidTie === true) ? { paidTie: true } : {}),
         ...(row.settlementBasis === SCHEDULE_TRUST_SETTLEMENT_BASIS
           ? { settlementBasis: SCHEDULE_TRUST_SETTLEMENT_BASIS } : {}),
       });
@@ -9639,6 +9678,25 @@
       if (row && row.pending === true && row.id && row.date) keys.add(row.id + '@' + row.date);
     }
     return keys;
+  }
+  // The pending linked rows that carry the bill-paid tie themselves (observer billPaidTie on the pending row).
+  function pendingTiedBillKeys(opts) {
+    const packet = currentPeriodActualsPacket(opts);
+    const keys = new Set();
+    for (const row of packet && Array.isArray(packet.representedActuals) ? packet.representedActuals : []) {
+      if (row && row.pending === true && row.paidTie === true && row.id && row.date) keys.add(row.id + '@' + row.date);
+    }
+    return keys;
+  }
+  // An ordinary bill paid in full at the posted amount (owner, Dale, #821 7168507103: "bills aren't paid in portions ...
+  // when the bill is posted and paid ... It should be able to just pivot, post that amount, and call it paid"): a bill
+  // occurrence (never a card minimum, the mortgage or another obligation, and never a card-paid bill) whose linked posted
+  // payment carries the bill-paid tie on every entry. Grok Bot, rule 17 (Plan #6, 2026-11-25): the tie is the Lunch Money
+  // recurring-item match or the "bill paid: <name>" note line; a category, payee or amount alone never is.
+  function ordinaryBillPaidTie(event, observed) {
+    if (!event || event.kind !== 'bill' || event.cardPaid === true || !event.id || !event.date) return false;
+    const seen = observed && observed.get(event.id + '@' + event.date);
+    return !!(seen && seen.paidTie === true && !seen.settlementBasis);
   }
 
   function observedActual(observed, id, date) {
@@ -9725,6 +9783,8 @@
     if (event.kind === 'obligation' && (event.effect !== 'payment' || event.cashMinimum === true
       || event.minimumPayment || event.minimumAmount != null || event.occurrenceKey)) return null;
     const seen = observed && observed.get(event.id + '@' + event.date);
+    // A tied ordinary bill is paid in full at what was posted: no remainder (ordinaryBillPaidTie).
+    if (ordinaryBillPaidTie(event, observed)) return null;
     // One linked posted instalment only: several entries for one occurrence
     // are not one partial payment, so they keep the incumbent reading.
     if (!seen || seen.settlementBasis || seen.entries !== 1
@@ -9980,7 +10040,7 @@
           remaining: sent.issuerMinimumStatus === 'satisfied' ? 0 : null,
           settlement: sent.issuerMinimumStatus === 'satisfied' ? 'represented' : 'unverified' } : {}),
         ...(covered ? covered.full
-          ? { actual: covered.evidence.covered, remaining: 0, settlement: 'represented', minimumCoverage: covered.evidence }
+          ? { actual: covered.evidence.paid ?? covered.evidence.covered, remaining: 0, settlement: 'represented', minimumCoverage: covered.evidence }
           : { actual: covered.evidence.covered, remaining: (covered.due - covered.covered) / 100,
             minimumCoverage: covered.evidence } : {}),
         ...occurrenceTrustFields(e),
@@ -11771,10 +11831,52 @@
   // which returns that holder's one computation (every opted-in caller fills
   // it first). It never allocates coverage itself. No or an unrelated holder,
   // a non-ready ledger, or no unique match keeps the full minimum reserved.
+  // The HELOC minimum is paid by what leaves the paying side (Dale, #821 7161929211; #1641): the posted Bills debits
+  // noted `card payment: HELOC`, summed over the occurrence's pay period through as-of. That is the one reading the
+  // Credit line's Paid back and its minimum check use (cardPeriodMovements → periodPayerPayments → payingSidePayment),
+  // so the Bills row, the cash walk, nextDue and nextPaymentOut follow the Credit line and cannot contradict it
+  // (lead 13: one authority, no reconciliation). Null (no change) when that reading is withheld, counted as zero, or
+  // not a positive sum; read once per pay period through the coverage holder.
+  function helocPayingSideCoverage(plan, event, asOf, opts, holder) {
+    if (!CardPeriodMovement || !Array.isArray(opts.debts) || !opts.debts.some(row => row && row.id === 'heloc')) return null;
+    const cycle = savingsDate(event.date) ? spendingCycle(plan, event.date) : null;
+    if (!cycle || !savingsDate(cycle.start) || !savingsDate(cycle.end) || cycle.start > asOf) return null;
+    holder.helocPaid = holder.helocPaid || new Map();
+    if (!holder.helocPaid.has(cycle.start)) {
+      const publication = cardPeriodMovements(plan, opts.debts, asOf, { start: cycle.start, end: cycle.end }, {
+        currentPeriodActuals: opts.currentPeriodActuals,
+        cardPeriodBalanceEvidence: opts.cardPeriodBalanceEvidence || null,
+        liveOverlay: opts.cardLiveOverlay || null,
+      });
+      const card = publication && Array.isArray(publication.cards) ? publication.cards.filter(row => row && row.id === 'heloc') : [];
+      holder.helocPaid.set(cycle.start, card.length === 1 ? card[0].payerPaid : null);
+    }
+    const paid = holder.helocPaid.get(cycle.start);
+    if (!paid || typeof paid.amount !== 'number' || !['calculated', 'estimated'].includes(paid.trust)
+      || !Array.isArray(paid.reasons) || paid.reasons.includes('paid-unavailable-counted-as-zero')) return null;
+    const paidCents = savingsCents(paid.amount);
+    return paidCents != null && paidCents > 0 ? { paidCents, trust: paid.trust, reasons: paid.reasons.slice() } : null;
+  }
+
   function coveredCardMinimum(plan, event, asOf, opts, known) {
     if (!event || event.kind !== 'obligation' || event.effect !== 'payment' || !opts) return null;
     const holder = opts.cardCoverageReuse;
     if (!holder || !cardCoverageHolderMatches(holder, plan, asOf, opts)) return null;
+    if (event.debtId === 'heloc') {
+      // Applied once. The coupled cash walk caps each obligation at what the debt walk absorbed (opts.obligationAbsorbed),
+      // and the debt walk already took this coverage off (withCoveredCardMinimums): a capped occurrence is already its
+      // remainder, so the same payment never covers it twice. A copy this function already reduced is skipped too.
+      if (event.minimumCoverage) return null;
+      if (opts.obligationAbsorbed && Object.prototype.hasOwnProperty.call(opts.obligationAbsorbed, event.date + ':' + event.id)) return null;
+      const due = savingsCents(event.minimumAmount != null ? event.minimumAmount : -event.amount);
+      const heloc = due > 0 ? helocPayingSideCoverage(plan, event, asOf, opts, holder) : null;
+      if (!heloc) return null;
+      const covered = Math.min(heloc.paidCents, due);
+      return { due, covered, full: covered === due,
+        evidence: { source: 'Forecast.periodPayerPayments', covered: covered / 100, paid: heloc.paidCents / 100,
+          due: due / 100, status: covered === due ? 'covered-by-payment' : 'partial', paymentIds: [], trust: heloc.trust,
+          ...(heloc.reasons.length ? { reasons: heloc.reasons } : {}) } };
+    }
     const coverage = known || probeCardCoverage(plan, asOf, opts);
     if (!coverage || coverage.status !== 'ready' || !Array.isArray(coverage.minimumCoverage)) return null;
     const matches = coverage.minimumCoverage.filter(row => row && row.obligationId === event.id
@@ -11871,6 +11973,12 @@
     // A linked payment that is still pending is never Paid: the bill stays owed and reads 'Payment pending' until a posted
     // payment links. (An occurrence settled by a posted payment is `paid` and wins.)
     const pendingLinked = !paid && pendingBillKeys(opts).has(event.id + '@' + event.date);
+    // A pending linked payment that carries the bill-paid tie itself counts as paid on the Stack Bills card, marked pending
+    // and never more certain than estimated (owner, Dale: a pending charge counts; Grok Bot, Plan #6, 09:50 MST). The row's
+    // status, settlement and every total stay as before: the plan drives the forecast until a payment posts.
+    const pendingTie = pendingLinked && event.kind === 'bill' && event.cardPaid !== true
+      && pendingTiedBillKeys(opts).has(event.id + '@' + event.date);
+    const tiedInFull = paid && ordinaryBillPaidTie(event, observed);
     // A posted linked payment below the planned amount is Partly paid, at any shortfall (integer cents, the planned amount's
     // provenance as for the excess). It is a label only: status, settlement, actual, remaining and every total stay as
     // before, except on a bill derived `amountFixed: true` (#1355), which stays still due for its remainder (D2,
@@ -11880,7 +11988,7 @@
     // Only the incumbent posted pair links (no single leg, no pending, no matching); the figures stay as
     // scheduledFeeOccurrenceAmounts publishes them. A fee above its allowance keeps its excess and is flagged for review.
     const scheduledFee = event.id === 'tdfees';
-    const partlyPaid = payment && payment.state === 'underpaid' && excessTrust ? {
+    const partlyPaid = payment && payment.state === 'underpaid' && excessTrust && !tiedInFull ? {
       paymentState: 'partly-paid', shortfall: (payment.plannedCents - payment.paidCents) / 100,
       shortfallTrust: scheduledFee ? 'estimated' : excessTrust, shortfallSource: 'Forecast.billPaymentState' } : null;
     const status = partPaid ? 'still due'
@@ -11917,6 +12025,7 @@
       glanceKind: status === 'PAID' ? 'paid' : inside ? 'planned' : 'still-due',
       movement: householdMovement(display, 'out'),
       ...(partPaid ? { partlyPaidRemainder: true } : {}),
+      ...(pendingTie ? { billPaymentPendingTie: true } : {}),
       payingAccount,
       payerLabel: plannedPayerLabel(payingAccount, event.merchantPayingAccount, plan),
       ...(event.fundingAccount ? { fundingAccount: event.fundingAccount,
@@ -11931,8 +12040,8 @@
         status: sent.issuerMinimumStatus === 'satisfied' ? 'PAID' : 'unconfirmed',
         glanceKind: sent.issuerMinimumStatus === 'satisfied' ? 'paid' : 'unconfirmed' } : {}),
       ...(minimumCovered ? minimumCovered.full
-        ? { actual: minimumCovered.evidence.covered, remaining: 0, settlement: 'represented', status: 'PAID',
-          glanceKind: 'paid', movement: householdMovement(minimumCovered.evidence.covered, 'out'),
+        ? { actual: minimumCovered.evidence.paid ?? minimumCovered.evidence.covered, remaining: 0, settlement: 'represented', status: 'PAID',
+          glanceKind: 'paid', movement: householdMovement(minimumCovered.evidence.paid ?? minimumCovered.evidence.covered, 'out'),
           minimumCoverage: minimumCovered.evidence }
         : { actual: minimumCovered.evidence.covered,
           remaining: (minimumCovered.due - minimumCovered.covered) / 100, minimumCoverage: minimumCovered.evidence } : {}),
@@ -13514,13 +13623,15 @@
       if (row.billPaymentVerified === true) return posted === cents ? 'posted-verified' : 'posted-differs';
       return posted === cents && posted === stackBillPlannedCents(row) ? 'posted-equal' : 'posted-differs';
     }
+    // A pending payment that carries the bill-paid tie (billPaymentPendingTie): paid, marked pending, estimated at most.
+    if (row.billPaymentPendingTie === true) return 'pending-tied';
     return billPaidState(row) === 'paid' ? 'pending' : 'none';
   }
   // The one rule for "confirmed paid" (owner, Dale, on #1465 7046237901; lead, 2026-11-20): the counted
   // amount's trust below, the page's paid check (stackBillPaid) and stackSummary.bills.paid all read it,
   // so paid is the sum of the checked rows by construction.
   function stackBillPaidEvidence(evidence) {
-    return evidence === 'posted-equal' || evidence === 'posted-verified';
+    return evidence === 'posted-equal' || evidence === 'posted-verified' || evidence === 'pending-tied';
   }
   function publishStackBillParts(view, bills) {
     const rows = Array.isArray(view.bills) ? view.bills : [];
@@ -13536,8 +13647,10 @@
       const evidence = stackBillPaymentEvidence(mark.row, mark.cents);
       mark.row.stackBillPaymentEvidence = evidence;
       mark.row.stackBillPaid = stackBillPaidEvidence(evidence);
-      const trust = stackBillPaidEvidence(evidence)
-        ? mark.row.displayAmountTrust : billScheduleDisplayTrust(mark.row);
+      // A tied pending payment is never more certain than estimated, nor than the plan it is counted at.
+      const plan = billScheduleDisplayTrust(mark.row);
+      const trust = evidence === 'pending-tied' ? (plan == null || plan === 'calculated' ? 'estimated' : plan)
+        : stackBillPaidEvidence(evidence) ? mark.row.displayAmountTrust : billScheduleDisplayTrust(mark.row);
       // Never more certain than the row's own word: no word stays no word.
       if (trust != null) mark.row.stackBillAmountTrust = trust;
     }
@@ -15400,7 +15513,9 @@
     if (!row || row.status !== 'PAID' || row.settlement !== 'represented') return false;
     if (typeof row.actual !== 'number' || !Number.isFinite(row.actual) || asOf == null) return false;
     const link = budgetBillPostedLink(row, asOf, opts);
-    return !!(link && link.verified);
+    // Grok Bot's "bill verified" note, or the bill-paid tie on an ordinary bill (Dale, #821 7168507103): either way the
+    // posted payment is the occurrence's amount, settled in full, above or below the plan.
+    return !!(link && (link.verified || (link.tied && row.kind === 'bill' && row.cardPaid !== true)));
   }
   // The amount an assigned bill row deducts. A verified posted payment IS the occurrence's amount, above or below
   // the plan (owner, Dale, 2026-11-20, #821 7046237901; Grok Bot's "bill verified" marker; lead ruling (A)): the
@@ -16242,7 +16357,8 @@
         if (row.minimumCoverage) coveredMinimums.push({ id: row.id, date: row.date,
           status: row.status === 'PAID' ? 'paid' : 'partial', due: row.minimumCoverage.due,
           covered: row.minimumCoverage.covered, remaining: row.remaining,
-          paymentIds: row.minimumCoverage.paymentIds.slice(), source: row.minimumCoverage.source, trust: 'calculated' });
+          paymentIds: row.minimumCoverage.paymentIds.slice(), source: row.minimumCoverage.source,
+          trust: row.minimumCoverage.trust === 'estimated' ? 'estimated' : 'calculated' });
         // H2-8b: a scheduled fee allowance (tdfees) still holds its unspent
         // allowance after a fee posts, exactly as the period view's
         // remainingTotal reads it; being represented does not drop it.
@@ -23097,8 +23213,10 @@
       totalCents += Math.round(tx.amount * 100);
       if (!lastPosted || tx.date > lastPosted) lastPosted = tx.date;
     }
+    // tied: every entry of the occurrence carries the bill-paid tie (observer billPaidTie; ordinaryBillPaidTie).
     return lastPosted === claim.postedOn
-      && Math.abs(totalCents) === Math.abs(Math.round(row.actual * 100)) ? { verified } : null;
+      && Math.abs(totalCents) === Math.abs(Math.round(row.actual * 100))
+      ? { verified, tied: matches.every(item => item.paidTie === true) } : null;
   }
 
   // ---------------------------------------------------------------------------------------------------------------
