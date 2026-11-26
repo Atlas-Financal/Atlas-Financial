@@ -126,7 +126,8 @@ the one owner-decided loosening, limited to exactly the cases it names.
     transaction naming, Lunch Money rules, bill-payment confirmation,
     subscriptions and income confirmation. Atlas reads what the Lunch Money
     ledger says (category, note, name, tags) and shows it; it builds no
-    sorting, naming, matching or reconciliation logic of its own. Every
+    sorting, naming, matching or reconciliation logic of its own, except the
+    card-payment destination inference below. Every
     lead, builder and reviewer defers to Grok Bot on these. Grok Bot writes
     no code, calculates no figures (Forecast is the only calculator) and has
     no access to the hosting service: the lead tells Grok Bot, in the Plan #6
