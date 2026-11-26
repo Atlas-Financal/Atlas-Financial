@@ -1735,6 +1735,15 @@ body:has([data-budget-bento]) .sitenav {
 .blend-goal-saved { color: var(--blend-ink); font-weight: 620; }
 .blend-goal-slash { opacity: .7; }
 .blend-goal-paid-word { color: var(--blend-income); }
+/* Withheld tagged-spending note: its own full-width line under the bar, wrapping at narrow widths. */
+.blend-goal-tag-note {
+  grid-column: 1 / -1;
+  color: var(--blend-ink-2);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .blend-goal-word:not(.blend-clip) { font-size: 12px; }
 
 /* Tap-to-explain window: one small modal that carries a row's wording. */
