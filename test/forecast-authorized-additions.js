@@ -171,14 +171,16 @@ function proveStackCredit(view, credit, breakdown, surplus) {
       if (line.deduction.amount !== null) assert.equal(cents(line.target.amount) - cents(line.deduction.countedOffset) - cents(line.deduction.beyondNetted),
         cents(line.deduction.amount), 'authorized addition: target − countedOffset − beyondNetted is the deduction, per line');
     }
-    // OD-052: the Credit head's totals, worked here from the lines: Σ paid back and Σ target over every line (the HELOC
-    // included), each withheld when any line's is, never a partial sum.
+    // OD-052: the Credit head's totals, worked here from the lines: Σ paid back over the lines with something to pay back
+    // (a target that is not a published $0) and Σ target over every line (the HELOC included), each withheld when any of
+    // its lines' figures is, never a partial sum.
     const t = credit.totals;
+    const open = credit.lines.filter(line => line.target.amount === null || cents(line.target.amount) > 0);
     assert.ok(t.paidBack && t.target && t.targetCovered, 'authorized addition: the Credit totals carry paidBack, target and targetCovered');
-    if (t.paidBack.amount !== null) assert.equal(cents(t.paidBack.amount), credit.lines.reduce((sum, line) => sum + cents(line.paidBack.amount), 0),
-      'authorized addition: totals.paidBack is Σ each line\'s Paid back');
+    if (t.paidBack.amount !== null) assert.equal(cents(t.paidBack.amount), open.reduce((sum, line) => sum + cents(line.paidBack.amount), 0),
+      'authorized addition: totals.paidBack is Σ the Paid back of each line with something to pay back');
     else assert.equal(t.paidBack.trust, 'unavailable', 'authorized addition: a withheld paid back total reads unavailable');
-    if (credit.lines.some(line => line.paidBack.amount === null)) assert.equal(t.paidBack.amount, null, 'authorized addition: a withheld line withholds totals.paidBack');
+    if (open.some(line => line.paidBack.amount === null)) assert.equal(t.paidBack.amount, null, 'authorized addition: a withheld line withholds totals.paidBack');
     if (credit.lines.every(line => line.target.amount !== null)) assert.equal(cents(t.target.amount), credit.lines.reduce((sum, line) => sum + cents(line.target.amount), 0),
       'authorized addition: totals.target is Σ each line\'s target');
     else assert.ok(t.target.amount === null && t.target.trust === 'unavailable', 'authorized addition: a withheld target withholds totals.target');

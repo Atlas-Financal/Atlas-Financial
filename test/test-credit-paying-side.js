@@ -65,8 +65,10 @@ function unconfirmedText(page, id) {
   return plain(section[1]);
 }
 
-// The sum of one published figure over every Credit line, in whole cents (the invented amounts are whole dollars).
-const sumOf = (credit, key) => credit.lines.reduce((sum, line) => sum + Math.round(line[key].amount * 100), 0) / 100;
+// The sum of one published figure over the Credit lines with something to pay back (a target that is not a published $0),
+// in whole cents (the invented amounts are whole dollars); a $0 target adds nothing to the target sum either way.
+const sumOf = (credit, key) => credit.lines.filter(line => line.target.amount === null || line.target.amount > 0)
+  .reduce((sum, line) => sum + Math.round(line[key].amount * 100), 0) / 100;
 
 function checkPayment(page, amount, trust, reason, cardId = 'travelvisa') {
   const { credit } = page;

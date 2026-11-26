@@ -947,26 +947,28 @@
       : { amount: lines.reduce((sum, line) => sum + cents(line.deduction.amount), 0) / 100,
         trust: weakest(...lines.map(line => line.deduction.trust)),
         reasons: [...new Set(lines.flatMap(line => line.deduction.reasons))] };
-    // The Credit head (OD-052, Dale, 2026-11-25: "it should be [total paid back]/[sum of the card targets]"): the sum of
-    // every listed line's printed Paid back over the sum of their targets, the HELOC included, so the head adds up
-    // against the rows under it. Each is withheld (amount null) when any line's figure is, never a partial sum. An
-    // unidentified return withholds the paid side wherever a line's own progress is withheld (a line with a target above
-    // $0 or unknown), as it does that line's Still to pay back. targetCovered is true only when every line with a target
-    // above $0 is published covered, so an overpaid card never shows another card's shortfall as covered.
-    const unseenPaid = lines.filter(line => line.paidBack.amount === null);
-    const reversalHeld = hasUnassignedReversal && lines.some(line => cents(line.target.amount) === null || cents(line.target.amount) > 0);
+    // The Credit head (OD-052, Dale, 2026-11-25: "it should be [total paid back]/[sum of the card targets]"), over the
+    // lines with something to pay back (a target above $0, or a withheld one), the HELOC included: the sum of their printed
+    // Paid back over the sum of their targets, so the head adds up against those rows. A line with a published $0 target
+    // adds nothing to either side (as a card with no minimum due added nothing to the old head), so a quiet card with no
+    // payment evidence never withholds the head. Each side is withheld (amount null) when any of its lines' figures is,
+    // never a partial sum. An unidentified return withholds the paid side, as it withholds each such line's progress.
+    // targetCovered is true only when every such line is published covered, so an overpaid card never shows another card's
+    // shortfall as covered.
+    const openLines = lines.filter(line => cents(line.target.amount) === null || cents(line.target.amount) > 0);
+    const unseenPaid = openLines.filter(line => line.paidBack.amount === null);
+    const reversalHeld = hasUnassignedReversal && openLines.length > 0;
     totals.paidBack = unseenPaid.length || reversalHeld
       ? { amount: null, trust: 'unavailable',
         reasons: [...new Set(unseenPaid.flatMap(line => line.paidBack.reasons).concat(reversalHeld ? ['payment-direction-unresolved'] : []))] }
-      : { amount: lines.reduce((sum, line) => sum + cents(line.paidBack.amount), 0) / 100,
-        trust: weakest(...lines.map(line => line.paidBack.trust)),
-        reasons: [...new Set(lines.flatMap(line => line.paidBack.reasons))] };
+      : { amount: openLines.reduce((sum, line) => sum + cents(line.paidBack.amount), 0) / 100,
+        trust: openLines.length ? weakest(...openLines.map(line => line.paidBack.trust)) : weakest(...lines.map(line => line.target.trust)),
+        reasons: [...new Set(openLines.flatMap(line => line.paidBack.reasons))] };
     const unseenTarget = lines.filter(line => line.target.amount === null);
     totals.target = unseenTarget.length
       ? { amount: null, trust: 'unavailable', reasons: [...new Set(unseenTarget.flatMap(line => line.target.reasons))] }
       : { amount: lines.reduce((sum, line) => sum + cents(line.target.amount), 0) / 100,
         trust: weakest(...lines.map(line => line.target.trust)), reasons: [] };
-    const openLines = lines.filter(line => cents(line.target.amount) === null || cents(line.target.amount) > 0);
     const coverUnknown = !openLines.length || openLines.some(line => line.targetCovered.value === 'unknown');
     totals.targetCovered = coverUnknown
       ? { value: openLines.length ? 'unknown' : false, trust: openLines.length ? 'unavailable' : weakest(...lines.map(line => line.target.trust)),
