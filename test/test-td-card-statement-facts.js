@@ -3,7 +3,8 @@
  *
  * TD Cash Back Visa: the minimum is due on the 4th. `cashback` ends at its 2026-11-01 occurrence (lastDue) and the
  * successor `cashback-day4` carries the schedule on from 2026-12-04, whose statement minimum is owner-confirmed;
- * later months stay estimated at the existing level.
+ * later months stay estimated at the existing level. Superseded for the amount by Dale's later decision (#821 7173859561,
+ * 2026-11-25): later months carry the latest statement minimum, still estimated; the 11-21 dates and statements stand.
  * The same Cash Back statement shows a last payment on 2026-11-09 and no past-due amount, so the 2026-11-01 minimum is
  * represented effective 2026-11-09 (lead, 2026-11-21). Its payment (the ledger's 2026-11-06 Bills transfer) is recorded on that
  * occurrence's sentPayments, so the card-minimum category path treats it as consumed and it cannot also settle
@@ -90,7 +91,7 @@ ok(moved.length === 1 && cents(moved[0].amount) === cents(dec4.minimum) && moved
 ok(moved.length === 1 && moved[0].settlement === 'upcoming' && moved[0].status === 'still due', 'acceptance 1: and still due (nothing paid yet)');
 const later = vs.flatMap(v => rows(v, /^cashback/)).filter(r => r.date > '2026-12-17' && r.date < '2027-03-01');
 ok(later.length === 2 && later.every(r => r.id === 'cashback-day4' && r.date.slice(8) === '04' && r.confidence === 'estimated'
-  && cents(r.amount) === cents(day4.amount)), 'later months: on the 4th, estimated at the existing level',
+  && cents(r.amount) === cents(dec4.minimum)), 'later months: on the 4th, carrying the Dec 4 statement minimum, estimated (#821 7173859561)',
   JSON.stringify(later.map(r => [r.id, r.date, r.confidence])));
 const shown = vs.filter(v => v.start <= '2026-12-03').flatMap(v => rows(v, /^travel$/));
 ok(JSON.stringify(shown.map(r => r.date)) === JSON.stringify(TRAVEL_DATES.slice(1)) && shown.every(r => TRAVEL_DATES.includes(r.date) && r.settlement === 'represented' && r.status === 'PAID'),

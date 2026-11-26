@@ -59,8 +59,9 @@ const x = fixture(), p = x.data.plan;
 eq(F.expandEvents(p, '2026-10-01', '2026-12-31').filter(e => e.id === 'triangle')
   .map(e => [e.date, -e.amount, e.confidence, e.dateConfidence]), [
     ['2026-10-08', 91.23, 'confirmed', 'confirmed'],
-    ['2026-11-07', 88.88, 'estimated', undefined],
-    ['2026-12-07', 88.88, 'estimated', undefined]]);
+    // Later months carry the October statement minimum, estimated (Dale, #821 7173859561), not the plan's 88.88.
+    ['2026-11-07', 91.23, 'estimated', undefined],
+    ['2026-12-07', 91.23, 'estimated', undefined]]);
 eq(F.expandEvents(p, '2026-10-07', '2026-10-07').filter(e => e.id === 'triangle').length, 0);
 const moved = F.expandEvents(p, '2026-10-08', '2026-10-08').find(e => e.id === 'triangle');
 eq([moved.date, moved.scheduledDate, moved.occurrenceKey, moved.dateConfidence],
@@ -93,8 +94,8 @@ eq(F.expandEvents(p, '2026-10-08', '2026-10-08')[0].dateConfidence, 'confirmed',
     .filter(e => e.id === 'triangle');
   eq(original.map(e => [e.date, -e.amount, e.confidence, e.dateConfidence]), [
     ['2026-10-07', 91.23, 'confirmed', 'estimated'],
-    ['2026-11-07', 88.88, 'estimated', undefined],
-    ['2026-12-07', 88.88, 'estimated', undefined]],
+    ['2026-11-07', 91.23, 'estimated', undefined],
+    ['2026-12-07', 91.23, 'estimated', undefined]],
     'amount confirmation does not promote a retained planning date');
   const amountOnlyRun = run((() => {
     const x = fixture();

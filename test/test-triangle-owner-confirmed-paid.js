@@ -83,7 +83,8 @@ eq(Math.round(F.simulate(p, confirmedDate, opts(x, confirmedDate)).ending * 100)
 const debt = F.projectDebts(p, x.data.debts, confirmedDate, { debtHorizonDays: 14 }).byId.triangle;
 eq([Math.round(debt.balance * 100), debt.paid], [75063, 0], 'observed principal is not replayed or assigned as excess');
 const next = F.obligationOccurrences(p.obligations[0], '2038-07-01', '2038-07-31')[0];
-eq([next.scheduledDate, next.amount, next.confidence], ['2038-07-07', 31.27, 'estimated']);
+// The next cycle carries the June statement minimum 43.19, estimated (Dale, #821 7173859561), not the plan's 31.27.
+eq([next.scheduledDate, next.amount, next.confidence], ['2038-07-07', 43.19, 'estimated'], 'next cycle carries the statement minimum, estimated');
 eq(F.representedOccurrence(p, id, '2038-07-07', confirmedDate, opts(x, confirmedDate)), false,
   'future cycle cannot borrow this confirmation');
 const wrongCycle = clone(p); wrongCycle.opening.representedEvents[0].date = '2038-05-07';

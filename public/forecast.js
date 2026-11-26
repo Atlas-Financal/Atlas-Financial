@@ -71,6 +71,8 @@
       balanceEvidence: opts.cardPeriodBalanceEvidence || null, overlay: opts.liveOverlay || null }, {
       date: savingsDate, cents: savingsCents, money: cardMoneyCents, addDays, skipParent: skipSplitParent,
       payingSidePayment,
+      // Incoming deposits count as card reversals only with card identity.
+      incomingCardReversal: incomingCardReversalIdentity,
       unnotedHouseholdMovement: tx => provenInternalMovementForTx(tx, opts) && !cardPaymentNoteEvidence(tx),
       // Inferred destination (Dale, #821 7174658128): whether a debit carries a `card payment:` note (a note always wins),
       // and the minimum Forecast expects per credit line over a window: the plan's own scheduled occurrences (a card's
@@ -204,8 +206,24 @@
         candidates.add(record.scheduledDate);
       }
     }
+    // Future minimums carry the row's latest published minimum (owner, Dale, #821 7173859561, 2026-11-25: "make the
+    // minimums for future pay periods what the minimums are for this pay period"): an occurrence of this row dated
+    // after its latest statement, with no statement of its own, takes that statement's minimum, tagged estimated,
+    // never more certain (with a fixed interest minimum, the larger of the two). Within this row only: a dated
+    // successor row keeps its own planned amount until it has a statement of its own, and a dated amount-schedule
+    // term wins over the carry.
+    const latest = statements.reduce((best, record) => (!best || record.scheduledDate > best.scheduledDate ? record : best), null);
     return Array.from(candidates).map(scheduledDate => {
       const statement = byScheduled.get(scheduledDate);
+      if (latest && !statement && scheduledDate > latest.scheduledDate) {
+        const regular = obligationScheduledBase(row, scheduledDate);
+        // Only over a valid standing monthly amount above zero, on a row tagged estimated or confirmed: a malformed,
+        // zero or impossible plan input, or an unknown or malformed tag, keeps its own path (never made more certain).
+        if (row.frequency === 'monthly' && !regular.term && !regular.invalid && typeof regular.amount === 'number'
+          && cents(regular.amount) != null && regular.amount > 0 && (regular.confidence === 'estimated'
+            || regular.confidence === 'confirmed')) return { scheduledDate, date: scheduledDate, statement: false, carriedMinimum: true,
+          amount: fixed == null ? latest.minimum : Math.max(fixed, latest.minimum), confidence: 'estimated' };
+      }
       // Amount confirmation is statement.confidence. Date trust is separate:
       // omitted dateConfidence remains a fully confirmed statement-date override.
       const dateConfidence = statement
@@ -12886,6 +12904,23 @@
         ...(note.byAmount === null ? { reason: 'card-payment-note-provenance-unconfirmed' } : {}) };
     }
     return note || payment ? { cardId: null, trust: 'estimated' } : null;
+  }
+
+  // An incoming paying-side row is a possible card reversal only when the row
+  // itself names a card. A payment-category deposit with none of this identity
+  // (an Interac or e-transfer from outside the household, and no household
+  // counterpart) is neither paid nor a reversal. Outgoing debits are unchanged.
+  function incomingCardReversalIdentity(tx) {
+    if (!tx) return false;
+    if (tx.cardPaymentIdentity === true || tx.tdCardPaymentIdentity === true || tx.payingSideCardPaymentKind === true) return true;
+    const hint = normalizeCategoryLabel(tx.kindHint || tx.kind);
+    if (hint === 'card-payment') return true;
+    const label = normalizeCategoryLabel(tx.categoryLabel);
+    if (label === 'credit card payment' || label === 'cc payment') return true;
+    if (cardPaymentNoteEvidence(tx)) return true;
+    if (typeof tx.cardPaymentDestination === 'string' && tx.cardPaymentDestination !== '') return true;
+    if (isStackCreditLine(tx.minimumCategoryDebt)) return true;
+    return /^\s*[A-Z]{2}\d{3}\s+TFR-(?:TO|FR)\s+C\/C\s*$/i.test(txBankDescriptor(tx));
   }
 
   function householdCashLocationId(tx) {

@@ -39,7 +39,8 @@ const packet={schema:'atlas-current-period-actuals/v1',observationAsOf:asOf,cove
 const nowOpts={...opts,debts:current.debts,currentPeriodActuals:packet,viewDays:14,horizonDays:14,debtHorizonDays:14};
 check('current opening keeps observed debt once',cents(F.projectDebts(p,current.debts,asOf,nowOpts).byId.tdcc.balance),73380);
 check('current opening keeps observed cash once',cents(F.simulate(p,asOf,nowOpts).ending),47221);
-check('future standing estimate deducts exactly once',cents(F.simulate(p,asOf,{...nowOpts,viewDays:45,horizonDays:45}).ending),43380);
+// Future minimums carry the June statement minimum, estimated (Dale, #821 7173859561): 472.21 - 23.17 = 449.04.
+check('future carried minimum deducts exactly once',cents(F.simulate(p,asOf,{...nowOpts,viewDays:45,horizonDays:45}).ending),44904);
 const advice=F.recommend(p,asOf,nowOpts);
 const next=advice.payPeriodViews.find(period=>period.start==='2038-06-11');
 const row=next.bills.find(row=>row.id==='invented-cycle'&&row.date==='2038-06-17');

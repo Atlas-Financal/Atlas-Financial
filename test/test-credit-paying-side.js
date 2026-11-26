@@ -50,7 +50,8 @@ async function renderWorld(data) {
   const ctx = page.context();
   const view = ctx.recommendation.payPeriodViews.find(v => v.start === page.selectedKey());
   assert.equal(view.timelineRole, 'current');
-  return { period: { start: view.start, end: view.end }, credit: view.stackSummary.credit, card: page.blockHtml('credit'),
+  return { period: { start: view.start, end: view.end }, credit: view.stackSummary.credit,
+    breakdown: view.stackSummary.creditBreakdown, card: page.blockHtml('credit'),
     waterfall: page.blockHtml('waterfall'),
     openWaterfall: () => page.sandbox.StackWaterfall.html(ctx, { creditOpen: true }),
     sheet: id => page.sandbox.StackSheet.html(ctx, 'card:' + id) };
@@ -178,19 +179,23 @@ test('a household transfer pair leaves the Credit head and waterfall at the note
 
 test('an unpaired transfer and an unnoted card transfer stay unassigned', async () => {
   const cardDebit = { ...internalDebit, payee: 'AB123 TFR-TO C/C', original_name: 'AB123 TFR-TO C/C' };
-  for (const rows of [[internalDebit], [cardDebit], [cardDebit, internalCredit]]) {
+  for (const rows of [[internalDebit], [cardDebit]]) {
     const page = await render(FIRST, [payment(EXACT), ...rows]);
     assert.deepEqual(Array.from(page.credit.unconfirmedPayments, row => row.amount), rows.map(row => row.amount));
     const due = page.credit.lines.find(line => line.minimum.amount === 20);
     assert.ok(due.paidBack.reasons.includes('card-payment-destination-unconfirmed'));
-    if (rows.length === 2) {
-      assert.equal(page.credit.totals.minimumsPaid.amount, null);
-      assert.equal(due.stillToPayBack.amount, null);
-    }
+    assert.equal(page.credit.totals.minimumsPaid.amount, 43);
   }
+  // The incoming household credit names no card, so it is not a reversal beside the unassigned card debit.
+  const page = await render(FIRST, [payment(EXACT), cardDebit, internalCredit]);
+  assert.deepEqual(Array.from(page.credit.unconfirmedPayments, row => row.amount), [cardDebit.amount]);
+  const due = page.credit.lines.find(line => line.minimum.amount === 20);
+  assert.equal(due.stillToPayBack.amount, 0);
+  assert.equal(page.credit.totals.minimumsPaid.amount, 43);
+  assert.ok(!page.credit.totals.minimumsPaid.reasons.includes('payment-direction-unresolved'));
 });
 
-test('removing the household exclusion reproduces both Credit dashes', async () => {
+test('removing the household exclusion lets the outgoing transfer count as unassigned', async () => {
   const fs = require('node:fs');
   const path = require('node:path');
   const file = path.join(__dirname, '..', 'public', 'forecast-card-period.js');
@@ -204,16 +209,14 @@ test('removing the household exclusion reproduces both Credit dashes', async () 
   try {
     const page = await render(FIRST, [payment(EXACT), internalDebit, internalCredit]);
     assert.throws(() => assertTransferRepayment(page), assert.AssertionError);
-    assert.deepEqual(Array.from(page.credit.unconfirmedPayments, row => row.amount), [250, -250]);
+    // The outgoing leg becomes an unassigned payment. The incoming leg names no card, so it still does not blank Credit.
+    assert.deepEqual(Array.from(page.credit.unconfirmedPayments, row => row.amount), [250]);
     const due = page.credit.lines.find(line => line.minimum.amount === 20);
     assert.equal(due.paidBack.amount, 43);
-    assert.equal(due.minimumCovered.value, 'unknown');
-    assert.equal(due.stillToPayBack.amount, null);
-    assert.equal(page.credit.totals.minimumsPaid.amount, null);
-    assert.equal(plain(page.card.match(/data-stack-credit-total>([\s\S]*?)<\/i>/)[1]), '\u2014 / $20');
-    const row = waterfallCardRow(page.openWaterfall(), due.id);
-    assert.match(row, /data-source="stackSummary\.creditBreakdown\.rows\.\d+\.amount" data-unpublished="true"><\/span>/);
-    assert.match(row, /\u2014/);
+    assert.equal(due.stillToPayBack.amount, 0);
+    assert.equal(page.credit.totals.minimumsPaid.amount, 43);
+    assert.ok(due.paidBack.reasons.includes('card-payment-destination-unconfirmed'));
+    assert.ok(!page.credit.totals.minimumsPaid.reasons.includes('payment-direction-unresolved'));
   } finally {
     fs.readFileSync = read;
   }
@@ -588,4 +591,283 @@ test('a mutant qualifying only a positive target fails the unknown-target checks
   } finally {
     fs.readFileSync = read;
   }
+});
+
+// Hand-derived on the invented fixture this file already uses: Travel's minimum is 20, the noted
+// payment is 43, and the Cash Back purchase is 71 with no minimum. Still to pay back is
+// max(0, target − paid): 0 on Travel (target 20) and 71 on Cash Back (target 71).
+const PURCHASE = {
+  id: 'invented-purchase', date: FIRST, atlasAccountId: 'cashback', accountRole: 'revolving-credit',
+  categoryLabel: 'Groceries', displayedPayee: 'Invented shop', amount: 71, currency: 'cad', pending: false,
+};
+const GIFT_ROWS = [payment(EXACT), PURCHASE];
+
+function publishedCredit(page) {
+  const { credit } = page;
+  return {
+    head: credit.totals.minimumsPaid,
+    coveredCount: credit.totals.minimumsCoveredCount,
+    unconfirmed: credit.unconfirmedPayments.map(row => row.amount),
+    lines: credit.lines.map(line => ({
+      id: line.id,
+      paidBack: line.paidBack,
+      stillToPayBack: line.stillToPayBack,
+      minimumCovered: line.minimumCovered,
+      targetCovered: line.targetCovered,
+    })),
+    breakdown: (page.breakdown.rows).map(row => ({ debtId: row.debtId, amount: row.amount, trust: row.trust })),
+  };
+}
+
+function creditLineHtml(page, id) {
+  return page.card.split('<li>').find(item => item.includes('data-stack-sheet="card:' + id + '"'))?.split('</li>')[0] || '';
+}
+
+function assertMatchesWithoutRow(page, baseline) {
+  // The page figures are created in the renderer sandbox. Compare their values, not the sandbox objects.
+  assert.deepEqual(JSON.parse(JSON.stringify(publishedCredit(page))), JSON.parse(JSON.stringify(publishedCredit(baseline))));
+  assert.equal(plain(page.card.match(/data-stack-credit-total>([\s\S]*?)<\/i>/)[1]),
+    plain(baseline.card.match(/data-stack-credit-total>([\s\S]*?)<\/i>/)[1]));
+  for (const id of ['travelvisa', 'cashback']) {
+    assert.equal(creditLineHtml(page, id), creditLineHtml(baseline, id));
+    assert.equal(waterfallCardRow(page.openWaterfall(), id), waterfallCardRow(baseline.openWaterfall(), id));
+  }
+}
+
+function assertHandDerivedProgress(page) {
+  const { credit } = page;
+  const travel = credit.lines.find(line => line.id === 'travelvisa');
+  const cashback = credit.lines.find(line => line.id === 'cashback');
+  assert.equal(credit.totals.minimumsPaid.amount, 43);
+  assert.equal(credit.totals.minimumsPaid.trust, 'calculated');
+  assert.equal(credit.totals.minimumsPaid.reasons.length, 0);
+  assert.equal(credit.totals.minimumsCoveredCount, 1);
+  assert.equal(credit.unconfirmedPayments.length, 0);
+  assert.equal(travel.paidBack.amount, 43);
+  assert.equal(travel.paidBack.trust, 'calculated');
+  assert.equal(travel.stillToPayBack.amount, 0);
+  assert.equal(travel.minimumCovered.value, true);
+  assert.equal(travel.targetCovered.value, true);
+  assert.equal(cashback.paidBack.amount, 0);
+  assert.equal(cashback.stillToPayBack.amount, 71);
+  assert.equal(cashback.targetCovered.value, false);
+  assert.equal(plain(page.card.match(/data-stack-credit-total>([\s\S]*?)<\/i>/)[1]), '$43 / $20');
+  assert.match(creditLineHtml(page, 'travelvisa'), /stack-credit-tick is-on/);
+  assert.match(waterfallCardRow(page.openWaterfall(), 'travelvisa'),
+    /data-source="stackSummary\.creditBreakdown\.rows\.\d+\.amount">\$0<\/span>/);
+  assert.match(waterfallCardRow(page.openWaterfall(), 'cashback'),
+    /data-source="stackSummary\.creditBreakdown\.rows\.\d+\.amount">\$71<\/span>/);
+  const breakdown = JSON.parse(JSON.stringify(publishedCredit(page).breakdown));
+  assert.deepEqual(breakdown, [
+    { debtId: 'travelvisa', amount: 0, trust: 'estimated' },
+    { debtId: 'cashback', amount: 71, trust: 'estimated' },
+  ]);
+}
+
+function assertReversalWithheld(page) {
+  const { credit } = page;
+  const travel = credit.lines.find(line => line.id === 'travelvisa');
+  const cashback = credit.lines.find(line => line.id === 'cashback');
+  assert.equal(credit.totals.minimumsPaid.amount, null);
+  assert.equal(credit.totals.minimumsPaid.trust, 'unavailable');
+  assert.ok(credit.totals.minimumsPaid.reasons.includes('payment-direction-unresolved'));
+  assert.equal(credit.totals.minimumsCoveredCount, null);
+  for (const line of [travel, cashback]) {
+    assert.equal(line.stillToPayBack.amount, null);
+    assert.equal(line.stillToPayBack.trust, 'unavailable');
+    assert.ok(line.stillToPayBack.reasons.includes('payment-direction-unresolved'));
+    assert.equal(line.targetCovered.value, 'unknown');
+    assert.equal(line.minimumCovered.value, 'unknown');
+  }
+  assert.match(plain(page.card.match(/data-stack-credit-total>([\s\S]*?)<\/i>/)[1]), /^— \/ \$20$/);
+  assert.doesNotMatch(creditLineHtml(page, 'travelvisa'), /stack-credit-tick is-on/);
+  assert.doesNotMatch(creditLineHtml(page, 'cashback'), /stack-credit-tick is-on/);
+  for (const id of ['travelvisa', 'cashback']) {
+    const row = waterfallCardRow(page.openWaterfall(), id);
+    assert.match(row, /data-source="stackSummary\.creditBreakdown\.rows\.\d+\.amount" data-unpublished="true"><\/span>/);
+    assert.match(row, /—/);
+  }
+  const breakdown = publishedCredit(page).breakdown;
+  assert.equal(breakdown.find(row => row.debtId === 'travelvisa').amount, null);
+  assert.equal(breakdown.find(row => row.debtId === 'cashback').amount, null);
+}
+
+test('an incoming e-transfer deposit in Payment, Transfer does not hide card payment progress', async () => {
+  const baseline = await render(FIRST, GIFT_ROWS);
+  assertHandDerivedProgress(baseline);
+  for (const payee of ['E-TRANSFER ***ab1', 'INTERAC e-Transfer from Invented giver']) {
+    const deposit = {
+      id: 'invented-etransfer-in', date: FIRST, atlasAccountId: 'chequing-a', accountRole: 'household-cash',
+      categoryLabel: 'Payment, Transfer', kindHint: 'payment', amount: -80, currency: 'cad', pending: false,
+      payee, original_name: payee,
+    };
+    const page = await render(FIRST, GIFT_ROWS.concat([deposit]));
+    assertHandDerivedProgress(page);
+    assertMatchesWithoutRow(page, baseline);
+  }
+});
+
+test('a genuine incoming card reversal still withholds progress, ticks and still to pay back', async () => {
+  const categoryReversal = payment(undefined, { id: 'unassigned-reversal', date: FIRST, amount: -43 });
+  const descriptorReversal = payment(undefined, {
+    id: 'cc-reversal', date: FIRST, amount: -43, categoryLabel: 'Payment, Transfer', kindHint: 'payment',
+    payee: 'AB123 TFR-FR C/C', original_name: 'AB123 TFR-FR C/C', displayedPayee: 'AB123 TFR-FR C/C',
+  });
+  for (const reversal of [categoryReversal, descriptorReversal]) {
+    const page = await render(FIRST, GIFT_ROWS.concat([reversal]));
+    assertReversalWithheld(page);
+    assert.ok(page.credit.unconfirmedPayments.some(row => row.amount === -43));
+  }
+});
+
+function assertAmbiguousIdentityWithheld(page, reason = 'paying-side-evidence-unconfirmed') {
+  const { credit } = page;
+  assert.equal(credit.totals.minimumsPaid.amount, null);
+  assert.equal(credit.totals.minimumsPaid.trust, 'unavailable');
+  assert.ok(credit.totals.minimumsPaid.reasons.includes(reason));
+  assert.equal(credit.lines.find(line => line.id === 'travelvisa').stillToPayBack.amount, null);
+  assert.equal(credit.lines.find(line => line.id === 'cashback').stillToPayBack.amount, null);
+  assert.doesNotMatch(creditLineHtml(page, 'travelvisa'), /stack-credit-tick is-on/);
+  assert.doesNotMatch(creditLineHtml(page, 'cashback'), /stack-credit-tick is-on/);
+  assert.match(plain(page.card.match(/data-stack-credit-total>([\s\S]*?)<\/i>/)[1]), /^— \/ \$20$/);
+  for (const id of ['travelvisa', 'cashback']) {
+    const row = waterfallCardRow(page.openWaterfall(), id);
+    assert.match(row, /data-unpublished="true"/);
+    assert.equal(publishedCredit(page).breakdown.find(item => item.debtId === id).amount, null);
+  }
+}
+
+// A posted e-transfer in, flagged because its settlement pairing is ambiguous, with no card identity.
+const FLAGGED_DEPOSIT = {
+  id: 'invented-etransfer-ambiguous', date: FIRST, atlasAccountId: 'chequing-a', accountRole: 'household-cash',
+  categoryLabel: 'Payment, Transfer', kindHint: 'payment', amount: -80, currency: 'cad', pending: false,
+  pendingPostedAmbiguous: true, payee: 'E-TRANSFER ***ab1', original_name: 'E-TRANSFER ***ab1',
+};
+// A posted copy with the deposit's identity but a non-payment classification. It never reaches the
+// paying-side candidate loop itself, so only the deposit's duplicate check can see it.
+const CONFLICTING_COPY = {
+  id: FLAGGED_DEPOSIT.id, date: FIRST, atlasAccountId: 'chequing-a', accountRole: 'household-cash',
+  categoryLabel: 'Groceries', displayedPayee: 'Invented shop', amount: -80, currency: 'cad', pending: false,
+};
+
+test('a flagged outside deposit with no card identity does not hide card payment progress', async () => {
+  const baseline = await render(FIRST, GIFT_ROWS);
+  assertHandDerivedProgress(baseline);
+  const page = await render(FIRST, GIFT_ROWS.concat([FLAGGED_DEPOSIT]));
+  assertHandDerivedProgress(page);
+  assertMatchesWithoutRow(page, baseline);
+  assert.ok(!page.credit.totals.minimumsPaid.reasons.includes('paying-side-evidence-unconfirmed'));
+});
+
+test('a flagged outside deposit beside its pending twin does not hide card payment progress', async () => {
+  // The posted row legitimately replaces its pending copy. A pending row is not registered as a posted identity.
+  const baseline = await render(FIRST, GIFT_ROWS);
+  const pendingTwin = { ...FLAGGED_DEPOSIT, pending: true };
+  const page = await render(FIRST, GIFT_ROWS.concat([pendingTwin, FLAGGED_DEPOSIT]));
+  assertHandDerivedProgress(page);
+  assertMatchesWithoutRow(page, baseline);
+  assert.ok(!page.credit.totals.minimumsPaid.reasons.includes('duplicate-identity'));
+});
+
+test('an outside deposit whose identity another posted row shares still withholds progress', async () => {
+  const unflagged = { ...FLAGGED_DEPOSIT, pendingPostedAmbiguous: undefined };
+  const cases = [
+    ['flagged deposit and a conflicting copy with the same id', [FLAGGED_DEPOSIT, CONFLICTING_COPY]],
+    ['conflicting copy listed first', [CONFLICTING_COPY, FLAGGED_DEPOSIT]],
+    ['unflagged deposit and a conflicting copy with the same id', [unflagged, CONFLICTING_COPY]],
+    ['same row in a second household account', [FLAGGED_DEPOSIT, { ...FLAGGED_DEPOSIT, atlasAccountId: 'chequing-b' }]],
+  ];
+  for (const [label, rows] of cases) {
+    const page = await render(FIRST, GIFT_ROWS.concat(rows));
+    assert.doesNotThrow(() => assertAmbiguousIdentityWithheld(page, 'duplicate-identity'), label);
+  }
+  // A different id carrying the same coverage reference is the same provider row.
+  const otherCopy = { ...CONFLICTING_COPY, id: 'invented-other-copy' };
+  const page = await render(FIRST, GIFT_ROWS.concat([FLAGGED_DEPOSIT, otherCopy]), packet => {
+    packet.transactions.find(tx => tx.id === otherCopy.id).coverageRef = 'invented-' + FLAGGED_DEPOSIT.id;
+  });
+  assertAmbiguousIdentityWithheld(page, 'duplicate-identity');
+});
+
+test('a flagged incoming row that names a card still withholds progress', async () => {
+  const reversal = payment(undefined, {
+    id: 'ambiguous-card-reversal', date: FIRST, amount: -43, pendingPostedAmbiguous: true,
+  });
+  const page = await render(FIRST, GIFT_ROWS.concat([reversal]));
+  assertAmbiguousIdentityWithheld(page);
+});
+
+function withCardPeriodMutant(from, to, run) {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const file = path.join(__dirname, '..', 'public', 'forecast-card-period.js');
+  const source = fs.readFileSync(file, 'utf8');
+  assert.equal(source.split(from).length, 2, 'forecast-card-period.js carries the line to mutate exactly once');
+  const mutant = source.replace(from, to);
+  const read = fs.readFileSync;
+  fs.readFileSync = function (target, ...rest) {
+    return path.resolve(String(target)) === file ? mutant : read.call(this, target, ...rest);
+  };
+  return Promise.resolve().then(run).finally(() => { fs.readFileSync = read; });
+}
+
+test('a mutant that drops the duplicate hold lets a shared-identity deposit publish', async () => {
+  await withCardPeriodMutant('if (keys.some(key => duplicates.has(key))) {', 'if (false) {', async () => {
+    const page = await render(FIRST, GIFT_ROWS.concat([FLAGGED_DEPOSIT, CONFLICTING_COPY]));
+    assert.throws(() => assertAmbiguousIdentityWithheld(page, 'duplicate-identity'), assert.AssertionError,
+      'MUTANT: without the duplicate hold a shared-identity deposit publishes progress');
+    assert.equal(page.credit.totals.minimumsPaid.amount, 43);
+  });
+});
+
+test('a mutant that exits before the duplicate hold lets a shared-identity deposit publish', async () => {
+  // The reviewed head's order: the settlement-ambiguity exception skipped the row before its duplicate check.
+  await withCardPeriodMutant('if (evidenceConflict || (settlementAmbiguous && !outsideDeposit)) {',
+    'if (evidenceConflict || settlementAmbiguous) { if (outsideDeposit && !evidenceConflict) continue;', async () => {
+      const page = await render(FIRST, GIFT_ROWS.concat([FLAGGED_DEPOSIT, CONFLICTING_COPY]));
+      assert.throws(() => assertAmbiguousIdentityWithheld(page, 'duplicate-identity'), assert.AssertionError,
+        'MUTANT: an early exit for the deposit skips the duplicate hold');
+      assert.equal(page.credit.totals.minimumsPaid.amount, 43);
+    });
+});
+
+test('a mutant that ignores card identity no longer withholds a flagged card reversal', async () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const file = path.join(__dirname, '..', 'public', 'forecast-card-period.js');
+  const source = fs.readFileSync(file, 'utf8');
+  const from = 'const outsideDeposit = !bucket && value < 0 && typeof primitives.incomingCardReversal === \'function\' && !primitives.incomingCardReversal(tx);';
+  assert.ok(source.includes(from), 'forecast-card-period.js carries the settlement-ambiguity identity check');
+  const mutant = source.replace(from, 'const outsideDeposit = !bucket && value < 0;');
+  const read = fs.readFileSync;
+  fs.readFileSync = function (target, ...rest) {
+    return path.resolve(String(target)) === file ? mutant : read.call(this, target, ...rest);
+  };
+  try {
+    const reversal = payment(undefined, {
+      id: 'ambiguous-card-reversal', date: FIRST, amount: -43, pendingPostedAmbiguous: true,
+    });
+    const page = await render(FIRST, GIFT_ROWS.concat([reversal]));
+    assert.throws(() => assertAmbiguousIdentityWithheld(page), assert.AssertionError,
+      'MUTANT: ignoring card identity lets a flagged card reversal publish progress');
+    assert.equal(page.credit.totals.minimumsPaid.amount, 43);
+    assert.equal(page.credit.lines.find(line => line.id === 'travelvisa').stillToPayBack.amount, 0);
+    assert.match(creditLineHtml(page, 'travelvisa'), /stack-credit-tick is-on/);
+  } finally {
+    fs.readFileSync = read;
+  }
+});
+
+test('a mutant that drops the card-identity check no longer withholds a genuine reversal', async () => {
+  // One identity check decides both the settlement-ambiguity exception and the skip of an outside deposit.
+  await withCardPeriodMutant(
+    'const outsideDeposit = !bucket && value < 0 && typeof primitives.incomingCardReversal === \'function\' && !primitives.incomingCardReversal(tx);',
+    'const outsideDeposit = !bucket && value < 0;', async () => {
+      const reversal = payment(undefined, { id: 'unassigned-reversal', date: FIRST, amount: -43 });
+      const page = await render(FIRST, GIFT_ROWS.concat([reversal]));
+      assert.throws(() => assertReversalWithheld(page), assert.AssertionError,
+        'MUTANT: dropping the identity check lets the genuine reversal publish progress');
+      assert.equal(page.credit.totals.minimumsPaid.amount, 43);
+      assert.equal(page.credit.lines.find(line => line.id === 'travelvisa').stillToPayBack.amount, 0);
+    });
 });

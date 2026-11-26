@@ -72,6 +72,17 @@ function publication(x, engine = F) {
 const prior = { module: { exports: {} }, console };
 vm.runInNewContext(cp.execFileSync('git', ['show', BASE + ':public/forecast.js'], { encoding: 'utf8' }), prior);
 const oldF = prior.module.exports;
+// Since BASE, one intended money change: future card minimums carry the row's latest statement minimum (Dale, #821
+// 7173859561; proved in test-future-minimums-carry-current). The frozen comparisons hold every other monetary field to
+// BASE by switching only that carry off in the current engine.
+const noCarryF = (() => {
+  const src = fs.readFileSync(require.resolve('../public/forecast.js'), 'utf8');
+  const anchor = '      if (latest && !statement && scheduledDate > latest.scheduledDate) {\n';
+  assert.equal(src.split(anchor).length, 2, 'carry anchor found exactly once');
+  const context = { module: { exports: {} }, console };
+  vm.runInNewContext(src.replace(anchor, '      if (false) {\n'), context);
+  return context.module.exports;
+})();
 function numbers(value, path = '', out = {}) {
   if (typeof value === 'number' || value === null) out[path] = value;
   else if (value && typeof value === 'object') Object.keys(value).forEach(k => numbers(value[k], path + '/' + k, out));
@@ -141,7 +152,7 @@ function frozenEq(r, frozenR, label = 'frozen monetary/null publications') {
   for (const p of r.payPeriodViews.filter(p => p.projected)) eq(p.paydaySweep, null, label + ': no numeric sweep from a withheld close');
 }
 {
-  const x = fixture(null), { r } = publication(x), baseline = numbers(publication(x, oldF).r);
+  const x = fixture(null), { r } = publication(x, noCarryF), baseline = numbers(publication(x, oldF).r);
   const changedBalance = { ...r, binding: { ...r.binding, balance: r.binding.balance + 0.01 } };
   assert.throws(() => assert.deepEqual(incumbentNumbers(changedBalance), baseline), assert.AssertionError,
     'a one-cent incumbent change is still detected'); checks++;
@@ -182,7 +193,7 @@ for (const [name, records, action, paid] of cases) {
   eq(row.householdPaymentStatus, action, name + ': independent full/partial/no-recorded-action oracle');
   eq(render.presentation(row).kind === 'paid', paid, name + ': household Paid display');
   eq(JSON.stringify(x.data), input, 'read/render does not mutate financial data');
-  frozenEq(r, publication(x, oldF).r, 'every monetary/null publication unchanged ' + name);
+  frozenEq(publication(x, noCarryF).r, publication(x, oldF).r, 'every monetary/null publication unchanged ' + name);
   eq([row.date, row.occurrenceKey], ['2026-10-08', 'triangle@2026-10-07']);
   // Independent cents sum: 5,233 recurring + 4,739 statement.
   eq(Math.round(period.totalBillsThisPeriod * 100), 9972, 'both in-period requirements counted exactly once');
@@ -211,7 +222,7 @@ for (const reverse of [false, true]) {
   const { r, period } = publication(x);
   eq(period.bills.filter(row => ['triangle', 'mbna'].includes(row.id))
     .some(row => render.presentation(row).kind === 'paid'), false, 'one debit reused across obligations cannot establish either action');
-  frozenEq(r, publication(x, oldF).r, 'cross-obligation conflict preserves every incumbent monetary field');
+  frozenEq(publication(x, noCarryF).r, publication(x, oldF).r, 'cross-obligation conflict preserves every incumbent monetary field');
 }
 // Independent issuer settlement takes precedence over the household send's
 // partial/estimated classification. The action qualifier and funding holds
@@ -233,7 +244,7 @@ for (const mode of ['partial', 'estimated']) for (const receipt of [false, true]
   if (mode === 'partial' && !conflict && !receipt) eq(render.presentation(row).label, 'Partly paid', name + ': a short confirmed minimum reads Partly paid, never Paid');
   eq([row.status, row.settlement, row.remaining, row.issuerMinimumStatus, row.cashInclusionStatus],
     [baseline.row.status, baseline.row.settlement, baseline.row.remaining, baseline.row.issuerMinimumStatus, baseline.row.cashInclusionStatus], name + ': existing authority unchanged');
-  frozenEq(r, baseline.r, name + ': all monetary/null publications unchanged');
+  frozenEq(publication(x, noCarryF).r, baseline.r, name + ': all monetary/null publications unchanged');
   eq(JSON.stringify(x.data), immutable, name + ': read/render remains immutable');
   if (conflict || !receipt || !inclusion) eq(r.sim.ending, null, name + ': unresolved funding remains unavailable');
   else {
@@ -253,7 +264,7 @@ for (const receipt of [false, true]) for (const inclusion of [false, true]) {
   eq(render.presentation(row).kind, 'paid');
   eq([row.issuerMinimumStatus, row.cashInclusionStatus], [receipt ? 'satisfied' : 'unconfirmed', inclusion ? 'included' : 'unconfirmed']);
   eq(r.sim.ending === null, !(receipt && inclusion), 'both separate confirmations needed to release cash publication');
-  frozenEq(r, publication(x, oldF).r);
+  frozenEq(publication(x, noCarryF).r, publication(x, oldF).r);
   if (receipt && inclusion) {
     const sim = F.simulate(x.data.plan, NOW, { horizonDays: 10, weeklyVariable: 0 });
     eq(Math.round(sim.ending * 100), 173284, 'independent cash: 78517 - 5233 + 100000, only this Amazon cycle and no second Triangle debit');
@@ -268,7 +279,7 @@ for (const receipt of [false, true]) for (const inclusion of [false, true]) {
   eq([row.issuerMinimumStatus, row.cashInclusionStatus], [receipt ? 'satisfied' : 'unconfirmed', inclusion ? 'included' : 'unconfirmed']);
   ok(html.includes('Payment allocation unconfirmed') && !html.includes('<dt>Money sent</dt>'));
   ok(html.includes('<dt>Lender minimum confirmation</dt><dd>' + (receipt ? 'Confirmed' : 'Not confirmed') + '</dd>'));
-  frozenEq(r, publication(x, oldF).r, 'settled conflict preserves incumbent money and funding holds');
+  frozenEq(publication(x, noCarryF).r, publication(x, oldF).r, 'settled conflict preserves incumbent money and funding holds');
 }
 {
   const x = fixture([sent()]); delete x.data.plan.obligations[0].statementOccurrences;
@@ -276,7 +287,7 @@ for (const receipt of [false, true]) for (const inclusion of [false, true]) {
   eq(row.householdPaymentStatus, 'sent', 'estimated requirement does not establish complete payment');
   eq(render.presentation(row).kind === 'paid', false);
   ok(Detail.html(row, x.data, {}).includes('full required amount is not confirmed'));
-  frozenEq(r, publication(x, oldF).r);
+  frozenEq(publication(x, noCarryF).r, publication(x, oldF).r);
 }
 // The old engine deliberately rolled a prior statement into every comparison.
 // Exercise that policy change separately from the monetary parity matrix above.
