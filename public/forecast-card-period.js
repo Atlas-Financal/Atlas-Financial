@@ -139,9 +139,15 @@
         if (value === null) { gaps.add('transaction-amount-unqualified'); continue; }
         if (value === 0) continue;
         const aliases = [tx.atlasAccountId, tx.account, tx.accountId].filter(v => v != null).map(String);
-        if (!id || tx.pending !== false || tx.savingsPostingEvidence !== 'posted'
-          || new Set(aliases).size > 1 || tx.isGroup === true || tx.contradictoryEvidence === true || tx.pendingPostedAmbiguous === true) {
-          gaps.add('paying-side-evidence-unconfirmed');
+        const settlementAmbiguous = tx.pendingPostedAmbiguous === true;
+        const evidenceConflict = !id || tx.pending !== false || tx.savingsPostingEvidence !== 'posted'
+          || new Set(aliases).size > 1 || tx.isGroup === true || tx.contradictoryEvidence === true;
+        // An incoming deposit with no card identity cannot withhold Credit through its own
+        // settlement ambiguity. A card candidate, or a conflict that could hide a debit or
+        // reversal, still opens the gap.
+        const outsideDeposit = !bucket && value < 0 && typeof primitives.incomingCardReversal === 'function' && !primitives.incomingCardReversal(tx);
+        if (evidenceConflict || settlementAmbiguous) {
+          if (!(outsideDeposit && settlementAmbiguous && !evidenceConflict)) gaps.add('paying-side-evidence-unconfirmed');
           continue;
         }
         if (keys.some(key => duplicates.has(key))) {

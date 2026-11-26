@@ -720,6 +720,72 @@ test('a genuine incoming card reversal still withholds progress, ticks and still
   }
 });
 
+function assertAmbiguousIdentityWithheld(page) {
+  const { credit } = page;
+  assert.equal(credit.totals.minimumsPaid.amount, null);
+  assert.equal(credit.totals.minimumsPaid.trust, 'unavailable');
+  assert.ok(credit.totals.minimumsPaid.reasons.includes('paying-side-evidence-unconfirmed'));
+  assert.equal(credit.lines.find(line => line.id === 'travelvisa').stillToPayBack.amount, null);
+  assert.equal(credit.lines.find(line => line.id === 'cashback').stillToPayBack.amount, null);
+  assert.doesNotMatch(creditLineHtml(page, 'travelvisa'), /stack-credit-tick is-on/);
+  assert.doesNotMatch(creditLineHtml(page, 'cashback'), /stack-credit-tick is-on/);
+  assert.match(plain(page.card.match(/data-stack-credit-total>([\s\S]*?)<\/i>/)[1]), /^— \/ \$20$/);
+  for (const id of ['travelvisa', 'cashback']) {
+    const row = waterfallCardRow(page.openWaterfall(), id);
+    assert.match(row, /data-unpublished="true"/);
+    assert.equal(publishedCredit(page).breakdown.find(item => item.debtId === id).amount, null);
+  }
+}
+
+test('a flagged outside deposit with no card identity does not hide card payment progress', async () => {
+  const baseline = await render(FIRST, GIFT_ROWS);
+  assertHandDerivedProgress(baseline);
+  const deposit = {
+    id: 'invented-etransfer-ambiguous', date: FIRST, atlasAccountId: 'chequing-a', accountRole: 'household-cash',
+    categoryLabel: 'Payment, Transfer', kindHint: 'payment', amount: -80, currency: 'cad', pending: false,
+    pendingPostedAmbiguous: true, payee: 'E-TRANSFER ***ab1', original_name: 'E-TRANSFER ***ab1',
+  };
+  const page = await render(FIRST, GIFT_ROWS.concat([deposit]));
+  assertHandDerivedProgress(page);
+  assertMatchesWithoutRow(page, baseline);
+  assert.ok(!page.credit.totals.minimumsPaid.reasons.includes('paying-side-evidence-unconfirmed'));
+});
+
+test('a flagged incoming row that names a card still withholds progress', async () => {
+  const reversal = payment(undefined, {
+    id: 'ambiguous-card-reversal', date: FIRST, amount: -43, pendingPostedAmbiguous: true,
+  });
+  const page = await render(FIRST, GIFT_ROWS.concat([reversal]));
+  assertAmbiguousIdentityWithheld(page);
+});
+
+test('a mutant that ignores card identity no longer withholds a flagged card reversal', async () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const file = path.join(__dirname, '..', 'public', 'forecast-card-period.js');
+  const source = fs.readFileSync(file, 'utf8');
+  const from = 'const outsideDeposit = !bucket && value < 0 && typeof primitives.incomingCardReversal === \'function\' && !primitives.incomingCardReversal(tx);';
+  assert.ok(source.includes(from), 'forecast-card-period.js carries the settlement-ambiguity identity check');
+  const mutant = source.replace(from, 'const outsideDeposit = !bucket && value < 0;');
+  const read = fs.readFileSync;
+  fs.readFileSync = function (target, ...rest) {
+    return path.resolve(String(target)) === file ? mutant : read.call(this, target, ...rest);
+  };
+  try {
+    const reversal = payment(undefined, {
+      id: 'ambiguous-card-reversal', date: FIRST, amount: -43, pendingPostedAmbiguous: true,
+    });
+    const page = await render(FIRST, GIFT_ROWS.concat([reversal]));
+    assert.throws(() => assertAmbiguousIdentityWithheld(page), assert.AssertionError,
+      'MUTANT: ignoring card identity lets a flagged card reversal publish progress');
+    assert.equal(page.credit.totals.minimumsPaid.amount, 43);
+    assert.equal(page.credit.lines.find(line => line.id === 'travelvisa').stillToPayBack.amount, 0);
+    assert.match(creditLineHtml(page, 'travelvisa'), /stack-credit-tick is-on/);
+  } finally {
+    fs.readFileSync = read;
+  }
+});
+
 test('a mutant that drops the card-identity check no longer withholds a genuine reversal', async () => {
   const fs = require('node:fs');
   const path = require('node:path');
