@@ -215,7 +215,9 @@
       const statement = byScheduled.get(scheduledDate);
       if (latest && !statement && scheduledDate > latest.scheduledDate) {
         const regular = obligationScheduledBase(row, scheduledDate);
-        if (!regular.term && !regular.invalid) return { scheduledDate, date: scheduledDate, statement: false, carriedMinimum: true,
+        // Only over a valid standing monthly amount: a malformed or impossible plan input keeps failing closed.
+        if (row.frequency === 'monthly' && !regular.term && !regular.invalid && typeof regular.amount === 'number'
+          && cents(regular.amount) != null) return { scheduledDate, date: scheduledDate, statement: false, carriedMinimum: true,
           amount: fixed == null ? latest.minimum : Math.max(fixed, latest.minimum), confidence: 'estimated' };
       }
       // Amount confirmation is statement.confidence. Date trust is separate:

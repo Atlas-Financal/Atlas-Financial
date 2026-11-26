@@ -78,6 +78,16 @@ console.log('3. Controls');
     'November carries 33, estimated; the dated amount schedule wins from December (70, tagged as the schedule resolves it today)', J(em));
 }
 
+console.log('3b. A malformed plan amount keeps failing closed');
+{
+  const p = plan();
+  const travel = p.obligations.find(o => o.id === 'travel');
+  travel.amount = '1,900';
+  const later = F.obligationOccurrences(travel, '2026-11-01', '2026-11-30');
+  ok(later.length === 1 && later[0].amount === '1,900' && !later[0].carriedMinimum,
+    'a malformed plan amount is not hidden behind the carried minimum (the incumbent unknown still fires)', J(later.map(o => o.amount)));
+}
+
 console.log('4. One reader: the walk follows (the un-noted payment inference: test-infer-card-payment-destination 2b)');
 {
   const p = plan();
