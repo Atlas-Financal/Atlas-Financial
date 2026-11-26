@@ -12,6 +12,8 @@ const { CASE_NAMES, runCase } = require('../scripts/live-refresh-benchmark');
 // and restoring the prior reasons on paidToward, paidBack, stillToPayBack, targetCovered and minimumCovered
 // reproduces the d70784b1 Forecast digests. The budget case also requires the previous totals.minimumsPaid.reasons
 // and totals.minimumsCoveredTrust (now unavailable where payer evidence is missing). No amount or data digest changed.
+// Re-pinned for #1664: restoring only targetCovered on lines with new-charges-unavailable reproduces all three previous
+// full Forecast digests exactly. The refresh-publication digests are identical.
 const snapshots = {
   budget: {
     data: '05b6f393c7b83e81d8bba130f9d6d7834b7c850e9b0dc942093834e60a8cf8bd',
@@ -38,7 +40,7 @@ const snapshots = {
     // Re-pinned for Dale's Bills account transactions decision (#821; lead brief #1620 7181064255): stackSummary.billsAccount
     // retires comingIn/comingOut/householdToMove/alreadyOut and publishes transactions (the Bills account's own current-period
     // ledger rows); stripping stackSummary.billsAccount reproduces main 5f8d00aa byte for byte, and data is unchanged.
-    forecast: '3b3167b421461c35f968b76dbe176e8672d4d18f1f644040bc71cad44b12c983',
+    forecast: '1ecbbb0ab96f4620806db335677397dfeb94726f6875aaf40c33ac299e0f3e9a',
   },
   cards: {
     data: 'a94fdc3c78fb627a805f6dd90c23cbb578d5dddc26d0badc09057ec449185e4a',
@@ -59,7 +61,7 @@ const snapshots = {
     // Re-pinned for Dale's Bills account transactions decision (#821; lead brief #1620 7181064255): stackSummary.billsAccount
     // retires comingIn/comingOut/householdToMove/alreadyOut and publishes transactions; stripping stackSummary.billsAccount
     // reproduces main 5f8d00aa byte for byte, and data is unchanged.
-    forecast: '6cab07a62b40f7dfc7d0927c0bbd0e4e69a39cb0585621ee635b242efb0972c8',
+    forecast: 'fef32e4fc3e09fb3f1b0f38f1d437cc2d2eb060ee78ae2b2877a11210f76ce04',
   },
   history: {
     data: 'c04e408eb8bcd7566e10fc0dbe71f3f09330a7d587070cd008a9829db93b3ba7',
@@ -80,7 +82,7 @@ const snapshots = {
     // Re-pinned for Dale's Bills account transactions decision (#821; lead brief #1620 7181064255): stackSummary.billsAccount
     // retires comingIn/comingOut/householdToMove/alreadyOut and publishes transactions; stripping stackSummary.billsAccount
     // reproduces main 5f8d00aa byte for byte, and data is unchanged.
-    forecast: '98db0b29d1da0a97ff31f804f0ed4faf3f1231e5cfdd49f479bb89e6e8f5b4ea',
+    forecast: '7b796345cb06d7ae70f83e44872eceb29c14df345b777e85801aa530389d6198',
   },
 };
 const digest = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');

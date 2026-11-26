@@ -153,19 +153,27 @@ function proveStackCredit(view, credit, breakdown, surplus) {
       assert.ok(line.target && line.deduction, 'authorized addition: each Credit line carries its target and deduction');
       if (line.deduction.amount !== null) assert.ok(line.deduction.amount >= 0, 'authorized addition: a deduction is never negative');
       else assert.equal(line.deduction.trust, 'unavailable', 'authorized addition: a withheld deduction reads unavailable');
-      // OD-033: Still to pay back = max(0, target − paid back), unknown when either is; targetCovered = paid back ≥ a target
-      // above $0. Worked here from the line's own published target and paidToward.
+      // OD-033: Still to pay back = max(0, target − paid back), unknown when either is. A target with withheld new charges
+      // is a lower bound (#1664), so targetCovered stays unknown even when the known payments reach that bound.
       // Paid back is paidToward qualified for display: never negative (withheld instead), else paidToward itself.
       assert.ok(line.paidBack && (line.paidBack.amount === null || (line.paidBack.amount >= 0 && line.paidBack.amount === line.paidToward.amount)),
         'authorized addition: Paid back is never negative, and where published it is the line\'s paidToward');
       const t = line.target.amount, w = line.paidBack.amount;
       assert.ok(line.stillToPayBack && line.targetCovered, 'authorized addition: each Credit line carries stillToPayBack and targetCovered');
       if (t === null || w === null) {
-        assert.ok(line.stillToPayBack.amount === null && line.targetCovered.value === 'unknown', 'authorized addition: an unknown side leaves Still to pay back unknown, never $0');
+        assert.equal(line.stillToPayBack.amount, null, 'authorized addition: an unknown side leaves Still to pay back unknown, never $0');
       } else {
         assert.equal(cents(line.stillToPayBack.amount), Math.max(0, cents(t) - cents(w)), 'authorized addition: Still to pay back is target − paid back, floored at 0');
         assert.ok(line.stillToPayBack.amount <= t, 'authorized addition: Still to pay back never exceeds the target');
-        assert.equal(line.targetCovered.value, cents(t) > 0 && cents(w) >= cents(t), 'authorized addition: targetCovered is paid back ≥ a target above $0');
+      }
+      const chargesWithheld = line.id !== 'heloc' && t !== null && line.spent.amount === null;
+      assert.equal(line.targetCovered.value, t === null || w === null || chargesWithheld ? 'unknown' : cents(t) > 0 && cents(w) >= cents(t),
+        'authorized addition: targetCovered compares a known payment with a positive target, withholds when charges make it a lower bound');
+      if (chargesWithheld) {
+        assert.equal(line.target.newCharges, null, 'authorized addition: a lower bound publishes no new-charges amount');
+        assert.ok(line.target.reasons.includes('new-charges-unavailable'), 'authorized addition: a lower bound names the missing charges');
+        assert.equal(line.targetCovered.trust, 'unavailable', 'authorized addition: lower-bound coverage has unavailable trust');
+        assert.ok(line.targetCovered.reasons.includes('new-charges-unavailable'), 'authorized addition: withheld coverage names the missing charges');
       }
       // The deduction's two published parts close it per line, so no reader needs the totals to show them.
       if (line.deduction.amount !== null) assert.equal(cents(line.target.amount) - cents(line.deduction.countedOffset) - cents(line.deduction.beyondNetted),
