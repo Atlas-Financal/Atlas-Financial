@@ -54,17 +54,25 @@ function readApprovedFile(name) {
   return body;
 }
 
-function hasCredentialEntry(directory, recursive) {
-  return fs.readdirSync(directory, { withFileTypes: true }).some(entry => {
-    if (/^\.env(?:[._-]|$|rc$)|\.local$|^(?:secrets\.json|lunchmoney\.dat)$/i.test(entry.name)) return true;
-    return recursive && entry.isDirectory() && !['node_modules', '.git'].includes(entry.name)
-      && hasCredentialEntry(path.join(directory, entry.name), true);
-  });
+function privateEntryKind(directory, recursive) {
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    // Match .gitignore's statement directory family before entering it.
+    if (/^statements(?:$|-)/i.test(entry.name)) return 'household';
+    if (/^\.env(?:[._-]|$|rc$)|\.local$|^(?:secrets\.json|lunchmoney\.dat)$/i.test(entry.name)) return 'credential';
+    if (recursive && entry.isDirectory() && !['node_modules', '.git'].includes(entry.name)) {
+      const kind = privateEntryKind(path.join(directory, entry.name), true);
+      if (kind) return kind;
+    }
+  }
+  return null;
 }
 
-function hasCredentialFile(directory, recursive) {
-  return CREDENTIAL_PATHS.some(name => fs.lstatSync(path.join(directory, name), { throwIfNoEntry: false }))
-    || hasCredentialEntry(directory, recursive);
+function privatePathKind(cwd) {
+  for (const directory of new Set([ROOT, cwd])) {
+    if (HOUSEHOLD_PATHS.some(name => fs.lstatSync(path.join(directory, name), { throwIfNoEntry: false }))) return 'household';
+    if (CREDENTIAL_PATHS.some(name => fs.lstatSync(path.join(directory, name), { throwIfNoEntry: false }))) return 'credential';
+  }
+  return privateEntryKind(ROOT, true) || (cwd === ROOT ? null : privateEntryKind(cwd, false));
 }
 
 function start(environment) {
@@ -73,15 +81,13 @@ function start(environment) {
     process.exitCode = 1;
     return;
   }
-  const cwd = process.cwd();
-  const directories = new Set([ROOT, cwd]);
-  if ([...directories].some(directory => HOUSEHOLD_PATHS.some(name =>
-    fs.lstatSync(path.join(directory, name), { throwIfNoEntry: false })))) {
+  const privatePath = privatePathKind(process.cwd());
+  if (privatePath === 'household') {
     console.error('FATAL: demo requires a checkout without household data paths.');
     process.exitCode = 1;
     return;
   }
-  if (hasCredentialFile(ROOT, true) || (cwd !== ROOT && hasCredentialFile(cwd, false))) {
+  if (privatePath === 'credential') {
     console.error('FATAL: demo requires a checkout without local credential files.');
     process.exitCode = 1;
     return;

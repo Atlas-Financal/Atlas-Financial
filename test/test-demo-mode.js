@@ -66,9 +66,21 @@ async function checkAssetRefusal(directory) {
   console.log('PASS  invented label, account and figure canaries fail privacy and approved-asset checks, including the asset guard mutant');
 }
 
+async function withStatementDirectory(directory, name, check) {
+  const folder = path.join(directory, name);
+  const canary = path.join(folder, 'invented-statement.txt');
+  fs.mkdirSync(folder);
+  fs.writeFileSync(canary, refusalValue, { flag: 'wx' });
+  try { await check(); } finally {
+    fs.unlinkSync(canary);
+    fs.rmdirSync(folder);
+  }
+}
+
 async function checkDemo(directory) {
   const refusedEnv = 'FATAL: demo requires an isolated startup environment.';
   const refusedFile = 'FATAL: demo requires a checkout without local credential files.';
+  const refusedHousehold = 'FATAL: demo requires a checkout without household data paths.';
   for (const name of secretNames) {
     // Presence is enough, even when the runtime supplies an empty value.
     const value = name === 'UNRECOGNIZED_FUTURE_CREDENTIAL' ? '' : refusalValue;
@@ -93,13 +105,17 @@ async function checkDemo(directory) {
     if (file) fs.writeFileSync(filename, 'forbidden invented canary', { flag: 'wx' });
     else fs.mkdirSync(filename);
     try {
-      await expectRefusal(launch({ ATLAS_DEMO: '1' }, preload, directory),
-        'FATAL: demo requires a checkout without household data paths.');
+      await expectRefusal(launch({ ATLAS_DEMO: '1' }, preload, directory), refusedHousehold);
     } finally {
       if (file) fs.unlinkSync(filename);
       else fs.rmdirSync(filename);
     }
     console.log(`PASS  demo refuses a checkout containing ${name}`);
+  }
+  for (const name of ['statements', 'statements-invented', 'public/statements-invented']) {
+    await withStatementDirectory(directory, name, () =>
+      expectRefusal(launch({ ATLAS_DEMO: '1' }, preload, directory), refusedHousehold));
+    console.log(`PASS  demo refuses ${name} without opening it or listing its contents`);
   }
 
   const demo = launch({ ATLAS_DEMO: '1' }, preload, directory);
@@ -137,7 +153,7 @@ async function checkDemo(directory) {
 
   const sourcePath = path.join(directory, 'scripts', 'demo-server.js');
   const source = fs.readFileSync(sourcePath, 'utf8').replaceAll('\r\n', '\n');
-  const fileMutant = source.replace('if (hasCredentialFile(ROOT, true) || (cwd !== ROOT && hasCredentialFile(cwd, false)))', 'if (false)');
+  const fileMutant = source.replace("if (privatePath === 'credential')", 'if (false)');
   assert.notEqual(fileMutant, source, 'mutation must remove the credential-file refusal');
   const dotenv = path.join(directory, '.env');
   fs.writeFileSync(dotenv, `DEMO_CANARY=${refusalValue}`, { flag: 'wx' });
@@ -147,6 +163,19 @@ async function checkDemo(directory) {
         { code: 'ERR_ASSERTION', actual: 0, expected: 1 }));
   } finally { fs.unlinkSync(dotenv); }
   console.log('PASS  dotenv guard mutant is caught by the same refusal assertion');
+  const statementMutant = source.replace("if (/^statements(?:$|-)/i.test(entry.name)) return 'household';",
+    'if (/^statements(?:$|-)/i.test(entry.name)) continue;');
+  assert.notEqual(statementMutant, source, 'mutation must skip the statement directory refusal');
+  await withBytes(sourcePath, statementMutant, () => withStatementDirectory(directory, 'statements-invented', () =>
+    assert.rejects(expectRefusal(launch({ ATLAS_DEMO: '1' }, preload, directory), refusedHousehold),
+      { code: 'ERR_ASSERTION', actual: 0, expected: 1 })));
+  console.log('PASS  statement directory guard mutant is caught by the same refusal assertion');
+  const listMutant = source.replace("if (/^statements(?:$|-)/i.test(entry.name)) return 'household';",
+    "if (/^statements(?:$|-)/i.test(entry.name)) { fs.readdirSync(path.join(directory, entry.name)); return 'household'; }");
+  assert.notEqual(listMutant, source, 'mutation must list a statement directory before refusing');
+  await withBytes(sourcePath, listMutant, () => withStatementDirectory(directory, 'statements-invented', () =>
+    expectRefusal(launch({ ATLAS_DEMO: '1' }, preload, directory), 'Unexpected I/O in demo proof')));
+  console.log('PASS  the I/O tripwire catches a mutant that lists statement contents before refusing');
   const mutant = source.replace(' || Object.keys(environment).some(key => !BOOT_ENV.has(key.toUpperCase()))', '');
   assert.notEqual(mutant, source, 'mutation must remove the environment refusal');
   fs.writeFileSync(sourcePath, mutant);

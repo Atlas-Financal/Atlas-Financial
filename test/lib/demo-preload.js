@@ -17,6 +17,7 @@ function guarded(original) {
     if (typeof filename === 'string') {
       const key = path.relative(root, path.resolve(filename)).replaceAll('\\', '/').toLowerCase();
       if (/^(?:data\.json|public\/periods\.json|(?:raw|derived|snapshots)(?:\/.*)?)$/.test(key)) deny();
+      if (isDemo && /(?:^|\/)statements(?:-|\/|$)/.test(key)) deny();
       if (isDemo && (/^\.env(?:[._-]|$|rc$)|\.local$|^(?:secrets\.json|lunchmoney\.dat)$/i.test(path.basename(key))
         || ['scripts/local-config.json', 'docs/connectivity/provider-account-map.local.json'].includes(key))) deny();
     }
@@ -24,10 +25,11 @@ function guarded(original) {
   };
 }
 
-for (const name of ['open', 'openSync', 'readFile', 'readFileSync', 'readdir', 'readdirSync']) {
+for (const name of ['open', 'openSync', 'readFile', 'readFileSync', 'readdir', 'readdirSync',
+  'opendir', 'opendirSync', 'createReadStream']) {
   fs[name] = guarded(fs[name]);
 }
-for (const name of ['open', 'readFile', 'readdir']) fs.promises[name] = guarded(fs.promises[name]);
+for (const name of ['open', 'readFile', 'readdir', 'opendir']) fs.promises[name] = guarded(fs.promises[name]);
 global.fetch = http.request = http.get = https.request = https.get = deny;
 
 if (isDemo) {

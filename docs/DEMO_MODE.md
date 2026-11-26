@@ -18,8 +18,8 @@ those settings, `NODE_ENV`, `PATH`, and the Windows runtime keys listed in
 if startup refuses. Use a dedicated service with a fresh environment.
 
 The demo refuses to boot beside `data.json`, `public/periods.json`, `raw`,
-`derived`, `snapshots`, `.env`, dotenv variants, or the repository's local
-credential files. It checks the packaged application directories and the
+`derived`, `snapshots`, `statements/`, `statements-*/`, `.env`, dotenv variants,
+or the repository's local credential files. It checks the packaged application directories and the
 working directory before loading fixtures or opening a port.
 Use the packaged directory as the service root.
 `GET /healthz` reports readiness. The Budget is available at `/` without a
