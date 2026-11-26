@@ -13860,8 +13860,9 @@
     const worst = words => words.reduce((w, t) => (RANK[t] ?? 2) > (RANK[w] ?? 2) ? t : w, 'calculated');
     const trust = worst([(bills && bills.trust) || 'calculated', basis === 'targets' ? entry.trust || 'calculated' : 'calculated']);
     const heldRow = rows.some(row => !isStackFigure(row.amount));
+    // Its trust is its rows' weakest; with no rows (nothing to pay back), the publication's own, never more certain.
     const stillToPayBack = heldRow ? { amount: null, trust: 'unavailable' }
-      : { amount: rows.reduce((sum, row) => sum + stackCents(row.amount), 0) / 100, trust: worst(rows.map(row => row.trust)) };
+      : { amount: rows.reduce((sum, row) => sum + stackCents(row.amount), 0) / 100, trust: worst(rows.map(row => row.trust).concat(trust)) };
     return { basis, rows, stillToPayBack, total: totalCents / 100, trust };
   }
   const STACK_SURPLUS_UNAVAILABLE = 'Surplus after deductions is unavailable: a term it sums (income, a bills part or the Household budget) is withheld for this period.';

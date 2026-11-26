@@ -38,7 +38,10 @@ const snapshots = {
     // Re-pinned for Dale's Bills account transactions decision (#821; lead brief #1620 7181064255): stackSummary.billsAccount
     // retires comingIn/comingOut/householdToMove/alreadyOut and publishes transactions (the Bills account's own current-period
     // ledger rows); stripping stackSummary.billsAccount reproduces main 5f8d00aa byte for byte, and data is unchanged.
-    forecast: '3b3167b421461c35f968b76dbe176e8672d4d18f1f644040bc71cad44b12c983',
+    // Re-pinned for BUILD 7 (OD-052, OD-057): each Credit publication's totals add paidBack, target and targetCovered, each
+    // creditBreakdown adds basis and stillToPayBack, and completed views now publish a creditBreakdown (basis minimums) where
+    // main published null. Stripping exactly those from the output reproduces main baad05d8's digest; data is unchanged.
+    forecast: 'a7d4356ed83b27fafbea909f987048c6e8fc832e873c9d2efd5dcccc1b89e918',
   },
   cards: {
     data: 'a94fdc3c78fb627a805f6dd90c23cbb578d5dddc26d0badc09057ec449185e4a',
@@ -59,7 +62,10 @@ const snapshots = {
     // Re-pinned for Dale's Bills account transactions decision (#821; lead brief #1620 7181064255): stackSummary.billsAccount
     // retires comingIn/comingOut/householdToMove/alreadyOut and publishes transactions; stripping stackSummary.billsAccount
     // reproduces main 5f8d00aa byte for byte, and data is unchanged.
-    forecast: '6cab07a62b40f7dfc7d0927c0bbd0e4e69a39cb0585621ee635b242efb0972c8',
+    // Re-pinned for BUILD 7 (OD-052, OD-057): each Credit publication's totals add paidBack, target and targetCovered, each
+    // creditBreakdown adds basis and stillToPayBack, and completed views now publish a creditBreakdown (basis minimums) where
+    // main published null. Stripping exactly those from the output reproduces main baad05d8's digest; data is unchanged.
+    forecast: 'b74189bb7b8fe50a204c886efcd42c749a4d1c0990e0772a1905416514c67123',
   },
   history: {
     data: 'c04e408eb8bcd7566e10fc0dbe71f3f09330a7d587070cd008a9829db93b3ba7',
@@ -80,7 +86,10 @@ const snapshots = {
     // Re-pinned for Dale's Bills account transactions decision (#821; lead brief #1620 7181064255): stackSummary.billsAccount
     // retires comingIn/comingOut/householdToMove/alreadyOut and publishes transactions; stripping stackSummary.billsAccount
     // reproduces main 5f8d00aa byte for byte, and data is unchanged.
-    forecast: '98db0b29d1da0a97ff31f804f0ed4faf3f1231e5cfdd49f479bb89e6e8f5b4ea',
+    // Re-pinned for BUILD 7 (OD-052, OD-057): each Credit publication's totals add paidBack, target and targetCovered, each
+    // creditBreakdown adds basis and stillToPayBack, and completed views now publish a creditBreakdown (basis minimums) where
+    // main published null. Stripping exactly those from the output reproduces main baad05d8's digest; data is unchanged.
+    forecast: '113f570a830f4ddeecf1648813ef7a907d15de9675863ae8be3a95138e02891e',
   },
 };
 const digest = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');

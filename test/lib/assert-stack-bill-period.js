@@ -28,8 +28,11 @@ function assertStackBillPeriod(page, start, figures, occurrences) {
     const published = source.split('.').reduce((node, key) => node?.[key], view);
     const parts = waterfall.split(`data-row="${row}"`);
     assert.equal(parts.length, 2, `one ${row} row`);
+    // The Credit line also prints the total still to pay back before its deduction (OD-057); this helper checks the
+    // deduction, the term the Surplus takes.
     const cells = [...parts[1].split('data-row=')[0].matchAll(
-      /<span class="n(?: [^"]*)?" data-source="([^"]+)"([^>]*)>([^<]*)<\/span>/g)];
+      /<span class="n(?: [^"]*)?" data-source="([^"]+)"([^>]*)>([^<]*)<\/span>/g)]
+      .filter(cell => cell[1] !== 'stackSummary.creditBreakdown.stillToPayBack.amount');
     assert.equal(cells.length, 1, `one ${row} amount cell`);
     const [cell] = cells;
     assert.equal(cell[1], source, `${row} source`);
