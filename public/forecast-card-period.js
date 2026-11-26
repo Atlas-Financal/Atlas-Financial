@@ -139,11 +139,19 @@
         if (value === null) { gaps.add('transaction-amount-unqualified'); continue; }
         if (value === 0) continue;
         const aliases = [tx.atlasAccountId, tx.account, tx.accountId].filter(v => v != null).map(String);
-        if (!id || tx.pending !== false || tx.savingsPostingEvidence !== 'posted'
-          || new Set(aliases).size > 1 || tx.isGroup === true || tx.contradictoryEvidence === true || tx.pendingPostedAmbiguous === true) {
+        const settlementAmbiguous = tx.pendingPostedAmbiguous === true;
+        const evidenceConflict = !id || tx.pending !== false || tx.savingsPostingEvidence !== 'posted'
+          || new Set(aliases).size > 1 || tx.isGroup === true || tx.contradictoryEvidence === true;
+        // An incoming deposit with no card identity cannot withhold Credit through its own
+        // settlement ambiguity. A card candidate, or a conflict that could hide a debit or
+        // reversal, still opens the gap.
+        const outsideDeposit = !bucket && value < 0 && typeof primitives.incomingCardReversal === 'function' && !primitives.incomingCardReversal(tx);
+        if (evidenceConflict || (settlementAmbiguous && !outsideDeposit)) {
           gaps.add('paying-side-evidence-unconfirmed');
           continue;
         }
+        // Before any skip below: a copy with this identity can carry another classification and
+        // never reach this loop, so only a row with a unique identity is passed over as a deposit.
         if (keys.some(key => duplicates.has(key))) {
           gaps.add('duplicate-identity');
           continue;
@@ -152,6 +160,8 @@
         // An internal debit can show the payer was observed without supplying a card payment or reversal.
         if (primitives.unnotedHouseholdMovement?.(tx)) continue;
         if (!bucket) {
+          // No card identity, and a unique identity: an incoming deposit is not a payment and not a reversal.
+          if (outsideDeposit) continue;
           unassigned.push({ tx, value, destination });
         } else if (value < 0) {
           bucket.gaps.add('payment-direction-unresolved');
