@@ -482,6 +482,7 @@
   ["Fortis confirmed October no-pay requirement","test-fortis-annual-review.js"],
   ["Rehearsal-space monthly estimated timing and no October replay","test-rehearsal-space-bill.js"],
   ["standing Fortis / Shaw / Netflix / TD / YouTube / Spotify / ChatGPT Plus Dale / ChatGPT Plus Amanda / iCloud settlement identities","test-bill-settlement-identities.js"],
+  ["posted bill receipt stays paid through a display edit","test-renamed-posted-bill.js"],
   ["bill identity opt-in two-day late posting window","test-bill-late-posting-window.js"],
   ["#962 D3: an identity bill payment near its due date is held To confirm, not household","test-bill-near-due-not-household.js"],
   ["Finish-line finding 2: bill matching refuses wrong money and counts each debit once","test-bill-match-refuses-wrong-money.js"],
