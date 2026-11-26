@@ -1441,6 +1441,7 @@
         paidCents: uncertain ? null : item.paid.cents, unpaidCents: uncertain ? null : item.unpaid.cents,
         linkedPaidCents: uncertain ? 0 : ownerOnly ? 0 : item.paid.cents, completedOn: null,
         spentCents: item.spent && Number.isSafeInteger(item.spent.cents) && item.spent.cents >= 0 ? item.spent.cents : null,
+        spentWithheld: item.spent?.withheld === true,
         spentPendingCents: item.spent && Number.isSafeInteger(item.spent.pendingCents) && item.spent.pendingCents >= 0 ? item.spent.pendingCents : 0,
         spentPendingRefundCents: item.spent && Number.isSafeInteger(item.spent.pendingRefundCents) && item.spent.pendingRefundCents >= 0 ? item.spent.pendingRefundCents : 0,
         observedNetCents: item.net.cents, overspendCents: uncertain ? null : item.overspend.cents,
@@ -1591,7 +1592,8 @@
       return result;
     }
     const spentEntry = index.get(row.id);
-    if (spentEntry && Number.isSafeInteger(spentEntry.spentCents) && spentEntry.spentCents >= 0)
+    if (spentEntry?.spentWithheld === true) result.taggedSpend = { status: 'withheld', amount: null, range: null, reason: 'tag-tally-withheld' };
+    else if (spentEntry && Number.isSafeInteger(spentEntry.spentCents) && spentEntry.spentCents >= 0)
       result.taggedSpend = { status: 'known', amount: spentEntry.spentCents / 100, range: null,
         ...(spentEntry.spentPendingCents > 0 ? { pendingAmount: spentEntry.spentPendingCents / 100 } : {}),
         ...(spentEntry.spentPendingRefundCents > 0 ? { pendingRefundAmount: spentEntry.spentPendingRefundCents / 100 } : {}) };
@@ -1633,7 +1635,9 @@
       if (known && Number.isSafeInteger(min) && Number.isSafeInteger(max)) result[key] = {
         status: 'known', amount: ranged ? null : min / 100, range: ranged ? { min: min / 100, max: max / 100 } : null };
     }
-    if (members.every(i => i.commitmentCost.taggedSpend?.status === 'known'
+    if (members.some(i => i.commitmentCost.taggedSpend?.status === 'withheld')) {
+      result.taggedSpend = { status: 'withheld', amount: null, range: null, reason: 'tag-tally-withheld' };
+    } else if (members.every(i => i.commitmentCost.taggedSpend?.status === 'known'
         && Number.isSafeInteger(savingsCents(i.commitmentCost.taggedSpend.amount)))) {
       const total = members.reduce((sum, i) => sum + savingsCents(i.commitmentCost.taggedSpend.amount), 0);
       const pendingOf = key => members.reduce((sum, i) => sum + (savingsCents(i.commitmentCost.taggedSpend[key] || 0) || 0), 0);
@@ -1668,7 +1672,8 @@
     // Linked spending the item ledger observed is shown beside the
     // confirmation as its own fact; it never becomes the owner's amount.
     const entry = index?.get(row.id), observed = entry?.source === SAVINGS_LEDGER_SOURCE ? entry.observedNetCents : null;
-    if (entry && Number.isSafeInteger(entry.spentCents) && entry.spentCents >= 0)
+    if (entry?.spentWithheld === true) result.taggedSpend = { status: 'withheld', amount: null, range: null, reason: 'tag-tally-withheld' };
+    else if (entry && Number.isSafeInteger(entry.spentCents) && entry.spentCents >= 0)
       result.taggedSpend = { status: 'known', amount: entry.spentCents / 100, range: null,
         ...(entry.spentPendingCents > 0 ? { pendingAmount: entry.spentPendingCents / 100 } : {}),
         ...(entry.spentPendingRefundCents > 0 ? { pendingRefundAmount: entry.spentPendingRefundCents / 100 } : {}) };
@@ -2282,7 +2287,11 @@
         evidence: rows.map(item => ({ transactionRef: item.transactionRef, direction: item.direction, state: item.state })),
         ...savingsLedgerEntry({ plannedCents, transactions, owner, overlap }),
         spent: { ...ledgerFact(spentCents, 'calculated'),
-          ...(spentCents != null ? { pendingCents: pendingCharges, pendingRefundCents: pendingRefunds } : {}) } });
+          ...(spentCents != null ? { pendingCents: pendingCharges, pendingRefundCents: pendingRefunds }
+            // A tag link exists but its tally is unavailable (history,
+            // unresolved evidence): a display-only withheld state, distinct
+            // from an item with no tag at all. It carries no amount.
+            : tagRefs.size ? { withheld: true } : {}) } });
     }
     if (opts.pool) {
       result.pool = savingsLedgerPool({ cashCents: opts.pool.cashCents, liabilities: opts.pool.liabilities,

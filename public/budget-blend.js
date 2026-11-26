@@ -294,12 +294,45 @@
     return Number.isFinite(value) ? value : null;
   }
 
-  // The bar's tagged amount: the published tagged-spend tally stamp when
-  // present, else the published Paid stamp (a row with no tally, e.g. a
-  // category-only link). Paid never outranks a published tally.
+  // The bar's tagged amount. An item with a tag follows its published
+  // tagged-spend tally (stamp data-budget-goal-spent-amount, tag state
+  // 'known'); a withheld tally (tag state 'withheld') has no amount and never
+  // falls back to Paid. Only an item with no tag at all uses the published Paid
+  // stamp, as before.
   function goalBarTaggedAmount(block) {
-    return stampedAmount(block?.getAttribute('data-budget-goal-spent-amount'))
-      ?? stampedAmount(block?.getAttribute('data-budget-goal-paid-amount'));
+    const tag = block?.getAttribute('data-budget-goal-tag-state');
+    if (tag === 'withheld') return null;
+    if (tag === 'known') return stampedAmount(block?.getAttribute('data-budget-goal-spent-amount'));
+    return stampedAmount(block?.getAttribute('data-budget-goal-paid-amount'));
+  }
+
+  // The visible goal band: class and fill width, from the stamps plan.js prints
+  // on the goal's progress block plus the row's saved / required stamps. A
+  // goal whose published Paid state is paid renders full and green ONLY when it
+  // has no tag; an item with a tag (known or withheld tally) never takes the
+  // paid shortcut, so a fully paid goal's tagged segment follows the tally.
+  // A withheld tally draws no tagged geometry and keeps the saved / required
+  // band of a row without published geometry. Pure: the DOM code applies the
+  // result, so this is the band that renders.
+  function goalBarBand(block, savedValue, requiredValue) {
+    const tag = block?.getAttribute('data-budget-goal-tag-state');
+    const tagFollows = tag === 'known' || tag === 'withheld';
+    const paidState = block?.getAttribute('data-budget-goal-paid-progress') === 'paid';
+    const taggedValue = goalBarTaggedAmount(block);
+    const originalValue = stampedAmount(block?.getAttribute('data-budget-goal-original-amount'));
+    const width = ratio => Math.max(0, Math.min(1, ratio)).toFixed(4);
+    const grade = ratio => ratio >= 1 ? 'is-full' : ratio >= 0.25 ? 'is-amber' : 'is-red';
+    if (paidState && !tagFollows) return { band: 'is-paid', width: null };
+    if (taggedValue != null && originalValue != null && originalValue > 0 && savedValue != null) {
+      const ratio = (taggedValue + savedValue) / originalValue;
+      return { band: grade(ratio), width: width(ratio) };
+    }
+    if (savedValue != null && requiredValue != null && requiredValue >= 0) {
+      if (requiredValue === 0) return { band: 'is-no-funding-required', width: null };
+      const ratio = savedValue / requiredValue;
+      return { band: grade(ratio), width: width(ratio) };
+    }
+    return { band: 'is-unknown', width: null };
   }
 
   // Magnitude ceiling at dollar precision, cent-exact: any nonzero
@@ -2409,30 +2442,12 @@
       // required), distinct from missing evidence; it never divides.
       const savedValue = stampedAmount(row.getAttribute('data-budget-goal-saved-amount'));
       const requiredValue = stampedAmount(row.getAttribute('data-budget-goal-required-amount'));
-      // ATLAS-024: the visible bar reflects paid + saved against the
-      // published original cost, from the typed stamps on plan.js's paid
-      // progress block. A goal whose published state is paid renders full
-      // and green. Rows without that published geometry keep the saved /
-      // required band below, unchanged.
-      // The tagged-spend tally (when published) is the bar's tagged amount;
-      // Paid is the fallback only when no tally is stamped.
-      const paidValue = goalBarTaggedAmount(progressBlock);
-      const originalValue = stampedAmount(progressBlock?.getAttribute('data-budget-goal-original-amount'));
-      let band = 'is-unknown';
-      if (paidState) {
-        band = 'is-paid';
-      } else if (paidValue != null && originalValue != null && originalValue > 0 && savedValue != null) {
-        const ratio = (paidValue + savedValue) / originalValue;
-        band = ratio >= 1 ? 'is-full' : ratio >= 0.25 ? 'is-amber' : 'is-red';
-        bar.style.setProperty('--w', Math.max(0, Math.min(1, ratio)).toFixed(4));
-      } else if (savedValue != null && requiredValue != null && requiredValue >= 0) {
-        if (requiredValue === 0) band = 'is-no-funding-required';
-        else {
-          const ratio = savedValue / requiredValue;
-          band = ratio >= 1 ? 'is-full' : ratio >= 0.25 ? 'is-amber' : 'is-red';
-          bar.style.setProperty('--w', Math.max(0, Math.min(1, ratio)).toFixed(4));
-        }
-      }
+      // ATLAS-024: the visible bar reflects the tagged tally (or Paid for an
+      // item with no tag) + saved against the published original cost; see
+      // goalBarBand for the rules. Rows without published geometry keep the
+      // saved / required band, unchanged.
+      const { band, width } = goalBarBand(progressBlock, savedValue, requiredValue);
+      if (width != null) bar.style.setProperty('--w', width);
       bar.classList.add(band);
       item.classList.add(band);
       button.append(name, figures, bar);
@@ -3137,6 +3152,7 @@
     module.exports.badTermNegative = badTermNegative;
     module.exports.stampedAmount = stampedAmount;
     module.exports.goalBarTaggedAmount = goalBarTaggedAmount;
+    module.exports.goalBarBand = goalBarBand;
     module.exports.wholeDollarAmount = wholeDollarAmount;
     module.exports.pairSideText = pairSideText;
     module.exports.replacePrintedAmount = replacePrintedAmount;

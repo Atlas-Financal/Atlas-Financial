@@ -70,7 +70,9 @@ const bothLinked = txs => tagged(txs, [link('tag'), { ...link('tag', 'far', '202
   assert.equal(cents(item(ledgerOf(none).ledger).spent), 0);
   const { item: rolledCost } = costOf((() => { const r = tagged([]); r.asOf = '2026-11-05';
     r.payload.transactionWindow = { startDate: '2026-10-30', endDate: '2026-11-05', complete: true, hasMore: false }; return r; })());
-  assert.equal(rolledCost.commitmentCost.taggedSpend, undefined, 'no taggedSpend fact reaches the bar when withheld');
+  assert.deepEqual(rolledCost.commitmentCost.taggedSpend,
+    { status: 'withheld', amount: null, range: null, reason: 'tag-tally-withheld' },
+    'a withheld tally reaches the bar as its own state: no amount, never zero');
 }
 { // (c) pending with a posted twin counts once; pending alone counts as tally.
   const twin = tagged([raw({ id: 'invented-pending', is_pending: true }), raw()]);
@@ -137,12 +139,15 @@ const bothLinked = txs => tagged(txs, [link('tag'), { ...link('tag', 'far', '202
   const blend = { module: { exports: {} }, document: { readyState: 'loading', addEventListener() {} }, console, setTimeout, clearTimeout,
     matchMedia: () => ({ matches: false, addEventListener() {} }), localStorage: { getItem() { return null; }, setItem() {} } };
   vm.runInContext(script('budget-blend'), vm.createContext(Object.assign(blend, { window: blend })));
-  const { goalBarTaggedAmount } = blend.module.exports;
+  const { goalBarTaggedAmount, goalBarBand } = blend.module.exports;
   const render = costItem => {
     context.row = { ...costItem, saved: 0, savedTrust: 'calculated' };
     const html = vm.runInContext('budgetGoalPaidProgressHtml(row)', context);
     const attrs = Object.fromEntries([...html.slice(0, html.indexOf('>')).matchAll(/ (data-[a-z-]+)="([^"]*)"/g)].map(m => [m[1], m[2]]));
-    return { html, band: goalBarTaggedAmount({ getAttribute: name => attrs[name] ?? null }),
+    const block = { getAttribute: name => attrs[name] ?? null };
+    // final: the band class and width the visible Blend bar renders for this
+    // goal (the same function the DOM code applies), with Saved 0 of 60 needed.
+    return { html, attrs, band: goalBarTaggedAmount(block), final: goalBarBand(block, 0, 60),
       segment: (html.match(/data-budget-goal-bar-paid style="--goal-paid:([0-9.]+)"/) || [])[1] ?? null };
   };
   const dated = (txs, links, through) => {
@@ -205,19 +210,91 @@ const bothLinked = txs => tagged(txs, [link('tag'), { ...link('tag', 'far', '202
     const { item: costItem } = costOf(x);
     assert.equal(costItem.commitmentCost.taggedSpend, undefined);
     const out = render(costItem);
-    assert.doesNotMatch(out.html, /data-budget-goal-spent/);
-    assert.deepEqual([out.segment, out.band], ['0.2057', 12.34], 'bar falls back to Paid when no tally is published');
+    assert.doesNotMatch(out.html, /data-budget-goal-spent|data-budget-goal-tag-state/);
+    assert.deepEqual([out.segment, out.band], ['0.2057', 12.34], 'bar falls back to Paid for an item with no tag');
+    assert.deepEqual([out.final.band, out.final.width], ['is-red', '0.2057']);
     // A category-matched row beside a tag link does not count either.
     const mixed = tagged([raw({ tag_ids: [] })], [link('category'), link('tag')]);
     assert.equal(cents(item(ledgerOf(mixed).ledger).spent), 0, 'only tag-matched rows are summed');
   }
-  { // A withheld tally (rolled window) prints no Spent line, no segment from it.
-    const x = tagged([]);
+  const rolledWindow = x => {
     x.asOf = x.data.meta.asOf = '2026-11-05'; x.payload.fetchedAt = '2026-11-05T12:00:00.000Z';
     x.payload.transactionWindow = { startDate: '2026-10-30', endDate: '2026-11-05', complete: true, hasMore: false };
-    const out = render(costOf(x).item);
-    assert.doesNotMatch(out.html, /data-budget-goal-spent|data-budget-goal-bar-paid/);
+    return x;
+  };
+  // Full owner settlement on the published row (a settled item leaves the live roster, so the
+  // fully-settled counterpart is the exact published fact shape the renderer receives).
+  const full = costItem => ({ ...costItem, commitmentCost: { ...costItem.commitmentCost,
+    ownerConfirmation: { status: 'full', confirmedOn: '2026-10-12' }, unpaidCost: { status: 'known', amount: 0, range: null } } });
+  const ownerPaid = x => { x.plan.commitments.find(c => c.id === 'near').ownerPaid = { amount: 5, confirmedOn: '2026-10-04' }; return x; };
+  { // P2: a withheld tally is its own display state; it never falls back to Paid.
+    const out = render(costOf(rolledWindow(tagged([]))).item);
+    assert.match(out.html, /data-budget-goal-tag-state="withheld"/);
+    assert.match(out.html, /data-budget-goal-spent-withheld>Withheld</);
+    assert.doesNotMatch(out.html, /data-budget-goal-spent-amount|data-budget-goal-bar-paid/);
     assert.equal(out.band, null);
+    assert.deepEqual([out.final.band, out.final.width], ['is-red', '0.0000'], 'only the Saved / required fallback (0 of 60): no tagged amount, never Paid');
+    // Rolled window + a known owner-paid amount: Paid is not used for the tagged segment.
+    const owner = ownerPaid(rolledWindow(tagged([])));
+    const ownerOut = render(costOf(owner).item);
+    assert.match(ownerOut.html, /data-budget-goal-tag-state="withheld"/);
+    assert.doesNotMatch(ownerOut.html, /data-budget-goal-bar-paid/, 'no tagged segment filled from Paid while withheld');
+    assert.equal(ownerOut.band, null);
+    assert.equal(ownerOut.final.width, '0.0000', 'a known owner-paid 5.00 adds nothing to the withheld bar (it would be 0.0833)');
+    // The exact published shape the reviewer described: withheld tally beside a KNOWN Paid
+    // amount (synthetic Paid on the real withheld row): Paid must not fill the tagged segment.
+    const withheldRow = costOf(rolledWindow(tagged([]))).item;
+    const knownPaid = render({ ...withheldRow, commitmentCost: { ...withheldRow.commitmentCost,
+      confirmedLinkedPaid: { status: 'known', amount: 5, range: null }, unpaidCost: { status: 'known', amount: 55, range: null } } });
+    assert.match(knownPaid.html, /data-budget-goal-paid-amount="5"/, 'Paid is known and still printed');
+    assert.match(knownPaid.html, /data-budget-goal-tag-state="withheld"/);
+    assert.doesNotMatch(knownPaid.html, /data-budget-goal-bar-paid/);
+    assert.equal(knownPaid.band, null);
+    assert.equal(knownPaid.final.width, '0.0000');
+    // The same owner-paid row with a complete window DOES have a tally (a control).
+    const control = render(costOf(ownerPaid(tagged([]))).item);
+    assert.match(control.html, /data-budget-goal-tag-state="known"/);
+    // Rolled window + full settlement: Paid status stays 'paid' but no full geometry.
+    const settled = render(full(costOf(rolledWindow(tagged([]))).item));
+    assert.match(settled.html, /data-budget-goal-paid-progress="paid"/, 'Paid status unchanged');
+    assert.match(settled.html, /data-budget-goal-tag-state="withheld"/);
+    assert.doesNotMatch(settled.html, /data-budget-goal-bar-paid/);
+    assert.notEqual(settled.final.band, 'is-paid', 'the Blend bar takes no full-paid shortcut while the tally is withheld');
+    assert.equal(settled.final.width, '0.0000');
+    // A rolled-window row with Paid known but no tag at all keeps the Paid fallback.
+    const noTag = render(costOf((() => { const r = rolledWindow(tagged([raw()], [link('category')]));
+      return r; })()).item);
+    assert.doesNotMatch(noTag.html, /data-budget-goal-tag-state/);
+  }
+  { // P1: a fully Paid item's tagged geometry follows the published tally.
+    // Paid's status, text and settlement are unchanged.
+    const zero = render(full(costOf(tagged([])).item));
+    assert.match(zero.html, /data-budget-goal-paid-progress="paid"/, 'Paid status stays paid');
+    assert.match(zero.html, /data-budget-goal-tag-state="known"/);
+    assert.match(zero.html, /data-budget-goal-spent-amount="0"/);
+    assert.doesNotMatch(zero.html, /data-budget-goal-bar-paid/, 'known zero tally: no full segment');
+    assert.deepEqual([zero.band, zero.final.band, zero.final.width], [0, 'is-red', '0.0000'],
+      'the rendered Blend band is the tally (0 of 60), not the full-paid shortcut');
+    const part = render(full(costOf(tagged([raw()])).item));
+    assert.match(part.html, /data-budget-goal-paid-progress="paid"/);
+    assert.equal(part.segment, '0.2057', 'plan.js segment follows the 12.34 tally, not full');
+    assert.deepEqual([part.band, part.final.band, part.final.width], [12.34, 'is-red', '0.2057']);
+    // The same through the real ledger (no synthetic fact): charges that cover the plan make
+    // Paid full (60.00 of 60.00) while the whole charge falls after the tally cutoff.
+    const links = [{ ...link('tag'), effectiveThrough: '2026-12-31' }];
+    const realFull = costOf(dated([raw({ id: 'big', date: '2026-11-05', amount: '60.00' })], links, '2026-11-05')).item;
+    const realOut = render(realFull);
+    assert.match(realOut.html, /data-budget-goal-paid-progress="paid"/, 'real Paid is full');
+    assert.match(realOut.html, /data-budget-goal-paid-amount="60"/);
+    assert.match(realOut.html, /data-budget-goal-spent-amount="0"/);
+    assert.doesNotMatch(realOut.html, /data-budget-goal-bar-paid/);
+    assert.deepEqual([realOut.final.band, realOut.final.width], ['is-red', '0.0000']);
+    // Control: a full-paid item with NO tag keeps the incumbent full geometry.
+    const noTag = render(full(costOf(tagged([raw()], [link('category')])).item));
+    assert.match(noTag.html, /data-budget-goal-paid-progress="paid"/);
+    assert.doesNotMatch(noTag.html, /data-budget-goal-tag-state/);
+    assert.equal(noTag.segment, '1');
+    assert.deepEqual([noTag.final.band, noTag.final.width], ['is-paid', null]);
   }
   { // Mutant: no taggedSpend fact -> no Spent line and no bar geometry from it.
     const { item: costItem } = costOf(tagged([raw({ is_pending: true })]));
@@ -226,4 +303,4 @@ const bothLinked = txs => tagged(txs, [link('tag'), { ...link('tag', 'far', '202
     assert.doesNotMatch(render(mutant).html, /data-budget-goal-spent|data-budget-goal-bar-paid/);
   }
 }
-console.log('Savings tagged-spend tally: (a)-(d), rollover withhold, tag-only, pending labels, cutoff, known-Paid and bar/band display passed.');
+console.log('Savings tagged-spend tally: (a)-(d), rollover withhold, tag-only, pending labels, cutoff, known-Paid, fully-Paid, withheld state and final bar/band display passed.');
