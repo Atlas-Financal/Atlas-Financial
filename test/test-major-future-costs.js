@@ -54,7 +54,7 @@ const POINT = {
   'seattle-nov': 1500,
   'seattle-dec': 1500,
   'linden-birthday': 500,
-  'christmas-2026': 3500,
+  'christmas-2026': 4300,
   'san-diego': 3000,
 };
 const OWNER_EXPLICIT_DATES = {
@@ -191,7 +191,7 @@ ok(later.filter(e => e.id === 'linden-birthday').length === 1
 ok(later.filter(e => e.id === 'seattle-dec').length === 1,
   'seattle-dec emits once, separate from Linden, on the longer walk');
 ok(later.some(e => e.id === 'christmas-2026' && e.date === '2026-12-25'
-    && near(e.amount, -3500)),
+    && near(e.amount, -4300)),
   'longer walk includes christmas-2026 on the owner Dec 25 date');
 ok(!later.some(e => RETIRED_IDS.includes(e.id)),
   'retired commitments emit no cash event on the longer walk');
@@ -250,11 +250,11 @@ ok(near(fusionRemainingOnly, 3300),
   'remaining instalments alone are $3,300, independent of owner-stated paid row',
   String(fusionRemainingOnly));
 const preexistingPoints = 895;
-const absorbedPoints = 202.88 + 202.87 + 340 + 1500 + 1500 + 500 + 3500 + 3000;
+const absorbedPoints = 202.88 + 202.87 + 340 + 1500 + 1500 + 500 + 4300 + 3000;
 // 2027 lacrosse season rows added by owner request (2026-11-21), all estimated.
 const lacrosse2027Points = 750.90 + 3600 + 800;
 const HAND_TOTAL = preexistingPoints + absorbedPoints + lacrosse2027Points + fusionHouseholdUnsettled;
-ok(near(absorbedPoints, 10745.75) && near(HAND_TOTAL, 21291.65),
+ok(near(absorbedPoints, 11545.75) && near(HAND_TOTAL, 22091.65),
   'hand total at Aug. 19 opening includes Warriors $895 plus paid + remaining Fusion until each settledOn');
 ok(near(pub.commitmentsTotal, HAND_TOTAL),
   'publicationTotals matches that independent sum',
