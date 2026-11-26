@@ -13807,8 +13807,8 @@
   //   comingIn     income still to land in Bills this period, as counted in the close;
   //   comingOut    the Bills bills and other Bills outflows still to go out, as counted in the close ('late' past due);
   //   householdToMove  the Household budget still to move out of Bills (household.remaining);
-  //   alreadyOut   Bills bills already settled this period, with the bill's own counted amount and paid check.
-  // The lists are published only when the close itself is ready: a withheld close may have left an occurrence out.
+  //   alreadyOut   settled Bills bills at their counted amount, and posted transfer-outs whose purpose is unknown.
+  // An unpaired transfer withholds the close and household funding remainder, but its posted debit is known.
   //   A reading is a dash too (OD-037: "a stale or missing reading shows a dash") when no chequing observation exists for
   //   the Bills account (the plan's Bills row alone is not a reading: billsAccountReadingByPublication) and when the
   //   posted movements are not covered through the as-of day ('posted-window-incomplete'). The close itself is not
@@ -13821,7 +13821,7 @@
       || pub.accountId !== BILLS_ACCOUNT_ID) return null;
     const finite = value => typeof value === 'number' && Number.isFinite(value);
     // The reading is gated on the reading alone (lead ruling on #1627, 2026-11-24: the bank balance is still true when
-    // the close is withheld for another reason; Dale asked for "just the now number"); the lists are gated on the close.
+    // the close is withheld for another reason; Dale asked for "just the now number"); the list gate below is independent of this reading.
     const readingIssue = (pub.issues || []).find(row => row && BILLS_READING_ISSUES.has(row.code));
     // Fail closed: a publication that has no record (a copy, a saved close) or no chequing observation has no reading.
     const observed = (billsAccountReadingByPublication.get(pub) || {}).observed === true;
@@ -13831,7 +13831,8 @@
         reason: readingIssue ? readingIssue.message : observed ? 'A dated posted Bills account balance is unavailable.'
           : 'No bank reading of the Bills account is available.' };
     const pubItems = billsAccountItemsByPublication.get(pub);
-    const ready = pub.status === 'ready' && Array.isArray(pubItems);
+    const unpairedOnly = pub.issues?.length > 0 && pub.issues.every(issue => issue.code === 'unpaired-bills-transfer');
+    const ready = Array.isArray(pubItems) && (pub.status === 'ready' || unpairedOnly);
     const reason = ready ? null : pub.reason || 'The Bills account lines are unavailable.';
     const rows = new Map((Array.isArray(view.bills) ? view.bills : []).filter(row => row && row.id && row.date)
       .map(row => [row.id + '@' + row.date, row]));
@@ -13847,7 +13848,8 @@
         .map(item => ({ ...line(item), status: item.status })) : null,
       householdToMove: ready && finite(household.remaining) ? { amount: household.remaining, trust: household.trust || 'estimated' }
         : { amount: null, trust: 'unavailable' },
-      alreadyOut: ready ? items.filter(item => item.kind === 'settled').map(item => {
+      alreadyOut: ready ? items.filter(item => item.kind === 'settled' || item.kind === 'transfer').map(item => {
+        if (item.kind === 'transfer') return { ...line(item), paid: false };
         const row = rows.get(item.id + '@' + item.date);
         const amount = row && finite(row.stackBillAmount) ? row.stackBillAmount : null;
         return { id: item.id, label: item.label, date: item.date, amount,
@@ -16179,6 +16181,9 @@
     let weeklyFunding = 0, directFunding = 0, cardFunding = 0, pendingBillsHousehold = 0, categoryCardCash = 0;
     let weeklyCardOutside = 0;
     let fundingEventCount = 0;
+    // Display lines for the Bills account card. Keep them beside the publication so they never enter the close.
+    const items = [];
+    const unpairedDebits = new Map();
     const usedCash = new Set();
     const takeFunding = id => {
       if (usedCash.has(id)) { issue('funding-identity-reused', 'One posted cash event cannot fund two household purposes.'); return false; }
@@ -16193,6 +16198,7 @@
       } else if (mov.amount < 0 && tx && isInternalTransferIdentity(tx) && !mov.internalTransfer
         && ['UNKNOWN', 'transfer'].includes(mov.classification)) {
         issue('unpaired-bills-transfer', 'A Bills transfer has no proven destination and funding purpose.');
+        unpairedDebits.set(mov.id, mov);
       }
     }
     for (const { tx, amount } of supporting) {
@@ -16255,10 +16261,6 @@
       ? roundCent(Math.max(0, coverage.reservedCash - categoryCardCash)) : coverage.status === 'incumbent' ? 0 : null;
     let futureIncome = 0, remainingBills = 0, otherOutflows = 0;
     const futureCashKeys = new Set(), evidence = [], coveredMinimums = [];
-    // The Bills account stack card (lead dispatch 2026-11-24): each counted occurrence, named and dated, exactly as
-    // it enters the close above (the same amount, kind and Bills scope), plus the Bills bills already settled this
-    // period. Display only: the close reads none of it, and it is kept beside the publication (billsAccountItemsByPublication).
-    const items = [];
     const addCash = (key, amount, kind, source, item) => {
       if (futureCashKeys.has(key)) { issue('future-cash-identity-reused', 'A remaining cash occurrence is duplicated.'); return; }
       futureCashKeys.add(key);
@@ -16443,6 +16445,19 @@
       provenance: ['Forecast.postedBillsAccountCash', 'Forecast.postedAccountMovements', 'Forecast.householdInternalMovements',
         'Forecast.calendarHouseholdBudget', 'Forecast.reconcileCardPurchases', 'Forecast.cardMinimumState', 'Forecast.expandEvents'],
       grantsSpendPermission: false };
+    if (unpairedDebits.size) {
+      // A displayed bill can already represent the same posted debit. Keep its full settled
+      // amount (including multi-leg payments) and omit only explicitly linked transfer rows.
+      const settledKeys = new Set(items.filter(item => item.kind === 'settled').map(item => item.id + '@' + item.date));
+      for (const link of Array.isArray(packet.representedActuals) ? packet.representedActuals : []) {
+        if (!link || link.pending === true || !finite(link.actual) || !settledKeys.has(link.id + '@' + link.date)) continue;
+        if (link.transactionId != null) unpairedDebits.delete(String(link.transactionId));
+        for (const id of Array.isArray(link.transactionIds) ? link.transactionIds : []) unpairedDebits.delete(String(id));
+      }
+      for (const mov of unpairedDebits.values()) {
+        items.push({ id: mov.id, kind: 'transfer', label: 'Transfer', date: mov.date, amount: -mov.amount, trust: 'calculated' });
+      }
+    }
     billsAccountItemsByPublication.set(publication, items);
     billsAccountReadingByPublication.set(publication, { observed: observedRows.length > 0 });
     return publication;
