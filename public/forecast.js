@@ -215,9 +215,11 @@
       const statement = byScheduled.get(scheduledDate);
       if (latest && !statement && scheduledDate > latest.scheduledDate) {
         const regular = obligationScheduledBase(row, scheduledDate);
-        // Only over a valid standing monthly amount: a malformed or impossible plan input keeps failing closed.
+        // Only over a valid standing monthly amount above zero, on a row tagged estimated or confirmed: a malformed,
+        // zero or impossible plan input, or an unknown or malformed tag, keeps its own path (never made more certain).
         if (row.frequency === 'monthly' && !regular.term && !regular.invalid && typeof regular.amount === 'number'
-          && cents(regular.amount) != null) return { scheduledDate, date: scheduledDate, statement: false, carriedMinimum: true,
+          && cents(regular.amount) != null && regular.amount > 0 && (regular.confidence === 'estimated'
+            || regular.confidence === 'confirmed')) return { scheduledDate, date: scheduledDate, statement: false, carriedMinimum: true,
           amount: fixed == null ? latest.minimum : Math.max(fixed, latest.minimum), confidence: 'estimated' };
       }
       // Amount confirmation is statement.confidence. Date trust is separate:

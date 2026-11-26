@@ -88,6 +88,17 @@ console.log('3b. A malformed plan amount keeps failing closed');
     'a malformed plan amount is not hidden behind the carried minimum (the incumbent unknown still fires)', J(later.map(o => o.amount)));
 }
 
+{
+  for (const [field, value, label] of [['confidence', 'unknown', 'an unknown-tagged row is not made estimated'],
+    ['confidence', 'bogus', 'a malformed tag is not made estimated'], ['amount', 0, 'a zero plan amount does not start carrying outflows']]) {
+    const p = plan();
+    const travel = p.obligations.find(o => o.id === 'travel');
+    travel[field] = value;
+    const later = F.obligationOccurrences(travel, '2026-11-01', '2026-11-30');
+    ok(later.every(o => !o.carriedMinimum && o.amount !== 61), label, J(later.map(o => [o.amount, o.confidence])));
+  }
+}
+
 console.log('4. One reader: the walk follows (the un-noted payment inference: test-infer-card-payment-destination 2b)');
 {
   const p = plan();
