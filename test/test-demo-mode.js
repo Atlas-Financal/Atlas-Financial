@@ -1,12 +1,14 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const { randomUUID } = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { launch, demoPackage } = require('./lib/demo-process');
 const fixture = require('./fixtures/figures-inputs/stack-card-summary.json');
 
 const preload = ['--require', path.join(__dirname, 'lib', 'demo-preload.js')];
+const refusalValue = 'invented-placeholder';
 const secretNames = [
   'SITE_PASSWORD', 'SESSION_SECRET', 'LUNCHMONEY_ACCESS_TOKEN', 'LUNCH_MONEY_TOKEN',
   'ATLAS_ASSISTANT_TOKEN', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY', 'ATLAS_TALK_GEMINI_API_KEY',
@@ -29,7 +31,7 @@ async function checkDemo(directory) {
   const refusedEnv = 'FATAL: demo requires an isolated startup environment.';
   for (const name of secretNames) {
     // Presence is enough, even when the runtime supplies an empty value.
-    const value = name === 'UNRECOGNIZED_FUTURE_CREDENTIAL' ? '' : 'invented-placeholder';
+    const value = name === 'UNRECOGNIZED_FUTURE_CREDENTIAL' ? '' : refusalValue;
     await expectRefusal(launch({ ATLAS_DEMO: '1', [name]: value }, preload, directory), refusedEnv);
     console.log(`PASS  demo refuses ${name}`);
   }
@@ -86,7 +88,7 @@ async function checkDemo(directory) {
   const mutant = source.replace(' || Object.keys(environment).some(key => !BOOT_ENV.has(key.toUpperCase()))', '');
   assert.notEqual(mutant, source, 'mutation must remove the environment refusal');
   fs.writeFileSync(sourcePath, mutant);
-  await assert.rejects(expectRefusal(launch({ ATLAS_DEMO: '1', SITE_PASSWORD: 'invented-placeholder' }, preload, directory),
+  await assert.rejects(expectRefusal(launch({ ATLAS_DEMO: '1', SITE_PASSWORD: refusalValue }, preload, directory),
     refusedEnv), { code: 'ERR_ASSERTION', actual: 0, expected: 1 });
   console.log('PASS  environment guard mutant is caught by the same refusal assertion');
 }
@@ -97,8 +99,9 @@ async function main() {
 
   // Real composition, isolated with invented test login values. No request
   // in this test authenticates or reads canonical household data.
-  const production = launch({ ATLAS_DEMO: 'true', SITE_PASSWORD: 'invented-site-test',
-    SESSION_SECRET: 'invented-session-test-only' }, preload);
+  const password = randomUUID();
+  const sessionSecret = randomUUID();
+  const production = launch({ ATLAS_DEMO: 'true', SITE_PASSWORD: password, SESSION_SECRET: sessionSecret }, preload);
   try {
     const base = await production.ready;
     const headers = { 'X-Atlas-Demo': '1', ATLAS_DEMO: '1',
