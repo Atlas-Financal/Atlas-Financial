@@ -2356,6 +2356,9 @@
   }
   function savingsItemMember(tx, plan, opts) {
     const packet = opts && (opts.packet || opts.currentPeriodActuals);
+    // A stamped payer receipt is that card payment, including when the current note conflicts.
+    // It is not also a savings-item charge.
+    if (tx && tx.provedPayerReceipt) return null;
     if (pendingHoldReleaseLeg(tx, packet)) return null;
     const member = tx && tx.id != null ? savingsItemMembership(plan, packet)?.get(String(tx.id)) : null;
     return member && member.date === tx.date ? member : null;
@@ -8635,6 +8638,11 @@
     if (isFinite(amt) && amt < 0) {
       return { kind: 'refund', categoryId: null, householdSpending: false, reason: 'refund' };
     }
+    // A receipt already proved for one card is still that payment after a category edit, so Budget
+    // does not deduct it again as groceries. A conflict is not this proof and falls through.
+    if (acceptedProvedPayerReceipt(tx)) {
+      return { kind: 'card-payment', categoryId: null, householdSpending: false, reason: 'proved-payer-receipt' };
+    }
     const hint = normalizeCategoryLabel(tx.kindHint);
     if (hint === 'payment' || hint === 'card-payment' || hint === 'bill-payment') {
       return { kind: 'card-payment', categoryId: null, householdSpending: false, reason: 'kind-hint' };
@@ -12942,8 +12950,121 @@
     return cardPaymentNoteEvidence(tx)?.destination ?? null;
   }
 
-  // The payer supplies the transfer. Only its ledger note can name the receiving card.
-  // Posting, direction, window and row identity are checked by the period publisher.
+  // A proved payer receipt is the earlier observation that this same receipt (coverage reference, or a
+  // direct-packet id when no coverage reference exists), paying account and signed amount already qualified
+  // as one card's payment. The ledger note is not durable (Grok Bot, #1620 7201859819): linking a row can
+  // wipe it. The note alone never becomes this authority. No note text is stored.
+  const PROVED_PAYER_RECEIPT_KEYS = new Set(['coverageRef', 'id', 'account', 'amountCents', 'cardId', 'trust', 'reason']);
+  function proofToken(value, pattern) {
+    return typeof value === 'string' && pattern.test(value) ? value : '';
+  }
+  function cleanProvedPayerReceipt(proof) {
+    if (!proof || typeof proof !== 'object' || Array.isArray(proof)) return null;
+    if (Object.keys(proof).some(key => !PROVED_PAYER_RECEIPT_KEYS.has(key))) return null;
+    const coverageRef = proof.coverageRef == null ? '' : proofToken(proof.coverageRef, /^pc-[a-f0-9]{24}$/);
+    const id = proof.id == null ? '' : proofToken(proof.id, /^[A-Za-z0-9:_-]{1,80}$/);
+    if ((proof.coverageRef != null && !coverageRef) || (proof.id != null && !id) || (!coverageRef && !id)) return null;
+    if (typeof proof.account !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(proof.account)) return null;
+    if (!Number.isSafeInteger(proof.amountCents) || proof.amountCents === 0) return null;
+    if (typeof proof.cardId !== 'string' || !PAYING_SIDE_NOTE_IDS.has(proof.cardId)) return null;
+    if (proof.trust !== 'calculated' && proof.trust !== 'estimated') return null;
+    if (proof.reason != null && !proofToken(proof.reason, /^[a-z0-9-]{1,80}$/)) return null;
+    const out = { account: proof.account, amountCents: proof.amountCents, cardId: proof.cardId, trust: proof.trust };
+    if (coverageRef) out.coverageRef = coverageRef;
+    if (id) out.id = id;
+    if (proof.reason) out.reason = proof.reason;
+    return out;
+  }
+  function provedPayerReceiptMatches(tx) {
+    const proof = cleanProvedPayerReceipt(tx && tx.provedPayerReceipt);
+    if (!proof) return null;
+    const account = String(tx.atlasAccountId || tx.account || tx.accountId || '').trim();
+    if (proof.account !== account) return null;
+    if (cardMoneyCents(tx) !== proof.amountCents) return null;
+    const coverageRef = typeof tx.coverageRef === 'string' ? tx.coverageRef.trim() : '';
+    const id = tx.id == null ? '' : String(tx.id).trim();
+    if ((proof.coverageRef && proof.coverageRef !== coverageRef) || (proof.id && proof.id !== id)) return null;
+    return proof;
+  }
+  function provedPayerReceiptDisagrees(tx, proof) {
+    if (cardPaymentDestinationConflict(tx)) return true;
+    const noted = cardPaymentNoteDestination(tx);
+    // A vanished note is not a disagreement: the proved receipt still counts.
+    // Any current card-payment note that does not name exactly this card — a
+    // different card, two cards, or an unknown name — does. Trust stays no
+    // stronger than that current note.
+    if (noted != null && noted !== proof.cardId) return true;
+    return [tx.cardPaymentDestination, tx.minimumCategoryDebt]
+      .some(card => typeof card === 'string' && card !== '' && card !== proof.cardId);
+  }
+  function acceptedProvedPayerReceipt(tx) {
+    const proof = provedPayerReceiptMatches(tx);
+    return proof && !provedPayerReceiptDisagrees(tx, proof) ? proof : null;
+  }
+  function provedPayerReceiptFrom(tx) {
+    const payment = payingSidePayment(tx);
+    if (!payment || !PAYING_SIDE_NOTE_IDS.has(payment.cardId)) return null;
+    if (payment.trust !== 'calculated' && payment.trust !== 'estimated') return null;
+    const cents = cardMoneyCents(tx);
+    if (!Number.isSafeInteger(cents) || cents === 0) return null;
+    const account = String(tx.atlasAccountId || tx.account || tx.accountId || '').trim();
+    if (!/^[a-z][a-z0-9-]{0,63}$/.test(account)) return null;
+    const coverageRef = typeof tx.coverageRef === 'string' ? tx.coverageRef.trim() : '';
+    const id = tx.id == null ? '' : String(tx.id).trim();
+    // A served row's local id is assigned per observation. Only the coverage reference travels.
+    const proof = coverageRef ? { coverageRef, account, amountCents: cents, cardId: payment.cardId, trust: payment.trust }
+      : id ? { id, account, amountCents: cents, cardId: payment.cardId, trust: payment.trust } : null;
+    if (!proof || !cleanProvedPayerReceipt(proof)) return null;
+    if (payment.reason) proof.reason = payment.reason;
+    return proof;
+  }
+  // Stamp only when the live gate would not already name this card, including when the carried card
+  // now conflicts with the row. A row the gate already names is left untouched.
+  function carriedPayerReceipt(tx, proofs) {
+    if (!tx || !Array.isArray(proofs)) return null;
+    let matched = null;
+    for (const candidate of proofs) {
+      matched = provedPayerReceiptMatches(Object.assign({}, tx, { provedPayerReceipt: candidate }));
+      if (matched) break;
+    }
+    if (!matched) return null;
+    const current = payingSidePayment(tx);
+    if (current && current.cardId === matched.cardId) return null;
+    const named = payingSidePayment(Object.assign({}, tx, { provedPayerReceipt: matched }));
+    if (named && (named.reason === 'card-payment-destination-conflict' || named.cardId === matched.cardId)) return matched;
+    return null;
+  }
+  function nextProvedPayerReceipts(transactions, prior) {
+    const rows = Array.isArray(transactions) ? transactions.filter(Boolean) : [];
+    const out = [];
+    const seen = new Set();
+    const remember = proof => {
+      const key = [proof.coverageRef || '', proof.id || '', proof.account, String(proof.amountCents), proof.cardId].join('\n');
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(proof);
+    };
+    for (const tx of rows) {
+      const proof = provedPayerReceiptFrom(tx);
+      if (proof) remember(proof);
+    }
+    for (const candidate of Array.isArray(prior) ? prior : []) {
+      const clean = cleanProvedPayerReceipt(candidate);
+      if (!clean) continue;
+      for (const tx of rows) {
+        const trial = Object.assign({}, tx, { provedPayerReceipt: clean });
+        if (!provedPayerReceiptMatches(trial)) continue;
+        if (payingSidePayment(trial)?.reason === 'card-payment-destination-conflict') remember(clean);
+        break;
+      }
+    }
+    return out;
+  }
+
+  // The payer supplies the transfer. The ledger note names the card when this row still qualifies.
+  // A receipt already proved for that card keeps the card when only the category changed, or when the
+  // note is gone. A row with neither proof stays unconfirmed. Posting, direction, window and row
+  // identity are checked by the period publisher.
   function payingSidePayment(tx) {
     if (!tx || !['household-cash', 'household-reserve'].includes(tx.accountRole)) return null;
     const payer = tx.atlasAccountId || tx.account || tx.accountId;
@@ -12956,10 +13077,19 @@
       || CARD_PAYMENT_NOTE_IDS.has(tx.minimumCategoryDebt);
     const transfer = label === 'transfer' || ['transfer', 'internal-transfer', 'payment', 'bill-payment'].includes(hint)
       || tx.internalTransferIdentity === true;
-    if ((!payment && !transfer) || [tx.atlasAccountId, tx.account, tx.accountId].some(isStackCreditLine)) return null;
+    if ([tx.atlasAccountId, tx.account, tx.accountId].some(isStackCreditLine)) return null;
     if (cardPaymentDestinationConflict(tx)) {
       return { cardId: null, trust: 'estimated', reason: 'card-payment-destination-conflict' };
     }
+    const proof = provedPayerReceiptMatches(tx);
+    if (proof) {
+      if (provedPayerReceiptDisagrees(tx, proof)) {
+        return { cardId: null, trust: 'estimated', reason: 'card-payment-destination-conflict' };
+      }
+      return { cardId: proof.cardId, trust: proof.trust, ...(proof.reason ? { reason: proof.reason } : {}) };
+    }
+    // A never-proved row in another category is not a payment. The note is not read.
+    if (!payment && !transfer) return null;
     const note = cardPaymentNoteEvidence(tx);
     // The shared conflict rule above reads the spend-card table only, so a HELOC note is checked here against the same
     // two other destinations: a payee identity or minimum category naming another line pays neither (Codex on #1641).
@@ -32260,7 +32390,7 @@
   }
 
   const Forecast = { earlyReceiptLegMembership, earlyReceiptOpeningSeed, earlyReceiptSweptSeed, cardPaymentNoteDestination, cardPaymentDestinationConflict, cardNotePaymentReceipts, periodBankCheck, billPaymentState, fixedBillPartialPayment, billPaymentHistorySummary, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, obligationAmountScheduleSelect, debtPrincipalShareFor, statementOccurrenceDate, statementOccurrenceIdentity, statementPaymentsReflectedThrough, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
-    cardPeriodMovements, payingSidePayment, stackCardSummary, stackCreditLines, stackCreditBreakdown, pendingHoldReleases,
+    cardPeriodMovements, payingSidePayment, carriedPayerReceipt, nextProvedPayerReceipts, stackCardSummary, stackCreditLines, stackCreditBreakdown, pendingHoldReleases,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
     spendingCycle, incomeReceivedAmount, calendarIncomeContribution,

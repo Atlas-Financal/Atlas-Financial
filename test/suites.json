@@ -197,6 +197,7 @@
   ["B70 residual utilisation: a funding option resolved from unclaimed card or facility room is borrowing headroom and never auto-covers an opening gap, whatever its unusable flag (Neon on #1624, #1607 7141215801)","test-residual-utilisation-no-auto-borrow.js"],
   ["OD-033: Credit rows read Paid back / Total to pay back; the dropdown shows each card's Still to pay back (display only) and the charges already counted above, never a catch-all offset","test-credit-paid-back.js"],
   ["Credit counts posted paying-side transfers once and discloses unassigned payments","test-credit-paying-side.js"],
+  ["A proved card payment still counts after its category changes, and a row that was never proved stays unconfirmed","test-card-payment-survives-recategory.js"],
   ["Stack card Spent and Paid count pending rows, a replaced pending once (Dale, 2026-11-22; ATLAS LEAD 12)","test-stack-card-spent-pending.js"],
   ["Stack Credit one membership: the Credit card head (minimums due and paid) spans every listed credit line, the HELOC included, so its due is the waterfall Credit for every published period; the HELOC paid side stays withheld or estimated (lead ruling, ATLAS LEAD 12, 2026-11-22)","test-stack-credit-one-membership.js"],
   ["Stack Wallet A6b: Forecast.stackCreditLines states per credit line the card's minimum (derived from the bills split), status, amount to go and minimum covered, with totals over stated cards and explicit completeness (lead dispatch, ATLAS LEAD 11, 2026-11-19)","test-stack-credit-lines.js"],
