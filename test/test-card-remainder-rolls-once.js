@@ -96,6 +96,25 @@ console.log('5. No carry onto a recorded statement this period');
     'the card\'s 10-10 statement (it already includes the past-due amount) takes no carry', J(carriedLines(statement)));
 }
 
+console.log('5b. The coupled debt and cash walks (Codex on #1663)');
+{
+  // The same obligation also due on the as-of (biweekly from 09-25: 09-25, then 10-09): its own 25 and the 5.00 carry
+  // are two occurrences, so the debt walk keys them apart and the cash walk takes out 25 + 5 = 30.00.
+  const biweekly = x => { const o = x.data.plan.obligations[0]; delete o.date; o.frequency = 'biweekly'; o.anchor = '2026-09-25'; };
+  const sameDay = run(world(pay(20, '2026-09-26'), { ...OPTS, asOf: '2026-10-09', edit: biweekly }));
+  const fullyPaid = run(world(pay(25, '2026-09-26'), { ...OPTS, asOf: '2026-10-09', edit: biweekly }));
+  // The walk's own minimums (10-09 and 10-23, 25.00 each) are the same in both worlds; the carry adds exactly 5.00.
+  ok(carriedRows(sameDay).length === 1 && walked(fullyPaid) === 5000 && walked(sameDay) === 5500,
+    'a minimum due the same day keeps its own 25.00 beside the 5.00 carry: 50.00 + 5.00 against 50.00 fully paid',
+    J([carriedRows(sameDay).length, walked(sameDay), walked(fullyPaid)]));
+  // The card is observed nearly paid off (3.00 owing): a payment cannot exceed the debt it pays, so cash takes out
+  // 3.00 of the carry, the same cap every other obligation gets from the debt walk.
+  const owing3 = run(world(pay(20, '2026-09-26'), { ...OPTS, edit: x => { x.payload.accounts[3].balance = 3; } }));
+  ok(walked(owing3) === 300, 'with 3.00 owing on the card, cash takes out 3.00 of the carry, not 5.00', J(walked(owing3)));
+  const paidOff = run(world(pay(20, '2026-09-26'), { ...OPTS, edit: x => { x.payload.accounts[3].balance = 0; } }));
+  ok(walked(paidOff) === 0, 'with the card paid off, the carry takes nothing out of cash', J(walked(paidOff)));
+}
+
 console.log('6. Mutants');
 {
   const FILE = path.join(__dirname, '..', 'public', 'forecast.js');
@@ -113,10 +132,31 @@ console.log('6. Mutants');
   const m1 = withEngine(noCarry, () => run(world(pay(20, '2026-09-26'), OPTS)));
   ok(carriedRows(m1).length === 0 && walked(m1) === 0,
     'MUTANT (no carry): the 5.00 drops out of the walk and the Bills rows, which section 1 rejects', J([carriedRows(m1).length, walked(m1)]));
-  const ignorePaid = compile("out.push({ date, amount: -(due - covered) / 100,", 'out.push({ date, amount: -due / 100,', 'ignore-paid');
+  const ignorePaid = compile('let left = (due - covered) / 100;', 'let left = due / 100;', 'ignore-paid');
   const m2 = withEngine(ignorePaid, () => run(world([...pay(20, '2026-09-26'), ...pay(2, '2026-10-03')], OPTS)));
   ok(walked(m2) === 500, 'MUTANT (carry ignores this period\'s payments): the walk still takes 5.00 after 2.00 was paid (7.00 counted), which section 2 rejects',
     J(walked(m2)));
+}
+
+{
+  const FILE = path.join(__dirname, '..', 'public', 'forecast.js');
+  const source = fs.readFileSync(FILE, 'utf8');
+  const compile = (from, to, tag) => {
+    if (source.split(from).length !== 2) throw new Error('mutant anchor not found exactly once: ' + tag);
+    const mod = new Module(FILE, module);
+    mod.filename = FILE;
+    mod.paths = Module._nodeModulePaths(path.dirname(FILE));
+    mod._compile(source.replace(from, to), FILE.replace(/\.js$/, '-' + tag + '.js'));
+    return mod.exports;
+  };
+  const biweekly = x => { const o = x.data.plan.obligations[0]; delete o.date; o.frequency = 'biweekly'; o.anchor = '2026-09-25'; };
+  const sharedId = compile("const id = row.obligationId + '#carried@' + row.carriedFrom;", 'const id = row.obligationId;', 'shared-id');
+  const m3 = withEngine(sharedId, () => run(world(pay(20, '2026-09-26'), { ...OPTS, asOf: '2026-10-09', edit: biweekly })));
+  ok(walked(m3) !== 5500, 'MUTANT (carry shares the obligation\'s identity): the same-day walk no longer counts 25.00 + 5.00, which section 5b rejects',
+    J(walked(m3)));
+  const noCap = compile('      if (cap) {\n        const key = date + \':\' + id;', '      if (false) {\n        const key = date + \':\' + id;', 'no-cap');
+  const m4 = withEngine(noCap, () => run(world(pay(20, '2026-09-26'), { ...OPTS, edit: x => { x.payload.accounts[3].balance = 3; } })));
+  ok(walked(m4) === 500, 'MUTANT (no debt cap on the carry): cash takes out 5.00 with only 3.00 owing, which section 5b rejects', J(walked(m4)));
 }
 
 console.log(`\n${failures ? 'FAIL' : 'PASS'} card remainder rolls once (${checks - failures}/${checks})`);

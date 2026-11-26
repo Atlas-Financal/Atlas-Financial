@@ -11914,7 +11914,11 @@
   // payments already put toward it, dated as-of (it is past due), estimated, labelled "carried from" its original
   // date. The ledger is the one authority; the walk and the Bills rows both read these same lines. Only lines whose
   // pay period overlaps [start, end] and that still owe something; none without a ready ledger.
-  function carriedCardRemainderEvents(plan, asOf, coverage, start, end) {
+  // Each line has an identity of its own (`<obligation>#carried@<from>`), so the coupled debt and cash walks key it
+  // apart from a minimum of the same obligation due the same day; carriedRemainder.obligationId names its debt. The
+  // cash walk caps it at what the debt walk absorbed (`cap`, opts.obligationAbsorbed), like every other obligation: an
+  // explicit null is unknown (omitted), a missing or zero absorption takes nothing out of cash.
+  function carriedCardRemainderEvents(plan, asOf, coverage, start, end, cap) {
     if (!coverage || coverage.status !== 'ready' || !Array.isArray(coverage.minimumCoverage)) return [];
     const cycle = spendingCycle(plan, asOf);
     if (!cycle || !savingsDate(cycle.start) || !savingsDate(asOf)) return [];
@@ -11927,10 +11931,18 @@
       if (!(due > 0) || covered == null || covered < 0 || covered >= due) continue;
       const obligation = (plan.obligations || []).find(o => o && o.id === row.obligationId);
       if (!obligation || obligation.debtId === 'heloc') continue;
-      out.push({ date, amount: -(due - covered) / 100, kind: 'obligation', effect: 'payment', id: row.obligationId,
+      const id = row.obligationId + '#carried@' + row.carriedFrom;
+      let left = (due - covered) / 100;
+      if (cap) {
+        const key = date + ':' + id;
+        if (Object.prototype.hasOwnProperty.call(cap, key) && cap[key] === null) continue;
+        left = Math.min(left, cap[key] || 0);
+        if (!(left > 0)) continue;
+      }
+      out.push({ date, amount: -left, kind: 'obligation', effect: 'payment', id,
         label: (obligation.label || obligation.name || row.obligationId) + ' (carried from ' + row.carriedFrom + ')',
         debtId: obligation.debtId, payingAccount: obligation.payingAccount, confidence: 'estimated',
-        carriedRemainder: { from: row.carriedFrom, scheduledDate: row.scheduledDate, due: due / 100,
+        carriedRemainder: { obligationId: row.obligationId, from: row.carriedFrom, scheduledDate: row.scheduledDate, due: due / 100,
           covered: covered / 100, left: (due - covered) / 100, source: coverage.source || 'Forecast.visaPaymentReconciliation',
           trust: 'calculated' } });
     }
@@ -11944,7 +11956,7 @@
     const holder = cardCoverageHolderFor(plan, asOf, opts);
     const read = { ...opts, cardCoverageReuse: holder };
     const coverage = probeCardCoverage(plan, asOf, read);
-    const carried = window ? carriedCardRemainderEvents(plan, asOf, coverage, window.start, window.end) : [];
+    const carried = window ? carriedCardRemainderEvents(plan, asOf, coverage, window.start, window.end, opts.obligationAbsorbed) : [];
     const walked = carried.length
       ? events.concat(carried).map((e, i) => [e, i]).sort((a, b) => String(a[0] && a[0].date).localeCompare(String(b[0] && b[0].date)) || a[1] - b[1]).map(p => p[0])
       : events;
@@ -26239,7 +26251,7 @@
           continue;
         }
         if (e.kind === 'obligation') {
-          const t = targetFor(e.id);
+          const t = targetFor(e.carriedRemainder ? e.carriedRemainder.obligationId : e.id);
           if (!t) continue;
           if (e.minimumPayment) {
             // Bank-side sent evidence supplies no receiving-side credit or
