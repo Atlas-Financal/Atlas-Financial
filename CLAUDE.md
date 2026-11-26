@@ -32,8 +32,24 @@ scaffolding. The rule numbers are kept so existing references (for example
 - **Dale (owner):** household facts and owner-reserved stops only. Standing
   rule: if the asker has a clear recommendation, do not ask Dale; act on it and
   tell him.
-- **Claude Code (lead):** owns the post-1.0 order, builds, coordinates, and picks
-  models per task.
+- **T3 coordinator (lead):** from 2026-11-26 (Dale; OD-063 in
+  [`docs/OWNER_DECISIONS.md`](docs/OWNER_DECISIONS.md)), the T3 coordinator
+  (a Claude Code session) is the lead. It owns the post-1.0 order, dispatch,
+  the Merge line, file reservations and the weekly owner report, and picks
+  models per task. Wherever this file says "the lead", it means the T3
+  coordinator.
+- **LEAD 14 (monitor):** Dale's monitor and game planner. It watches, plans
+  and advises Dale, and posts a correction where it sees a rule or figure
+  problem. It does not dispatch, review of record or merge unless the lead
+  or Dale asks.
+- **Review and merge by model (OD-063):** for each PR the lead picks a
+  reviewer of record whose model differs from the model that built it, and a
+  merger that is neither the builder's model nor the reviewer. Dale's
+  example: Claude builds, ChatGPT reviews, Grok merges. The review contract,
+  findings format, Merge gate, private figures diff, Dale's figures look and
+  rule 15 are unchanged, and nobody reviews or merges their own build. It
+  widens only who may review and merge; where an older line below names a
+  narrower set, this line wins.
 - **Reviewers of record:** ChatGPT (Atlas) and Muse, each on a PR it did
   not build, including figures-moved changes, with one bounded review (Dale,
   2026-11-22; OD-027 in [`docs/OWNER_DECISIONS.md`](docs/OWNER_DECISIONS.md),
@@ -47,7 +63,7 @@ scaffolding. The rule numbers are kept so existing references (for example
   plus routine monitoring. Muse does not merge a PR it reviewed. Planning and
   dispatch move to the lead.
 - **Grok (Grok Bot):** owns the ledger-side work, under rule 17 below. Grok
-  Bot writes no code.
+  Bot writes no code. It may merge a PR when the lead picks it under OD-063.
 - **Astra:** approved builder and read-only analyst (Dale, 2026-11-23;
   OD-035). It takes `TASK` (read-only) and `BUILD` items from the lead
   through its mailbox, issue #1611, one at a time, under every builder rule.
@@ -296,7 +312,7 @@ request they built. Atlas reviews only and never merges. Muse (dispatcher) is
 the default merger, except on a pull request Muse reviewed (OD-027). Claude
 Code is the backup merger under Dale's standing approval, for pull requests it
 neither built nor reviewed: when Muse reviewed the pull request, when Muse
-asks, or through the 10-minute **Merge fallback** below. Grok does not merge for now. If no eligible
+asks, or through the 10-minute **Merge fallback** below. Under OD-063 the lead may also pick another merger, Grok included, whose model is neither the builder's nor the reviewer's. If no eligible
 merger is available, the pull request waits. The merger decides under
 Dale's standing instructions and treats review findings as evidence, not as
 delegated permission — see **Merge gate**.
