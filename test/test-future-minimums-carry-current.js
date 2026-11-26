@@ -1,9 +1,12 @@
 'use strict';
-/* Future card minimums carry the card's latest published minimum (owner, Dale, lead 13's OD-028 record on #821): every
- * occurrence of a card's payment rows dated after the card's latest statement, with no statement of its own, takes that
- * statement's minimum, tagged estimated. Per card, across all its rows. A card with no statement keeps its plan amounts;
- * a closed card has no occurrences; a fixedInterestMinimum row takes max(fixed, carried); the HELOC's cash leg is
- * unchanged. One reader (obligationOccurrences), so the event stream the walk, the bill rows and cardMinimums read follows.
+/* Future card minimums carry the current published minimum (owner, Dale, #821 7173859561, 2026-11-25: "make the
+ * minimums for future pay periods what the minimums are for this pay period"; lead 13). Every occurrence of a payment
+ * row dated after that row's latest statement, with no statement of its own, takes that statement's minimum, tagged
+ * estimated. Within the row only: a dated successor row (a card's rows hand over at lastDue / firstDue) keeps its own
+ * planned amount, an owner-set fixed payment for example, until it has a statement of its own. A dated amount-schedule
+ * term wins over the carry. A row with no statement keeps its plan amounts; a fixedInterestMinimum row takes
+ * max(fixed, carried). One reader (CardMinimumContract.resolveOccurrences, under obligationOccurrences), so the walk,
+ * the bill rows, cardMinimums and the un-noted payment inference (#1650) read one figure.
  * Invented plan only; every expectation is written by hand. `node test/test-future-minimums-carry-current.js` */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -22,11 +25,11 @@ function plan() {
       // Travel: plan says 25 a month; the October statement says 61.
       { id: 'travel', debtId: 'travelvisa', effect: 'payment', label: 'Invented travel minimum', frequency: 'monthly', day: 10,
         amount: 25, confidence: 'estimated', payingAccount: 'chequing-a', statementOccurrences: [statement('2026-10-10', '2026-10-12', 61)] },
-      // Cash Back: two rows handing over (day 4 until Oct, then day 20), the statement on the first row only.
+      // Cash Back: two rows handing over (day 4 until Oct, then day 20 at an owner-set 30), the statement on the first only.
       { id: 'cashback-old', debtId: 'cashback', effect: 'payment', label: 'Invented cash back minimum', frequency: 'monthly', day: 4,
         firstDue: '2026-08-04', lastDue: '2026-10-04', amount: 30, confidence: 'estimated', payingAccount: 'chequing-a',
         statementOccurrences: [statement('2026-10-04', '2026-10-04', 47)] },
-      { id: 'cashback-new', debtId: 'cashback', effect: 'payment', label: 'Invented cash back minimum (new day)', frequency: 'monthly',
+      { id: 'cashback-new', debtId: 'cashback', effect: 'payment', label: 'Invented cash back fixed payment (new day)', frequency: 'monthly',
         day: 20, firstDue: '2026-10-20', amount: 30, confidence: 'estimated', payingAccount: 'chequing-a' },
       // Triangle: no statement, plan amount 40 stands.
       { id: 'triangle', debtId: 'triangle', effect: 'payment', label: 'Invented triangle minimum', frequency: 'monthly', day: 15,
@@ -35,87 +38,66 @@ function plan() {
       { id: 'mbna', debtId: 'mbna', effect: 'payment', label: 'Invented amazon minimum', frequency: 'monthly', day: 8,
         amount: 20, fixedInterestMinimum: { balance: 3000, rate: 20, asOf: '2026-09-01' }, confidence: 'estimated', payingAccount: 'chequing-a',
         statementOccurrences: [statement('2026-10-08', '2026-10-08', 35)] },
-      // TD card: closed in September, no occurrences ahead.
-      { id: 'tdcc', debtId: 'tdcc', effect: 'payment', label: 'Invented TD minimum', frequency: 'monthly', day: 17,
-        lastDue: '2026-09-17', amount: 15, confidence: 'estimated', payingAccount: 'chequing-a' },
+      // Emerald: a statement of 33 in October, and a dated amount schedule setting 70 from December.
+      { id: 'emerald', debtId: 'tdcc', effect: 'payment', label: 'Invented emerald minimum', frequency: 'monthly', day: 17,
+        amount: 15, confidence: 'estimated', payingAccount: 'chequing-a', statementOccurrences: [statement('2026-10-17', '2026-10-17', 33)],
+        amountSchedule: [{ from: '2026-12-01', until: '2027-12-01', amount: 70, confidence: 'confirmed' }] },
     ],
   };
 }
 const occ = (p, id, from = '2026-10-01', to = '2027-01-31', Fx = F) =>
-  Fx.obligationOccurrences(p.obligations.find(o => o.id === id), from, to, undefined, p).map(o => [o.date, o.amount, o.confidence]);
+  Fx.obligationOccurrences(p.obligations.find(o => o.id === id), from, to).map(o => [o.date, o.amount, o.confidence]);
+const J = JSON.stringify;
 
-console.log('1. A card with a statement: later occurrences carry its minimum, estimated');
+console.log('1. A row with a statement: later occurrences carry its minimum, estimated');
 {
-  const p = plan();
-  const t = occ(p, 'travel');
-  ok(JSON.stringify(t[0]) === JSON.stringify(['2026-10-12', 61, 'confirmed']), 'the October statement occurrence stays the statement (61, confirmed)', JSON.stringify(t[0]));
+  const t = occ(plan(), 'travel');
+  ok(J(t[0]) === J(['2026-10-12', 61, 'confirmed']), 'the October statement occurrence stays the statement (61, confirmed)', J(t[0]));
   ok(t.slice(1).length === 3 && t.slice(1).every(([, amount, trust]) => amount === 61 && trust === 'estimated'),
-    'November, December and January carry 61, estimated (the plan said 25)', JSON.stringify(t.slice(1)));
-  const without = F.obligationOccurrences(p.obligations[0], '2026-11-01', '2026-11-30').map(o => o.amount);
-  ok(JSON.stringify(without) === '[25]', 'called without the plan (dates-only callers), the plan amount is unchanged', JSON.stringify(without));
+    'November, December and January carry 61, estimated (the plan said 25)', J(t.slice(1)));
+  const before = occ(plan(), 'travel', '2026-09-01', '2026-09-30');
+  ok(J(before) === J([['2026-09-10', 25, 'estimated']]), 'an occurrence before the statement keeps the plan amount', J(before));
 }
 
-console.log('2. Per card, across its rows');
+console.log('2. Within the row only');
 {
-  const p = plan();
-  const next = occ(p, 'cashback-new');
-  ok(next.length >= 3 && next.every(([, amount, trust]) => amount === 47 && trust === 'estimated'),
-    'the successor row (no statement of its own) carries the card\'s latest statement, 47', JSON.stringify(next));
+  const next = occ(plan(), 'cashback-new');
+  ok(next.length >= 3 && next.every(([, amount, trust]) => amount === 30 && trust === 'estimated'),
+    'a dated successor row with no statement of its own keeps its planned 30, not the old row\'s 47', J(next));
 }
 
 console.log('3. Controls');
 {
   const p = plan();
   const tri = occ(p, 'triangle');
-  ok(tri.length === 4 && tri.every(([, amount, trust]) => amount === 40 && trust === 'estimated'), 'a card with no statement keeps its plan amount (40)', JSON.stringify(tri));
-  ok(occ(p, 'tdcc').length === 0, 'a closed card has no occurrences ahead');
+  ok(tri.length === 4 && tri.every(([, amount, trust]) => amount === 40 && trust === 'estimated'), 'a row with no statement keeps its plan amount (40)', J(tri));
   const mb = occ(p, 'mbna').slice(1);
-  ok(mb.length === 3 && mb.every(([, amount]) => amount === 50), 'a fixed interest minimum row takes max(fixed 50, carried 35) = 50', JSON.stringify(mb));
-  const before = occ(p, 'travel', '2026-09-01', '2026-09-30');
-  ok(JSON.stringify(before) === JSON.stringify([['2026-09-10', 25, 'estimated']]), 'an occurrence before the statement keeps the plan amount', JSON.stringify(before));
+  ok(mb.length === 3 && mb.every(([, amount]) => amount === 50), 'a fixed interest minimum row takes max(fixed 50, carried 35) = 50', J(mb));
+  const em = occ(p, 'emerald');
+  ok(J(em) === J([['2026-10-17', 33, 'confirmed'], ['2026-11-17', 33, 'estimated'], ['2026-12-17', 70, 'estimated'], ['2027-01-17', 70, 'estimated']]),
+    'November carries 33, estimated; the dated amount schedule wins from December (70, tagged as the schedule resolves it today)', J(em));
 }
 
-console.log('4. The event stream follows (one reader)');
+console.log('4. One reader: the walk follows (the un-noted payment inference: test-infer-card-payment-destination 2b)');
 {
   const p = plan();
   const ev = F.expandEvents(p, '2026-11-01', '2026-11-30', {}).filter(e => e.kind === 'obligation' && e.debtId === 'travelvisa');
   ok(ev.length === 1 && ev[0].amount === -61 && ev[0].confidence === 'estimated', 'the walk\'s November Travel minimum is 61, estimated',
-    JSON.stringify(ev.map(e => [e.date, e.amount, e.confidence])));
-}
-
-console.log('4b. The un-noted payment inference (#1650) reads the same carried minimum');
-{
-  const p = plan();
-  const m = F.expectedCreditLineMinimumCents(p, '2026-11-01', '2026-11-30');
-  ok(JSON.stringify(m.get('travelvisa')) === '[6100]', 'the November Travel minimum the inference matches is 61 (carried), not the plan\'s 25',
-    JSON.stringify(m.get('travelvisa')));
-  ok(JSON.stringify(m.get('triangle')) === '[4000]', 'a card with no statement: the inference still reads its plan amount (40)', JSON.stringify(m.get('triangle')));
-  const FILE = path.join(__dirname, '..', 'public', 'forecast.js');
-  const source = fs.readFileSync(FILE, 'utf8');
-  const anchor = 'for (const occ of obligationOccurrences(o, from, to, undefined, plan)) addMinimum(id, occ.amount);';
-  assert.equal(source.split(anchor).length, 2, 'inference mutant anchor found exactly once');
-  const mod = new Module(FILE, module);
-  mod.filename = FILE;
-  mod.paths = Module._nodeModulePaths(path.dirname(FILE));
-  mod._compile(source.replace(anchor, 'for (const occ of obligationOccurrences(o, from, to)) addMinimum(id, occ.amount);'),
-    FILE.replace(/\.js$/, '-inference-plan-amount.js'));
-  const mm = mod.exports.expectedCreditLineMinimumCents(plan(), '2026-11-01', '2026-11-30');
-  ok(JSON.stringify(mm.get('travelvisa')) === '[2500]', 'MUTANT (inference reads the plan amount): 25, which the check above rejects',
-    JSON.stringify(mm.get('travelvisa')));
+    J(ev.map(e => [e.date, e.amount, e.confidence])));
 }
 
 console.log('5. Mutant: the carry removed');
 {
   const FILE = path.join(__dirname, '..', 'public', 'forecast.js');
   const source = fs.readFileSync(FILE, 'utf8');
-  const anchor = '    const carried = carriedCardMinimum(plan, row);\n';
+  const anchor = '      if (latest && !statement && scheduledDate > latest.scheduledDate) {\n';
   assert.equal(source.split(anchor).length, 2, 'mutant anchor found exactly once');
   const mod = new Module(FILE, module);
   mod.filename = FILE;
   mod.paths = Module._nodeModulePaths(path.dirname(FILE));
-  mod._compile(source.replace(anchor, '    const carried = null;\n'), FILE.replace(/\.js$/, '-no-carry.js'));
+  mod._compile(source.replace(anchor, '      if (false) {\n'), FILE.replace(/\.js$/, '-no-carry.js'));
   const t = occ(plan(), 'travel', '2026-11-01', '2026-11-30', mod.exports);
-  ok(JSON.stringify(t) === JSON.stringify([['2026-11-10', 25, 'estimated']]), 'MUTANT (no carry): November reads the plan\'s 25 again, which section 1 rejects', JSON.stringify(t));
+  ok(J(t) === J([['2026-11-10', 25, 'estimated']]), 'MUTANT (no carry): November reads the plan\'s 25 again, which section 1 rejects', J(t));
 }
 
 console.log(`\nPASS future minimums carry the current minimum (${checks} checks)`);

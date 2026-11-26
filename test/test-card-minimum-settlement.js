@@ -747,10 +747,11 @@ console.log('\n=== Invented variable minimum preserves the prior occurrence and 
     'two separate original occurrences keep their own payments and qualification');
   const events = Forecast.expandEvents(result.data.plan, '2026-10-01', '2026-11-30')
     .filter(row => row.id === 'invented-mbna-minimum');
-  ok(events.length === 2 && events.every(row => near(-row.amount, 37.89)
+  // Later months carry the September statement minimum 49.17, estimated (Dale, #821 7173859561), not the plan's 37.89.
+  ok(events.length === 2 && events.every(row => near(-row.amount, 49.17)
       && row.confidence === 'estimated')
       && events.map(row => row.date).join(',') === '2026-10-31,2026-11-30',
-    'one confirmed variable minimum does not change or pay future month-end estimates');
+    'one confirmed variable minimum pays no future month-end; later months carry it, estimated');
   const unqualified = clone(x.data.plan);
   unqualified.opening.representedEvents = [];
   delete unqualified.obligations[1].sentPayments;
@@ -920,9 +921,9 @@ console.log('\n=== Generic transfers and matching card reductions leave minimum 
   const events = Forecast.expandEvents(result.data.plan, confirmed.asOf, '2026-11-20', {})
     .filter(row => row.id === min.id);
   ok(events.filter(row => row.date === confirmed.asOf).length === 0
-      && events.filter(row => row.date > confirmed.asOf).every(row => near(-row.amount, 37.89)
+      && events.filter(row => row.date > confirmed.asOf).every(row => near(-row.amount, 45.67)
         && row.confidence === 'estimated') && events.length === 2,
-    'one variable minimum is replaced once; later cycles retain the independent estimate');
+    'one variable minimum is replaced once; later cycles carry it (45.67), estimated (#821 7173859561)');
   ok(near(cashValue(result.data, 'chequing-a'), 313.51)
       && Forecast.projectDebts(result.data.plan, result.data.debts, confirmed.asOf,
         { debtHorizonDays: 2 }).byId.cashback.balance === 606.86,
