@@ -219,11 +219,9 @@ function planWithheld(data) {
   return data?.liveOverlay?.operatingPlan === 'unavailable';
 }
 
-function lastKnownCardActivity(previous, display) {
-  if (!display.householdAccountId) return null;
+function lastKnownCardActivity(previous, display, current) {
+  if (!display.householdAccountId || !current) return null;
   const { context, householdAccountId, data, checkedAt } = display;
-  const current = Forecast.cardActivityForDisplay(data);
-  if (!current) return null;
   const samePeriod = previous?.householdAccountId === householdAccountId && isDeepStrictEqual(previous.context, context)
     && previous.start === current.start && previous.end === current.end;
   const cards = new Map((samePeriod ? previous.cards : []).map(card => [card.id, card]));
@@ -294,7 +292,7 @@ function create() {
     noteAttempt(context, attempt) {
       if (slot?.display && isDeepStrictEqual(slot.display.context, context)) slot.display.attempt = structuredClone(attempt);
     },
-    publish(context, evidence, display) {
+    publish(context, evidence, display, activity) {
       if (evidence?.schema !== SCHEMA) throw new Error('observation-input-invalid');
       const incompleteCandidate = display && !completeTransactionCohort(display.data);
       const retained = display && display.context != null
@@ -313,7 +311,7 @@ function create() {
       const clearDisplay = !nextDisplay ? null : planWithheld(nextDisplay.data) ? kept : nextDisplay;
       let cardActivity = kept && (!retained || retained.householdAccountId === slot.cardActivity?.householdAccountId)
         ? slot.cardActivity : null;
-      if (retained && !planWithheld(retained.data)) cardActivity = lastKnownCardActivity(cardActivity, retained);
+      if (retained && !planWithheld(retained.data)) cardActivity = lastKnownCardActivity(cardActivity, retained, activity);
       slot = { context, evidence: { schema: SCHEMA, payload: sourceInputs(evidence.payload) },
         sourceHouseholdAccountId: retained?.credentialSource === 'env' ? retained.householdAccountId : null,
         display: nextDisplay, clearDisplay, cardActivity };

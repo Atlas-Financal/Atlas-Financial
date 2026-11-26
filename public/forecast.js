@@ -25,17 +25,16 @@
     return CardPeriodMovement.stackCards(publication);
   }
 
-  // The observation store keeps one dated activity reading per card. Use the
-  // same movement publication as the Stack, without the cash or repayment plan.
+  // Capture one coherent card line from the same Forecast publication the
+  // Stack reads. The worker keeps this projection outside the source packet.
   function cardActivityForDisplay(data) {
     const asOf = budgetAsOf(data);
     const period = data?.plan && spendingCycle(data.plan, asOf);
     if (!period || !CardPeriodMovement || !Array.isArray(data.debts)) return null;
-    const publication = cardPeriodMovements(data.plan, data.debts, asOf, period, {
-      currentPeriodActuals: budgetCurrentActuals(data), liveOverlay: data.liveOverlay,
-    });
-    const cards = stackCardSummary(publication).filter(card => Number.isFinite(card.spent.amount))
-      .map(({ id, spent, paid, transactions }) => ({ id, spent, paid, transactions }));
+    const advice = recommendWithIncomeTxFacts(data.plan, asOf, budgetRecommendInputs(data));
+    const view = advice.payPeriodViews.find(row => row.start === period.start && row.end === period.end);
+    const cards = (view?.stackSummary?.credit?.lines || []).filter(card => Number.isFinite(card.spent.amount))
+      .map(({ deduction, ...line }) => line);
     return { start: period.start, end: period.end, cards };
   }
   // Stack Wallet A6b: the Credit lines (paid back of spent, status, the card's
@@ -13513,6 +13512,13 @@
   // builder (income, bills and surplus here; the cards key of the same build
   // adds its builder beside them). The plan, as-of and options are passed for
   // a builder that needs them.
+  function estimateStackCredit(node) {
+    if (Array.isArray(node)) return node.map(estimateStackCredit);
+    if (!node || typeof node !== 'object') return node;
+    return Object.fromEntries(Object.entries(node).map(([k, v]) => [k,
+      /trust$/i.test(k) && (v === 'calculated' || v === 'verified') ? 'estimated' : estimateStackCredit(v)]));
+  }
+
   function publishStackSummary(result, plan, asOf, opts) {
     for (const view of (result && Array.isArray(result.payPeriodViews) ? result.payPeriodViews : [])) {
       if (!view || typeof view !== 'object') continue;
@@ -13530,30 +13536,28 @@
       // A later period estimated because today's cash is unconfirmed (estimateUnconfirmedOpeningPeriod, OD-022): its card
       // publication is capped the same way, so no figure in it reads more certain than the period allows.
       if (cardCredit && view.currentCashUnconfirmed && view.currentCashUnconfirmed.status === 'estimated') {
-        const cap = node => Array.isArray(node) ? node.map(cap) : node && typeof node === 'object'
-          ? Object.fromEntries(Object.entries(node).map(([k, v]) => [k, typeof v === 'string' && /trust$/i.test(k)
-            && (v === 'calculated' || v === 'verified') ? 'estimated' : cap(v)])) : node;
         const capTrust = t => t === 'unavailable' ? 'unavailable' : 'estimated';
-        cardCredit = { ...cardCredit, credit: cap(cardCredit.credit), trust: capTrust(cardCredit.trust),
+        cardCredit = { ...cardCredit, credit: estimateStackCredit(cardCredit.credit), trust: capTrust(cardCredit.trust),
           ...(Object.hasOwn(cardCredit, 'remainderTrust') ? { remainderTrust: capTrust(cardCredit.remainderTrust) } : {}) };
         periodCardCreditByPeriod.set(view, cardCredit);
       }
       let credit = cardCredit?.credit || null;
+      let creditBreakdown = stackCreditBreakdown(cardCredit, bills);
       const activity = opts?.lastKnownCardActivity;
-      if (credit && activity?.start === view.start && activity.end === view.end) {
-        const estimatedActivity = figure => Number.isFinite(figure.amount) ? { ...figure, trust: 'estimated' } : figure;
+      // Keep the current deduction and its trust. If the dropdown cannot
+      // publish, a retained line would disagree with its minimum-only fallback.
+      if (creditBreakdown && activity?.start === view.start && activity.end === view.end) {
         credit = { ...credit, lines: credit.lines.map(line => {
           const held = line.spent.amount === null && activity.cards.find(card => card.id === line.id);
-          if (!held) return line;
-          // These figures and rows describe the same observation. Leave the
-          // current paying-side evidence, targets and coverage checks intact.
-          return { ...line, spent: estimatedActivity(held.spent), paid: estimatedActivity(held.paid),
-            transactions: held.transactions, activityObservedAt: held.observedAt };
+          if (!held || ![held.target, held.stillToPayBack, held.paidBack].every(figure => Number.isFinite(figure.amount))) return line;
+          const { observedAt, asOf: _asOf, ...datedLine } = held;
+          return { ...estimateStackCredit(datedLine), deduction: line.deduction, activityObservedAt: observedAt };
         }) };
+        creditBreakdown = stackCreditBreakdown(cardCredit, bills, credit);
       }
       view.stackSummary = Object.assign(view.stackSummary || {},
         { income: stackIncome(view), bills, surplus: stackSurplus(view, bills), savings: stackSavings(view, result),
-          billsAccount: stackBillsAccount(view), credit, creditBreakdown: stackCreditBreakdown(cardCredit, bills) });
+          billsAccount: stackBillsAccount(view), credit, creditBreakdown });
     }
     return result;
   }
@@ -13854,9 +13858,9 @@
   // The rows do not add up to the Credit line, and nothing here claims they do: `total` is (E)'s Credit deduction, Σ each
   // line's deduction, unchanged. Null where the Credit term is the minimums (a completed or saved period, or no card
   // evidence): the dropdown then lists the minimums, as before.
-  function stackCreditBreakdown(entry, bills) {
+  function stackCreditBreakdown(entry, bills, displayCredit = entry?.credit) {
     if (!entry || !entry.adjusts || !Number.isSafeInteger(entry.creditCents) || !entry.credit) return null;
-    const lines = entry.credit.lines;
+    const lines = displayCredit.lines;
     const minimums = bills && Array.isArray(bills.cardMinimums) ? bills.cardMinimums : [];
     const lineIds = new Set(lines.map(line => String(line.id)));
     const rows = [];

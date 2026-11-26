@@ -113,15 +113,27 @@ if (!isMainThread) {
       .then(acquisition => parentPort.postMessage({ acquisition, check }))
       .catch(() => parentPort.postMessage({ error: 'live-refresh-unavailable' }));
   } else {
-    StageTiming.run(() => Live.applyForServer(workerData.canonical, process.env, { signal: controller.signal,
-      evidence: workerData.evidence, onObservation: value => { check = value; },
-      onCoverageDiagnostic: counts => CoverageDiagnostics.merge(check.coverageDiagnostics ||= {}, counts),
-      onHouseholdIdentity: value => parentPort.postMessage({ type: 'household-identity', accountId: value }) }),
+    StageTiming.run(async () => {
+      const data = await Live.applyForServer(workerData.canonical, process.env, { signal: controller.signal,
+        evidence: workerData.evidence, onObservation: value => { check = value; },
+        onCoverageDiagnostic: counts => CoverageDiagnostics.merge(check.coverageDiagnostics ||= {}, counts),
+        onHouseholdIdentity: value => parentPort.postMessage({ type: 'household-identity', accountId: value }) });
+      let cardActivity = null;
+      if (check.qualified && check.evidence && check.credentialSource === 'env' && check.householdAccountId) {
+        const Memory = require('./server-observation-memory');
+        if (Memory.completeTransactionCohort(data) && !Memory.planWithheld(data)) {
+          try {
+            cardActivity = StageTiming.sync('forecastMs', () => require('../public/forecast').cardActivityForDisplay(data));
+          } catch (_) { /* A display projection cannot refuse current source evidence. */ }
+        }
+      }
+      return { data, cardActivity };
+    },
     stages => parentPort.postMessage({ type: StageTiming.MESSAGE, stages }))
-      .then(data => {
+      .then(result => {
         let reads = null;
         try { reads = replayReads ? replayReads() : null; } catch (_) { reads = null; }
-        parentPort.postMessage({ data, check, ...(replayReads ? { reads } : {}) });
+        parentPort.postMessage({ ...result, check, ...(replayReads ? { reads } : {}) });
       })
       .catch(() => parentPort.postMessage({ error: 'live-refresh-unavailable' }));
   }
@@ -651,7 +663,7 @@ if (!isMainThread) {
                 context: displayKey(canonical, env), householdAccountId: accountId, lastBudgetAccountId: accountId, credentialSource: 'env',
                 checkedAt: result.check.checkedAt, data: result.data,
                 ...(typeof result.check.cashEvidenceAt === 'string' ? { cashEvidenceAt: result.check.cashEvidenceAt } : {}),
-              } : undefined);
+              } : undefined, result.cardActivity);
               published = true;
             } catch (_) { /* Live path only. */ }
           }

@@ -7,14 +7,16 @@ const Memory = require('../scripts/server-observation-memory');
 const { world } = require('./fixtures/card-coverage-aggregate-world');
 const { loadStackPage } = require('./lib/budget-page-harness');
 const { provider, environment } = require('./test-server-observation-memory');
+const { buildFiguresSnapshot } = require('../scripts/figures-snapshot');
 
 const cardId = 'travelvisa';
 const context = { accountMap: 'invented map', categoryMapping: [] };
 const householdId = 4021;
 const day = '2026-09-20';
 
-function observation(hour, { asOf = day, through = asOf, sync = true, extra = false } = {}) {
+function observation(hour, { asOf = day, through = asOf, sync = true, extra = false, payingDebit = false } = {}) {
   const input = world([['card', 80, '2026-09-18', 'purchase'], ['card', 37, '2026-09-19', 'purchase'],
+    ...(payingDebit ? [['bills', 17, asOf, 'cash', { notes: 'card payment: Travel Visa' }]] : []),
     ...(extra ? [['card', 12, asOf, 'purchase']] : [])], { asOf, windowStart: '2026-09-18' });
   const { payload } = input;
   Object.assign(payload, { categories: [], tags: [], fetchedAt: `${asOf}T${hour}:00:00Z` });
@@ -26,9 +28,9 @@ function observation(hour, { asOf = day, through = asOf, sync = true, extra = fa
   return { data, evidence: { schema: Memory.SCHEMA, payload }, checkedAt: payload.fetchedAt, input };
 }
 
-function publish(memory, { data, evidence, checkedAt }, householdAccountId = householdId) {
+function publish(memory, { data, evidence, checkedAt }, householdAccountId = householdId, activity = Forecast.cardActivityForDisplay(data)) {
   memory.publish('latest-source', evidence, { context, householdAccountId, lastBudgetAccountId: householdAccountId,
-    credentialSource: 'env', data, checkedAt });
+    credentialSource: 'env', data, checkedAt }, activity);
 }
 
 function served(memory, { data, checkedAt }, id = householdId, key = context) {
@@ -56,22 +58,41 @@ function read(data) {
     const data = served(memory, thin);
     const held = read(data), current = read(thin.data);
     assert.equal(held.card.spent.amount, 80 + 37, `${name}: last supported charges remain visible`);
-    assert.equal(held.card.spent.trust, 'estimated', name);
+    assert.equal(held.card.target.amount, 117, `${name}: target belongs to the retained charges`);
+    assert.equal(held.card.stillToPayBack.amount, 117, `${name}: remainder belongs to the retained charges`);
+    assert.equal(held.card.paidBack.amount, 0, `${name}: the retained ledger had no paying-side debit`);
+    for (const field of ['spent', 'target', 'stillToPayBack', 'paidBack']) {
+      assert.equal(held.card[field].trust, 'estimated', `${name}: ${field} has dated trust`);
+    }
     assert.equal(held.card.activityObservedAt, good.checkedAt, name);
     assert.deepEqual(held.result.paydayAllocation, current.result.paydayAllocation, `${name}: cash permissions and caps`);
-    assert.deepEqual(held.card.targetCovered, current.card.targetCovered, `${name}: repayment coverage`);
-    assert.deepEqual(held.view.stackSummary.creditBreakdown, current.view.stackSummary.creditBreakdown, `${name}: Credit deductions`);
+    assert.deepEqual(held.result.plannedDebt, current.result.plannedDebt, `${name}: extra debt`);
+    assert.equal(held.result.weekly, current.result.weekly, `${name}: weekly cap`);
+    assert.deepEqual(held.result.currentPeriodAction, current.result.currentPeriodAction, `${name}: operating action`);
+    assert.deepEqual(held.view.stackSummary.surplus, current.view.stackSummary.surplus, `${name}: Surplus and Credit deduction`);
+    assert.equal(held.view.stackSummary.creditBreakdown?.total, current.view.stackSummary.creditBreakdown?.total,
+      `${name}: Credit deduction total`);
+    const dropdown = held.view.stackSummary.creditBreakdown?.rows.find(row => row.debtId === cardId);
+    assert.equal(dropdown?.amount, 117, `${name}: dropdown agrees with the card`);
+    assert.equal(dropdown?.trust, 'estimated', name);
     const sweeps = result => result.payPeriodViews.map(v => [v.paydaySweep, v.cardMatchingEstimate?.paydaySweep]);
     assert.ok(current.result.payPeriodViews.some(v => Object.hasOwn(v, 'paydaySweep')));
     assert.deepEqual(sweeps(held.result), sweeps(current.result), `${name}: sweeps`);
 
-    if (name === 'missing sync') {
-      const page = await loadStackPage({ data });
-      assert.equal(page.status(), 'rendered');
-      const pageCard = page.sandbox.StackCredit.line(page.context(), cardId);
-      assert.equal(pageCard.spent.amount, 117);
-      assert.equal(pageCard.spent.trust, 'estimated');
-    }
+    const page = await loadStackPage({ data });
+    assert.equal(page.status(), 'rendered');
+    const sheet = page.sandbox.StackSheet.html(page.context(), `card:${cardId}`);
+    assert.match(sheet, /<dt>New charges<\/dt><dd[^>]*><span class="">\$117<\/span>/);
+    assert.match(sheet, /<dt>Target<\/dt><dd[^>]*><span class="">\$117<\/span>/);
+    assert.doesNotMatch(sheet, /Not yet known/);
+    assert.match(page.blockHtml('credit'), /data-stack-sheet="card:travelvisa"[^]*?\/ \$117/);
+    assert.match(page.blockHtml('waterfall'), /data-debt-id="travelvisa"[^]*?stackSummary\.creditBreakdown\.rows\.\d+\.amount">\$117/);
+
+    const spentKey = `period.${held.view.start}.stackCard.${cardId}.spent`;
+    const snapshot = buildFiguresSnapshot(data, []);
+    assert.equal(snapshot[spentKey], 117, `${name}: figures snapshot sees what the Stack prints`);
+    assert.equal(snapshot[spentKey + 'Trust'], 'estimated', name);
+    assert.equal(buildFiguresSnapshot(thin.data, [])[spentKey], null, `${name}: cold snapshot has no retained figure`);
 
     assert.equal(read(served(memory, thin, householdId + 1)).card.spent.amount, null, `${name}: different household`);
     assert.equal(read(served(memory, thin, householdId, { ...context, accountMap: 'different map' })).card.spent.amount,
@@ -88,6 +109,24 @@ function read(data) {
     publish(memory, nextThin, householdId + 1);
     assert.equal(read(served(memory, nextThin, householdId + 1)).card.spent.amount, null, `${name}: new household publish`);
     assert.equal(read(served(memory, nextThin)).card.spent.amount, null, `${name}: old household activity was retired`);
+  }
+
+  {
+    const memory = Memory.create();
+    const good = observation('18'), thin = observation('19', { sync: false, payingDebit: true });
+    publish(memory, good);
+    publish(memory, thin);
+    assert.equal(read(thin.data).card.paidBack.amount, 17, 'the latest payer debit is known to the current calculation');
+    assert.equal(read(served(memory, thin)).card.paidBack.amount, 0, 'display keeps the earlier payer amount with its target');
+    const unsupported = observation('20');
+    const activity = Forecast.cardActivityForDisplay(unsupported.data);
+    const lastCard = activity.cards.find(card => card.id === cardId);
+    lastCard.paidBack = { amount: null, trust: 'unavailable', reasons: [] };
+    publish(memory, unsupported, householdId, activity);
+    const nextThin = observation('21', { sync: false });
+    publish(memory, nextThin);
+    assert.equal(read(served(memory, nextThin)).card.spent.amount, null,
+      'a newer known charge reading without coherent repayment does not revive an older card or mix readings');
   }
 
   // Exercise the actual server worker, publication and replay with an invented

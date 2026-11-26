@@ -148,6 +148,7 @@ function pageOptions(data, periods) {
     cardPeriodBalanceEvidence: overlay && overlay.applied === true ? overlay.cardPeriodBalanceEvidence || null : null,
     // Only what the card publication reads of the overlay (its applied flag and per-account overlays).
     cardLiveOverlay: overlay && overlay.applied === true ? { applied: true, overlays: overlay.overlays } : null,
+    ...(overlay?.lastKnownCardActivity ? { lastKnownCardActivity: overlay.lastKnownCardActivity } : {}),
     operatingPlan: overlay && overlay.operatingPlan,
     observedCash: overlay && overlay.observedCash,
     operatingPlanNote: overlay && overlay.operatingPlanNote,
@@ -608,14 +609,16 @@ function putStackCards(put, putField, advice, data, plan, asOf) {
       { currentPeriodActuals: overlay ? overlay.currentPeriodActuals || null : null,
         cardPeriodBalanceEvidence: overlay ? overlay.cardPeriodBalanceEvidence || null : null, liveOverlay: overlay });
     const cards = F.stackCardSummary(publication) || [];
+    const credit = view.stackSummary && view.stackSummary.credit ? view.stackSummary.credit : null;
     const cardKeys = new Set();
     for (const card of cards) {
       const c = uniqueKey(cardKeys, p + '.stackCard.' + segment(card.id));
+      const displayed = credit?.lines.find(line => line.id === card.id && line.activityObservedAt) || card;
       for (const field of STACK_FIGURES) {
-        put(c + '.' + field, card[field].amount);
-        put(c + '.' + field + 'Trust', card[field].trust);
+        put(c + '.' + field, displayed[field].amount);
+        put(c + '.' + field + 'Trust', displayed[field].trust);
       }
-      putField(c + '.state', card, 'state');
+      putField(c + '.state', displayed, 'state');
     }
     // Stack Wallet A6b: Forecast.stackCreditLines on the same publication and
     // the period's published bills split. Per line: the minimum, status, the
@@ -623,7 +626,6 @@ function putStackCards(put, putField, advice, data, plan, asOf) {
     // and the credit totals with their completeness. The last balance snapshot
     // (current period only) with its trust and date, and its total.
     // The view's one card-target publication (desk ruling (E), #1573), as the Credit tile reads it.
-    const credit = view.stackSummary && view.stackSummary.credit ? view.stackSummary.credit : null;
     if (credit) {
       const lineKeys = new Set();
       for (const line of credit.lines) {
