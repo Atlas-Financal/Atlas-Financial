@@ -152,6 +152,8 @@
         // An internal debit can show the payer was observed without supplying a card payment or reversal.
         if (primitives.unnotedHouseholdMovement?.(tx)) continue;
         if (!bucket) {
+          // No card identity: an incoming deposit is not a payment and not a reversal.
+          if (value < 0 && typeof primitives.incomingCardReversal === 'function' && !primitives.incomingCardReversal(tx)) continue;
           unassigned.push({ tx, value, destination });
         } else if (value < 0) {
           bucket.gaps.add('payment-direction-unresolved');

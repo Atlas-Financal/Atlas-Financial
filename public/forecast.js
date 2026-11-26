@@ -71,6 +71,8 @@
       balanceEvidence: opts.cardPeriodBalanceEvidence || null, overlay: opts.liveOverlay || null }, {
       date: savingsDate, cents: savingsCents, money: cardMoneyCents, addDays, skipParent: skipSplitParent,
       payingSidePayment,
+      // Incoming deposits count as card reversals only with card identity.
+      incomingCardReversal: incomingCardReversalIdentity,
       unnotedHouseholdMovement: tx => provenInternalMovementForTx(tx, opts) && !cardPaymentNoteEvidence(tx),
       // Inferred destination (Dale, #821 7174658128): whether a debit carries a `card payment:` note (a note always wins),
       // and the minimum Forecast expects per credit line over a window: the plan's own scheduled occurrences (a card's
@@ -12824,6 +12826,23 @@
         ...(note.byAmount === null ? { reason: 'card-payment-note-provenance-unconfirmed' } : {}) };
     }
     return note || payment ? { cardId: null, trust: 'estimated' } : null;
+  }
+
+  // An incoming paying-side row is a possible card reversal only when the row
+  // itself names a card. A payment-category deposit with none of this identity
+  // (an Interac or e-transfer from outside the household, and no household
+  // counterpart) is neither paid nor a reversal. Outgoing debits are unchanged.
+  function incomingCardReversalIdentity(tx) {
+    if (!tx) return false;
+    if (tx.cardPaymentIdentity === true || tx.tdCardPaymentIdentity === true || tx.payingSideCardPaymentKind === true) return true;
+    const hint = normalizeCategoryLabel(tx.kindHint || tx.kind);
+    if (hint === 'card-payment') return true;
+    const label = normalizeCategoryLabel(tx.categoryLabel);
+    if (label === 'credit card payment' || label === 'cc payment') return true;
+    if (cardPaymentNoteEvidence(tx)) return true;
+    if (typeof tx.cardPaymentDestination === 'string' && tx.cardPaymentDestination !== '') return true;
+    if (isStackCreditLine(tx.minimumCategoryDebt)) return true;
+    return /^\s*[A-Z]{2}\d{3}\s+TFR-(?:TO|FR)\s+C\/C\s*$/i.test(txBankDescriptor(tx));
   }
 
   function householdCashLocationId(tx) {
