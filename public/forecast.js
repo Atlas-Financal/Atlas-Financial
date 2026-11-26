@@ -13660,14 +13660,14 @@
   // evidence confirms paid: the sum of the counted amounts of exactly the rows
   // the page checks (stackBillPaid), in cents. Trust (lead ruling, 2026-11-20):
   //   - the split unpublished, or its rows unmarked: paid null, 'unavailable';
-  //   - the period's posted evidence not complete (budgetProgress.coverage.complete,
-  //     the gate Budget's own actuals use) outside a later period: paid null,
-  //     'unavailable' (ATLAS REVIEWER 2, 7053664784): an unread ledger is not 0;
+  //   - incomplete period coverage outside a later period: keep the positive
+  //     sum of checked rows, estimated (OD-045). Withhold an unread or unknown
+  //     zero (ATLAS REVIEWER 2, 7053664784);
   //   - no Bills row confirmed paid: 0 with the split's own trust ('estimated'
   //     in an estimated later period, never more certain than the split);
   //   - otherwise the weakest of the paid rows' own amount trust; a paid row
   //     with no trust word withholds paid, never defaulted to calculated.
-  // Pending, differing and unmatched payments count 0 and do not enter its trust.
+  // Only payments marked paid by stackBillPaidEvidence enter the sum and trust.
   const STACK_BILLS_PAID_UNAVAILABLE = 'The Bills paid figure is unavailable: this period\'s bills split, or a paid row\'s trust, is not published.';
   const STACK_BILLS_PAID_UNREAD = 'The Bills paid figure is unavailable: this period\'s posted transaction evidence is not complete.';
   function stackBillsPaid(view, bills) {
@@ -13678,22 +13678,23 @@
         || rows.some(row => !isStackFigure(row.stackBillAmount) || typeof row.stackBillPaid !== 'boolean')
         // The marked rows must be the whole Bills part: unmarked rows are unknown, never paid 0.
         || rows.reduce((sum, row) => sum + stackCents(row.stackBillAmount), 0) !== stackCents(bills.other)) return withhold();
-    // A row with no payment seen is unpaid only where the ledger was read: the period's posted evidence must be
-    // complete under the one gate Budget's own actuals use (budgetProgress.coverage.complete). A later period
-    // cannot have been paid yet, so its zero stands without evidence.
+    const paid = rows.filter(row => row.stackBillPaid);
+    const cents = paid.reduce((sum, row) => sum + stackCents(row.stackBillAmount), 0);
+    // Complete coverage establishes a zero. Partial coverage only establishes
+    // what the checked rows show. A later period's zero stands without evidence.
     const progress = view.budgetProgress;
-    if (!progress || typeof progress !== 'object' || (progress.role !== 'future'
-        && !(progress.coverage && progress.coverage.complete === true))) {
+    const incomplete = progress?.role !== 'future' && progress?.coverage?.complete !== true;
+    if (!progress || typeof progress !== 'object' || (incomplete
+        && (!progress.coverage || progress.coverage.status === 'absent' || cents === 0))) {
       return Object.assign(bills, { paid: null, paidTrust: 'unavailable', paidReason: STACK_BILLS_PAID_UNREAD });
     }
-    const paid = rows.filter(row => row.stackBillPaid);
     if (paid.some(row => !Object.hasOwn(STACK_TRUST_RANK, row.stackBillAmountTrust))) return withhold();
-    const cents = paid.reduce((sum, row) => sum + stackCents(row.stackBillAmount), 0);
     // Nothing paid is a zero only as sure as the split it reads: an estimated (later) period's zero is estimated.
     if (!paid.length && !Object.hasOwn(STACK_TRUST_RANK, bills.trust)) return withhold();
     const trust = paid.length ? paid.reduce((worst, row) => STACK_TRUST_RANK[row.stackBillAmountTrust] > STACK_TRUST_RANK[worst]
       ? row.stackBillAmountTrust : worst, 'calculated') : bills.trust;
-    Object.assign(bills, { paid: cents / 100, paidTrust: trust });
+    const paidTrust = incomplete ? 'estimated' : trust;
+    Object.assign(bills, { paid: cents / 100, paidTrust });
   }
   function stackBills(view) {
     const parts = periodBillLoadPartsByPeriod.get(view);
