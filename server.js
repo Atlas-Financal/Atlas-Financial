@@ -13,6 +13,12 @@
 //    exposing the same packet as one read-only tool. Browser, static
 //    assistant, and OAuth credentials do not unlock one another.
 
+// Select the demo at process entry, before loading any household composition.
+if (require.main === module && process.env.ATLAS_DEMO === '1') {
+  require('./scripts/demo-server').start(process.env);
+  return;
+}
+
 const express = require('express');
 const crypto = require('crypto');
 const fs = require('fs');

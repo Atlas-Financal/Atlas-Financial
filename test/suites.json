@@ -677,6 +677,7 @@
   ["closed refresh stage timings with unchanged worker results","test-refresh-stage-timing.js"],
   ["current-period Savings planning and exact-once observed replacement","test-savings-current-period-projection.js"],
   ["live overlay unresolved same-day inbound","test-live-unresolved-inbound.js"],
+  ["demo startup isolation, fixed invented data and the production authentication boundary","test-demo-mode.js"],
   ["production read-only live overlay boundary","test-production-live-overlay.js"],
   ["legacy /planning.html retired to Budget at / (redirect, HTTP variants, auth preserved)","test-planning-retirement.js"],
   ["eight legacy pages switched off behind one server.js list (redirect, HTTP variants, auth preserved)","test-legacy-pages-switched-off.js"],

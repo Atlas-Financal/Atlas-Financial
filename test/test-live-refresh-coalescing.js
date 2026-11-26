@@ -143,8 +143,9 @@ if (!threads.isMainThread && process.env.ATLAS_COALESCING_TEST_WORKER_MODE) {
     const boundary = source.indexOf('if (!PASSWORD');
     const construction = source.indexOf('function createApplication(options = {}) {');
     assert.ok(construction >= 0 && construction < boundary && boundary > 0);
-    new vm.Script(source.slice(0, boundary)
-      + '\nreturn lunchMoneyAssistant;\n}\nmodule.exports = createApplication();', { filename }).runInContext(context);
+    // A CommonJS module body can return before loading its production imports.
+    vm.compileFunction(source.slice(0, boundary)
+      + '\nreturn lunchMoneyAssistant;\n}\nmodule.exports = createApplication();', [], { filename, parsingContext: context })();
     return exported.exports;
   }
   async function pair(mock, env, secondCanonical, secondEnv, label) {
