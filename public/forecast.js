@@ -105,6 +105,7 @@
       pendingPostedPartner: tx => (tx && tx.id != null && pairs.get(String(tx.id))) || null,
       // The one hold/release decision (pendingHoldReleases): both legs are left off the card's rows and Spent.
       holdReleaseLeg: tx => pendingHoldReleaseLeg(tx, packet),
+      otherChargeCounted: tx => opts.otherCardCharges?.has(tx) === true,
       classify: (tx, selectedPlan) => classifyCurrentPeriodTransaction(tx, selectedPlan,
         Object.assign({}, opts, { currentPeriodActuals: packet, useActuals: true })),
     });
@@ -1458,6 +1459,10 @@
       index.set(id, { source: SAVINGS_LEDGER_SOURCE, occurrenceKey: item.occurrenceKey, uncertain,
         paidCents: uncertain ? null : item.paid.cents, unpaidCents: uncertain ? null : item.unpaid.cents,
         linkedPaidCents: uncertain ? 0 : ownerOnly ? 0 : item.paid.cents, completedOn: null,
+        spentCents: item.spent && Number.isSafeInteger(item.spent.cents) && item.spent.cents >= 0 ? item.spent.cents : null,
+        spentWithheld: item.spent?.withheld === true,
+        spentPendingCents: item.spent && Number.isSafeInteger(item.spent.pendingCents) && item.spent.pendingCents >= 0 ? item.spent.pendingCents : 0,
+        spentPendingRefundCents: item.spent && Number.isSafeInteger(item.spent.pendingRefundCents) && item.spent.pendingRefundCents >= 0 ? item.spent.pendingRefundCents : 0,
         observedNetCents: item.net.cents, overspendCents: uncertain ? null : item.overspend.cents,
         ...(ownerOnly ? { ownerPaidCents: item.owner.cents, confirmedOn: item.owner.confirmedOn } : {}) });
     }
@@ -1605,6 +1610,12 @@
       if (!configured) for (const key of ['confirmedLinkedPaid', 'unpaidCost']) result[key].status = 'unconfigured';
       return result;
     }
+    const spentEntry = index.get(row.id);
+    if (spentEntry?.spentWithheld === true) result.taggedSpend = { status: 'withheld', amount: null, range: null, reason: 'tag-tally-withheld' };
+    else if (spentEntry && Number.isSafeInteger(spentEntry.spentCents) && spentEntry.spentCents >= 0)
+      result.taggedSpend = { status: 'known', amount: spentEntry.spentCents / 100, range: null,
+        ...(spentEntry.spentPendingCents > 0 ? { pendingAmount: spentEntry.spentPendingCents / 100 } : {}),
+        ...(spentEntry.spentPendingRefundCents > 0 ? { pendingRefundAmount: spentEntry.spentPendingRefundCents / 100 } : {}) };
     const relief = settlementRowRelief(index, row, point);
     if (relief?.uncertain) return result;
     result.confirmedLinkedPaid = { status: 'known', amount: relief ? relief.linkedPaidCents / 100 : 0, range: null };
@@ -1643,6 +1654,17 @@
       if (known && Number.isSafeInteger(min) && Number.isSafeInteger(max)) result[key] = {
         status: 'known', amount: ranged ? null : min / 100, range: ranged ? { min: min / 100, max: max / 100 } : null };
     }
+    if (members.some(i => i.commitmentCost.taggedSpend?.status === 'withheld')) {
+      result.taggedSpend = { status: 'withheld', amount: null, range: null, reason: 'tag-tally-withheld' };
+    } else if (members.every(i => i.commitmentCost.taggedSpend?.status === 'known'
+        && Number.isSafeInteger(savingsCents(i.commitmentCost.taggedSpend.amount)))) {
+      const total = members.reduce((sum, i) => sum + savingsCents(i.commitmentCost.taggedSpend.amount), 0);
+      const pendingOf = key => members.reduce((sum, i) => sum + (savingsCents(i.commitmentCost.taggedSpend[key] || 0) || 0), 0);
+      const pending = pendingOf('pendingAmount'), pendingRefund = pendingOf('pendingRefundAmount');
+      if (Number.isSafeInteger(total)) result.taggedSpend = { status: 'known', amount: total / 100, range: null,
+        ...(pending > 0 ? { pendingAmount: pending / 100 } : {}),
+        ...(pendingRefund > 0 ? { pendingRefundAmount: pendingRefund / 100 } : {}) };
+    }
     // A5: with any owner-confirmed member, Paid is each member's own Paid
     // fact (owner amount; Unknown for an unstated full amount; otherwise the
     // linked assignment), summed once. One member keeps its confirmation.
@@ -1669,6 +1691,11 @@
     // Linked spending the item ledger observed is shown beside the
     // confirmation as its own fact; it never becomes the owner's amount.
     const entry = index?.get(row.id), observed = entry?.source === SAVINGS_LEDGER_SOURCE ? entry.observedNetCents : null;
+    if (entry?.spentWithheld === true) result.taggedSpend = { status: 'withheld', amount: null, range: null, reason: 'tag-tally-withheld' };
+    else if (entry && Number.isSafeInteger(entry.spentCents) && entry.spentCents >= 0)
+      result.taggedSpend = { status: 'known', amount: entry.spentCents / 100, range: null,
+        ...(entry.spentPendingCents > 0 ? { pendingAmount: entry.spentPendingCents / 100 } : {}),
+        ...(entry.spentPendingRefundCents > 0 ? { pendingRefundAmount: entry.spentPendingRefundCents / 100 } : {}) };
     if (Number.isSafeInteger(observed) && observed > 0) result.observedLinked = { status: 'known', amount: observed / 100, range: null };
     if (point != null) result.originalCost = { status: 'known', amount: point / 100, range: null };
     result.unpaidCost = { status: 'known', amount: 0, range: null };
@@ -2245,9 +2272,45 @@
         const ownerPaid = commitments.length === 1 ? commitmentOwnerPaid(commitments[0], asOf) : null;
         if (ownerPaid) owner = { status: 'partial', cents: ownerPaid.cents, confirmedOn: ownerPaid.confirmedOn };
       }
+      // Plain tagged-spend tally for the item's bar: resolved purchases in
+      // the packet (posted and pending, the observer having already counted
+      // a pending row once with its posted twin) minus posted tagged
+      // refunds, through two weeks after the item's own date. It is shown
+      // no stronger than calculated and never relieves Paid or need: a
+      // pending or history hold still withholds those above.
+      // Only matching TAG evidence counts (a category-only match never earns
+      // it), and only when every tag link's history is complete in this
+      // packet: a window that no longer covers the link start has lost
+      // earlier rows, so the tally is withheld, never a partial amount or a
+      // zero. A pending purchase is counted once (its posted twin is already
+      // collapsed by the observer) and reported separately as pending; a
+      // pending refund is not netted and is reported as pending too.
+      const spentThrough = addDays(date, 14);
+      const tagRefs = new Set(own.filter(link => link.type === 'tag').map(link => link.ref));
+      let spentCents = null, pendingCharges = 0, pendingRefunds = 0;
+      if (tagRefs.size && own.filter(link => tagRefs.has(link.ref)).every(link => link.history === 'complete')
+          && !rows.some(item => item.state === 'unresolved')) {
+        let charges = 0, refunds = 0, usable = true;
+        for (const item of rows) {
+          if (!item.linkRefs.some(ref => tagRefs.has(ref))) continue;
+          if (spentThrough && item.date > spentThrough) continue;
+          const cents = savingsCents(txById.get(item.transactionRef)?.amount, true);
+          if (cents == null) { usable = false; break; }
+          if (cents > 0) { charges += cents; if (item.state === 'pending') pendingCharges += cents; }
+          else if (cents < 0 && item.state === 'posted') refunds -= cents;
+          else if (cents < 0) pendingRefunds -= cents;
+        }
+        if (usable && refunds <= charges && Number.isSafeInteger(charges - refunds)) spentCents = charges - refunds;
+      }
       result.items.push({ occurrenceKey: key, goalKey: own[0].goalKey, needDate: date,
         evidence: rows.map(item => ({ transactionRef: item.transactionRef, direction: item.direction, state: item.state })),
-        ...savingsLedgerEntry({ plannedCents, transactions, owner, overlap }) });
+        ...savingsLedgerEntry({ plannedCents, transactions, owner, overlap }),
+        spent: { ...ledgerFact(spentCents, 'calculated'),
+          ...(spentCents != null ? { pendingCents: pendingCharges, pendingRefundCents: pendingRefunds }
+            // A tag link exists but its tally is unavailable (history,
+            // unresolved evidence): a display-only withheld state, distinct
+            // from an item with no tag at all. It carries no amount.
+            : tagRefs.size ? { withheld: true } : {}) } });
     }
     if (opts.pool) {
       result.pool = savingsLedgerPool({ cashCents: opts.pool.cashCents, liabilities: opts.pool.liabilities,
@@ -15129,6 +15192,7 @@
       ? reconcileCardPurchases(packet.transactions, { plan, asOf, packet, debts: opts.debts }) : null;
     const reconById = new Map();
     const confirmationRecon = [];
+    const otherCardCharges = new Set();
     let confirmationSpent = 0;
     // N3: where coverage is lost, the posted rows the packet DOES hold are still known spending.
     // They are read only to seed an estimate (a lower bound on the true hold); they are never
@@ -15152,9 +15216,9 @@
             ? cardCoverageAnnotation(tx, cardCoverage) : null });
         if (otherSpendingEvidenceEligible(cls)) {
           confirmationRecon.push(row);
-          confirmationSpent = roundCent(
-            confirmationSpent + (row.pendingAmountEstimated ? row.amount : confirmedHouseholdAmount(tx, duplicateIds))
-          );
+          const counted = row.pendingAmountEstimated ? row.amount : confirmedHouseholdAmount(tx, duplicateIds);
+          confirmationSpent = roundCent(confirmationSpent + counted);
+          if (counted > 0 && tx.accountRole === 'revolving-credit') otherCardCharges.add(tx);
           continue;
         }
         if (catId && CALENDAR_PERIOD_BUDGET_IDS.indexOf(catId) >= 0) {
@@ -15434,8 +15498,10 @@
       const reason = coverage.reason || 'Current-period spending is not complete, so what is left is unavailable.';
       for (const row of items) Object.assign(row, { remaining: null, overspend: null, remainingTrust: 'unavailable', remainingReason: reason });
     }
+    // Only rows admitted to an Other hold that enters this period's deduction can offset Credit.
+    if (targetsInvalid || !items.some(row => row.id === OTHER_SPENDING_ID && row.hold > 0)) otherCardCharges.clear();
     return {
-      items,
+      items, otherCardCharges,
       // An invalid declared target has no quantity, so the total hold is
       // unknown (null), never the other categories' sum read as the whole.
       hold: targetsInvalid ? null
@@ -15885,7 +15951,7 @@
     }
     return worst;
   }
-  function periodCardCredit(plan, debts, asOf, window, opts, cardMinimums, splitTrust, beyondMinimum) {
+  function periodCardCredit(plan, debts, asOf, window, opts, cardMinimums, splitTrust, beyondMinimum, otherCardCharges) {
     // The card module is loaded with Forecast on every page (index.html) and in node (require); a harness that evaluates
     // this file alone publishes no card target and keeps the minimums, as before this ruling.
     if (!CardPeriodMovement || !Array.isArray(debts) || !window) return null;
@@ -15894,6 +15960,7 @@
       currentPeriodActuals: opts.currentPeriodActuals,
       cardPeriodBalanceEvidence: opts.cardPeriodBalanceEvidence || null,
       liveOverlay: opts.cardLiveOverlay || null,
+      otherCardCharges,
     });
     const split = minimums ? { cardMinimums: minimums.map(card => ({ debtId: card.debtId, amount: card.amount })),
       trust: splitTrust || 'calculated' } : null;
@@ -19098,7 +19165,7 @@
       // A completed period still publishes its lines (the Credit tile reads them), without the adjustment.
       const cardCredit = !planUnavailable
         ? periodCardCredit(plan, debts, asOf, window, opts, billLoadParts && billLoadParts.cardMinimums, periodBillLoadTrust,
-          cardTargetBeyondMinimum(cardCoverage, window, asOf)) : null;
+          cardTargetBeyondMinimum(cardCoverage, window, asOf), budget.otherCardCharges) : null;
       const cardAdjusts = (role === 'active' || role === 'future') && !!cardCredit && !!billLoadParts;
       const cardAdjustmentCents = cardAdjusts ? cardCredit.adjustmentCents : 0;
       const afterHouseholdBudget = afterBills != null && itemSpend != null && heldSpend != null && beyondMinimum != null
