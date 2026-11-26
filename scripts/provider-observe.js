@@ -1660,26 +1660,30 @@ function identityDescriptorFields(tx) {
   return Array.isArray(fields) && fields.length ? fields : null;
 }
 
-function payeeMatchesRule(tx, rule) {
-  if (!tx || !rule) return false;
+function payeeRuleEvidence(tx, rule) {
+  if (!tx || !rule) return null;
   const originalFields = identityOriginalNameFields(tx);
   const descriptorFields = ruleReadsOriginalDescriptorFirst(rule) ? identityDescriptorFields(tx) : null;
   const payeeFields = descriptorFields || identityPayeeFields(tx);
   const matchMode = rulePayeeMatchMode(rule);
   if (!rulePayeePatterns(rule).some(pattern => anyIdentityFieldMatches(payeeFields, pattern, matchMode))) {
-    return false;
+    return null;
   }
   const originalPatterns = ruleOriginalNamePatterns(rule);
   if (originalPatterns.length
       && !originalPatterns.some(pattern => anyIdentityFieldMatches(originalFields, pattern))) {
-    return false;
+    return null;
   }
   if (rulePayeeExcludePatterns(rule).some(pattern =>
     anyIdentityFieldMatches(identityPayeeFields(tx), pattern)
     || anyIdentityFieldMatches(originalFields, pattern))) {
-    return false;
+    return null;
   }
-  return true;
+  return descriptorFields || originalPatterns.length ? 'original-name' : 'payee';
+}
+
+function payeeMatchesRule(tx, rule) {
+  return payeeRuleEvidence(tx, rule) !== null;
 }
 
 function transactionIsTransfer(tx) {
@@ -2066,48 +2070,53 @@ function ruleMatchesTransactionIdentity(tx, rule) {
   return hasPostedReceipt(tx) && matchesIdentityFields(tx, rule);
 }
 
+function matchesIdentityFields(tx, rule, previouslyProvedPayee = false) {
+  return transactionIdentityEvidence(tx, rule, previouslyProvedPayee) !== null;
+}
+
 // Pending-bill disclosure and replacement inheritance can find an identity
 // here. Only a posted receipt can settle it.
-function matchesIdentityFields(tx, rule, previouslyProvedPayee = false) {
-  if (!tx || !rule) return false;
+function transactionIdentityEvidence(tx, rule, previouslyProvedPayee = false) {
+  if (!tx || !rule) return null;
   // A near-amount-and-payday rule is matched only by nearPaydaySalaryHits.
-  if (rule.settlesWhen === SETTLES_WHEN_NEAR_AMOUNT_AND_PAYDAY) return false;
+  if (rule.settlesWhen === SETTLES_WHEN_NEAR_AMOUNT_AND_PAYDAY) return null;
   // An explicit posting qualifier also constrains candidate-only paths.
   if (Object.hasOwn(rule, 'requiredPostingEvidence')
       && (rule.requiredPostingEvidence !== 'posted' || !hasPostedReceipt(tx))) {
-    return false;
+    return null;
   }
   if (rulePayeeExcludePatterns(rule).some(pattern =>
     anyIdentityFieldMatches(identityPayeeFields(tx), pattern)
     || anyIdentityFieldMatches(identityOriginalNameFields(tx), pattern))) {
-    return false;
+    return null;
   }
   const recurringIds = ruleLunchMoneyRecurringIds(rule);
   const itemNames = ruleLunchMoneyItemNames(rule);
   const linkedTo = tx.recurringId == null ? '' : String(tx.recurringId).trim();
-  if (recurringIds.length && linkedTo && recurringIds.includes(linkedTo)) return true;
+  if (recurringIds.length && linkedTo && recurringIds.includes(linkedTo)) return 'recurring';
   const items = noteItemNames(tx.notes);
   // Matched even when the row's recurring link names another bill: the two
   // deliberate links then disagree and neither wins (To confirm).
-  if (itemNames.length && items.length === 1 && itemNames.includes(items[0])) return true;
+  if (itemNames.length && items.length === 1 && itemNames.includes(items[0])) return 'item-note';
   // Either deliberate link elsewhere outranks this rule's payee rule.
-  if (recurringLinkClaimedElsewhere(rule, linkedTo)) return false;
-  if (itemNoteClaimedElsewhere(rule, items)) return false;
+  if (recurringLinkClaimedElsewhere(rule, linkedTo)) return null;
+  if (itemNoteClaimedElsewhere(rule, items)) return null;
   // Single-bill category, below the recurring link and the item note.
   const categoryId = tx.categoryId == null ? '' : String(tx.categoryId).trim();
   if (categoryId && ruleCategoryClaims(rule).includes(categoryId)) {
     // Renamed (or unnamed) since Dale confirmed it: To confirm, no link and no payee fallback.
-    return categoryNameConfirmed(rule, categoryId, tx.categoryLabel);
+    return categoryNameConfirmed(rule, categoryId, tx.categoryLabel) ? 'category' : null;
   }
-  if (categoryClaimedElsewhere(rule, categoryId)) return false;
+  if (categoryClaimedElsewhere(rule, categoryId)) return null;
   if ((recurringIds.length || itemNames.length || ruleLunchMoneyCategoryIds(rule).length)
-      && !rulePayeePatterns(rule).length) return false;
+      && !rulePayeePatterns(rule).length) return null;
   if (rule.transactionKind === 'transfer') {
-    if (!transactionIsTransfer(tx)) return false;
-    if (!ruleCounterpartExternalId(rule)) return false;
-    if (!rulePayeePatterns(rule).length) return true;
+    if (!transactionIsTransfer(tx)) return null;
+    if (!ruleCounterpartExternalId(rule)) return null;
+    // The caller still has to prove the uniquely named counterpart.
+    return !rulePayeePatterns(rule).length || payeeMatchesRule(tx, rule) ? 'transfer' : null;
   }
-  return previouslyProvedPayee || payeeMatchesRule(tx, rule);
+  return previouslyProvedPayee ? 'payee' : payeeRuleEvidence(tx, rule);
 }
 
 function payeeOnlyBillRule(rule, billIds) {
@@ -2120,20 +2129,28 @@ function payeeOnlyBillRule(rule, billIds) {
 
 // Private to observation memory. The posted native id is part of the key,
 // along with the economic evidence. Display payee and ordinary memos can change.
-function postedBillReceiptKey(tx, window) {
-  if (window?.complete !== true || !tx.providerAccountId || !parseIsoDate(tx.date)
+function postedBillReceiptKey(tx, window, mapping, plan, priorReceipts) {
+  if (!hasPostedReceipt(tx) || window?.complete !== true || !tx.providerAccountId || !parseIsoDate(tx.date)
     || !parseIsoDate(window.startDate) || !parseIsoDate(window.endDate)
     || tx.date < window.startDate || tx.date > window.endDate || !(tx.amount > 0)
     || tx.currency !== 'cad' || tx.coverageCurrencyConflict || tx.currencySettlementUnconfirmed
     || tx.isGroup || tx.parentId || tx.splitIdentity || tx.pendingPostedAmbiguous
     || tx.recurringId || LM_FOUND_ITEM.has(tx) || noteItemNames(tx.notes).length
-    || Forecast.cardPaymentNoteDestination(tx) || explicitPersonalOwnerFromTagsNotes(tx)
-    || tx.isIncome || transactionIsTransfer(tx)
-    || tx.minimumCategoryDebt) return null;
-  return crypto.hash('sha256', JSON.stringify([tx.providerTransactionId, tx.providerAccountId,
+    || explicitPersonalOwnerFromTagsNotes(tx) || tx.isIncome || transactionIsTransfer(tx)
+    || tx.minimumCategoryDebt || String(tx.kind).toLowerCase() === 'card-payment') return null;
+  const key = crypto.hash('sha256', JSON.stringify([tx.providerTransactionId, tx.providerAccountId,
     tx.amount, tx.date, tx.currency, tx.originalName, tx.externalId, tx.plaidTransactionId,
     tx.pendingTransactionId, tx.plaidPendingTransactionId,
     tx.categoryId, tx.categoryLabel, tx.kind, tx.excludeFromBudget === true]));
+  if (priorReceipts && !priorReceipts.has(key)) return null;
+  const flags = Forecast.classifyCurrentPeriodTransaction.derivedFlags({
+    ...currentPeriodTransactionFlagInput(tx, mapping, tx.amount, tx.tags),
+    categoryId: tx.categoryId, recurringId: tx.recurringId,
+  }, plan);
+  if (isMbnaCardPayment(tx) || flags.cardPaymentNoteDestination
+    || flags.cardPaymentIdentity || flags.tdCardPaymentIdentity || flags.internalTransferIdentity
+    || flags.cashWithdrawalIdentity || flags.externalCashDeposit) return null;
+  return key;
 }
 
 // A mapped CAD account does not qualify an individual transaction's units.
@@ -3168,7 +3185,7 @@ function billDebitAmountConsistent(rule, amount, scheduledAmount, tx, date) {
   return Number.isFinite(amount) && Math.abs(amount) <= need * BILL_IDENTITY_AMOUNT_SHARE + IDENTITY_AMOUNT_EPSILON;
 }
 
-function collectIdentityHits(tx, input, rules, sourceRules) {
+function collectIdentityHits(tx, input, rules, payeeRulesByHit) {
   if (!tx || tx.contradictoryEvidence === true) return [];
   const mapDoc = input && input.accountMap;
   const mapping = mappingFor(mapDoc, tx.providerAccountId);
@@ -3178,7 +3195,8 @@ function collectIdentityHits(tx, input, rules, sourceRules) {
   for (const rule of rules || []) {
     if (cardMinimumNeedsConfirmation(input.plan, rule.eventId, mapDoc) && !lmMatchedCardMinimum(tx, rule)) continue;
     if (!ruleAccountAccepts(rule, mapping.canonical.id, tx, input.plan)) continue;
-    if (!matchesIdentityFields(tx, rule)) continue;
+    const evidence = transactionIdentityEvidence(tx, rule);
+    if (!evidence) continue;
     if (!ruleCurrencyQualified(tx, rule)) continue;
     if (rule.direction === 'credit' && !(amount < 0)) continue;
     if (rule.direction === 'debit' && !(amount > 0)) continue;
@@ -3224,7 +3242,7 @@ function collectIdentityHits(tx, input, rules, sourceRules) {
         sameAccountSplitLegs: rule.sameAccountSplitLegs === true,
         ...(rule.postingDateRule === DUE_OR_UP_TO_TWO_DAYS_AFTER ? { lateWindow: true } : {}),
       };
-      sourceRules?.set(hit, rule);
+      if (evidence === 'payee') payeeRulesByHit?.set(hit, rule);
       hits.push(hit);
     }
   }
@@ -3301,8 +3319,7 @@ function stampPendingReplacementHits(preTransactions, collapsedTransactions, inp
     byPostedId.set(id, list);
   }
   const rules = stampRuleSetClaims(input.identityRules).filter(ruleHasIdentity);
-  const billIds = new Set((input.plan?.bills || []).map(row => row?.id));
-  const sourceRules = new WeakMap();
+  const payeeRulesByHit = new WeakMap();
   for (const link of links) {
     if (!link || kept.has(link.pending)) continue;
     const postedId = link.posted && link.posted.providerTransactionId;
@@ -3324,16 +3341,15 @@ function stampPendingReplacementHits(preTransactions, collapsedTransactions, inp
     )) {
       survivors[0].ownerConfirmedFuel = true;
     }
-    const hits = collectIdentityHits(link.pending, input, rules, sourceRules).filter(hit =>
+    const hits = collectIdentityHits(link.pending, input, rules, payeeRulesByHit).filter(hit =>
       hit && hit.settlesWhen !== SETTLES_WHEN_TWO_LEG_SUM
       && hit.sameAccountSplitLegs !== true
       && isBillOrObligationEvent(input.plan, hit.id));
     if (hits.length !== 1) continue;
-    const sourceRule = sourceRules.get(hits[0]);
-    // A provider replacement proves which row posted. For a payee-only bill,
-    // the posted receipt must supply its own identity for that bill.
-    if (payeeOnlyBillRule(sourceRule, billIds)
-      && !ruleMatchesTransactionIdentity(survivors[0], sourceRule)) continue;
+    const payeeRule = payeeRulesByHit.get(hits[0]);
+    // A provider replacement identifies the posted row. A pending match made
+    // on display payee alone still needs bill identity on that posted row.
+    if (payeeRule && !ruleMatchesTransactionIdentity(survivors[0], payeeRule)) continue;
     const postedDate = parseIsoDate(link.posted.date);
     if (!postedDate) continue;
     // The opt-in late window never inherits through pending replacement
@@ -3824,8 +3840,9 @@ function representedEventHitGroups(input) {
     const mapping = mappingFor(mapDoc, tx.providerAccountId);
     if (!mapping || !mapping.canonical || !mapping.canonical.id) continue;
     const amount = lunchMoneyDebitAmount(tx.amount);
-    const receipt = payeeOnlyRules.size && postedIdCount.get(tx.providerTransactionId) === 1
-      ? postedBillReceiptKey(tx, input.transactionWindow) : null;
+    const uniquePosted = postedIdCount.get(String(tx.providerTransactionId)) === 1;
+    const receipt = payeeOnlyRules.size && uniquePosted && priorReceipts.size
+      ? postedBillReceiptKey(tx, input.transactionWindow, mapping, input.plan, priorReceipts) : null;
     const prior = priorReceipts.get(receipt);
     const carry = prior && !tx.pendingReplacementHit
       && !rules.some(rule => ruleMatchesTransactionIdentity(tx, rule)) ? prior : null;
@@ -3834,7 +3851,7 @@ function representedEventHitGroups(input) {
       if (cardMinimumNeedsConfirmation(input.plan, rule.eventId, mapDoc) && !lmMatchedCardMinimum(tx, rule)) continue;
       if (!ruleAccountAccepts(rule, mapping.canonical.id, tx, input.plan)) continue;
       const reuse = carry?.id === rule.eventId && payeeOnlyRules.has(rule);
-      if (!matchesIdentityFields(tx, rule, reuse)) continue;
+      if (!(reuse ? matchesIdentityFields(tx, rule, true) : ruleMatchesTransactionIdentity(tx, rule))) continue;
       if (!ruleCurrencyQualified(tx, rule)) continue;
       if (rule.direction === 'credit' && !(amount < 0)) continue;
       if (rule.direction === 'debit' && !(amount > 0)) continue;
@@ -3908,7 +3925,10 @@ function representedEventHitGroups(input) {
               ...((postedIdCount.get(String(tx.providerTransactionId)) || 0) > 1 ? { singleLegDuplicateId: true } : {}) }
             : {}),
         };
-        if (receipt && payeeOnlyRules.has(rule)) receiptByHit.set(hit, { receipt, id: hit.id, date: hit.date });
+        if (uniquePosted && payeeOnlyRules.has(rule)) {
+          const key = receipt || postedBillReceiptKey(tx, input.transactionWindow, mapping, input.plan);
+          if (key) receiptByHit.set(hit, { receipt: key, id: hit.id, date: hit.date });
+        }
         list.push(hit);
         eventHits.set(key, list);
       }
@@ -5612,6 +5632,34 @@ function kindHintFromTransaction(tx) {
   if (raw === 'transfer' || raw === 'internal-transfer') return 'transfer';
   if (raw === 'gas' || raw === 'fuel' || raw === 'petrol') return 'gas';
   return null;
+}
+
+// Use the same merchant and account fields for receipt qualification and the
+// movement flags on the served transaction.
+function currentPeriodTransactionFlagInput(tx, mapping, amount, tags) {
+  const atlasAccountId = mapping?.canonical?.id || null;
+  return {
+    payee: tx.payee,
+    original_name: tx.originalName,
+    originalName: tx.originalName,
+    displayedPayee: tx.payee,
+    originalMerchant: tx.originalName || tx.payee,
+    notes: tx.notes,
+    note: tx.notes || tx.note,
+    tags,
+    tag: tags,
+    kindHint: kindHintFromTransaction(tx) || (isMbnaCardPayment(tx) ? 'card-payment' : null),
+    kind: tx.kind,
+    mcc: tx.mcc,
+    categoryLabel: tx.categoryLabel,
+    ...(atlasAccountRole(mapping) === 'heloc' ? { accountRole: 'heloc' } : {}),
+    atlasAccountId,
+    account: atlasAccountId,
+    accountId: atlasAccountId,
+    date: tx.date,
+    amount,
+    ownerConfirmedFuel: tx.ownerConfirmedFuel === true,
+  };
 }
 
 function explicitPersonalOwnerFromTagsNotes(tx) {
@@ -7816,34 +7864,8 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       plan: opts.plan,
       billPaymentPayees: opts.billPaymentPayees,
     });
-    const atlasAccountId = mapping && mapping.canonical && mapping.canonical.id
-      ? mapping.canonical.id : null;
-    const resolvedTags = resolveRawTags(tx, tagsById);
-    let kindHint = kindHintFromTransaction(tx);
-    if (!kindHint && isMbnaCardPayment(tx)) kindHint = 'card-payment';
-    const derivedInput = {
-      payee: tx.payee,
-      original_name: tx.originalName,
-      originalName: tx.originalName,
-      displayedPayee: tx.payee,
-      originalMerchant: tx.originalName || tx.payee,
-      notes: tx.notes,
-      note: tx.notes || tx.note,
-      tags: resolvedTags,
-      tag: resolvedTags,
-      kindHint,
-      kind: tx.kind,
-      mcc: tx.mcc,
-      categoryLabel: tx.categoryLabel,
-      // Preserve native HELOC evidence before non-spend merchant text is stripped.
-      ...(atlasAccountRole(mapping) === 'heloc' ? { accountRole: 'heloc' } : {}),
-      atlasAccountId,
-      account: atlasAccountId,
-      accountId: atlasAccountId,
-      date: tx.date,
-      amount,
-      ownerConfirmedFuel: tx.ownerConfirmedFuel === true,
-    };
+    const derivedInput = currentPeriodTransactionFlagInput(tx, mapping, amount, resolveRawTags(tx, tagsById));
+    const { atlasAccountId, kindHint } = derivedInput;
     const explicitOwner = explicitPersonalOwnerFromTagsNotes(derivedInput);
     // Raw Lunch Money ids reach Forecast's flag stamp only; the emitted row
     // carries the resulting booleans, never the ids.

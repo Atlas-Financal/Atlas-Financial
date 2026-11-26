@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const http = require('node:http');
+const path = require('node:path');
 const threads = require('node:worker_threads');
 const Live = require('../scripts/live-plan');
 const Observe = require('../scripts/provider-observe');
@@ -17,7 +18,18 @@ const identity = { rules: [{ eventId: 'lamp', payeePattern: original,
 const settled = [16, 16, 200, 689];
 const unlinked = [0, 16, 216, 673];
 
-function input(attrs = {}, pendingCopy) {
+// The live worker and capture path both consult the monthly publication.
+// Install the fixture before either can read it, including during worker replay.
+const read = fs.readFileSync;
+fs.readFileSync = (file, ...args) => {
+  const relative = typeof file === 'string' ? path.relative(path.join(__dirname, '..'), file).split(path.sep).join('/') : '';
+  assert.doesNotMatch(relative, /^(?:data\.json$|(?:snapshots|raw|derived)(?:\/|$))/);
+  if (relative === 'public/periods.json') return JSON.stringify({ monthly: [] });
+  if (!threads.isMainThread && file === Observe.DEFAULT_IDENTITY) return JSON.stringify(identity);
+  return read(file, ...args);
+};
+
+function input(attrs = {}, pendingCopy, twoCards = false) {
   const bill = (changes) => ['bills', 16, date, 'purchase', {
     id: 105, payee: original, original_name: null, category_name: 'Utilities', ...changes,
   }];
@@ -26,7 +38,7 @@ function input(attrs = {}, pendingCopy) {
     ['bills', 25, date, 'cash', { id: 104, notes: 'card payment: Travel Visa', original_name: 'TFR-TO C/C' }],
     bill(attrs),
     ...(pendingCopy ? [bill({ is_pending: true, ...pendingCopy })] : []),
-  ], { edit(x) {
+  ], { twoCards, edit(x) {
     const { plan } = x.data;
     x.identity = identity;
     x.payload.tags = [];
@@ -42,9 +54,58 @@ function input(attrs = {}, pendingCopy) {
       plannedPayday: 50, confidence: 'confirmed' });
     plan.bills = [{ id: 'lamp', label: original, frequency: 'monthly', day: 20,
       amount: 16, confidence: 'confirmed', payee: original }];
+    if (twoCards) plan.obligations.push({ id: 'invented-second-minimum', label: 'Invented second minimum',
+      debtId: 'mbna', effect: 'payment', frequency: 'once', date, amount: 16,
+      confidence: 'confirmed', payingAccount: 'chequing-a' });
     plan.obligations.push({ id: 'mortgage', label: 'Invented mortgage', debtId: 'mortgage', effect: 'payment',
       frequency: 'once', date: '2026-09-24', amount: 95, confidence: 'confirmed', payingAccount: 'chequing-a' });
   } });
+}
+
+async function stackSummary(data) {
+  const page = await loadStackPage({ data });
+  assert.equal(page.status(), 'rendered');
+  return page.context().recommendation.payPeriodViews.find(v => v.start === page.selectedKey()).stackSummary;
+}
+
+async function paymentIdentityCases() {
+  const first = Live.fromObservation(input({}, undefined, true));
+  const before = await stackSummary(first.data);
+  assert.equal(before.bills.paid, 16);
+  assert.equal(before.credit.totals.minimumsPaid.amount, 25);
+  for (const [payee, evidence, value] of [
+    ['MBNA PAYMENT', 'cardPaymentDestination', 'mbna'],
+    ['CAN TIRE MC', 'cardPaymentIdentity', true],
+    ['AB123 TFR-TO C/C', 'internalTransferIdentity', true],
+    ['ATM W/D', 'cashWithdrawalIdentity', true],
+    ['ATM DEP', 'externalCashDeposit', true],
+  ]) {
+    const refreshed = Live.fromObservation({ ...input({ payee }, undefined, true),
+      priorPostedBillReceipts: first.report.postedBillReceipts });
+    const row = refreshed.report.currentPeriodActuals.transactions.find(tx => tx.amount === 16);
+    assert.equal(row?.[evidence], value, `${payee} must exercise its existing published identity`);
+    const after = await stackSummary(refreshed.data);
+    if (value === 'mbna') assert.equal(after.credit.totals.minimumsPaid.amount, 41);
+    assert.equal(after.bills.paid, 0, `${payee} must no longer count as a paid bill`);
+  }
+  console.log('  PASS  a receipt cannot keep its bill match after acquiring a conflicting payment or cash-movement identity');
+}
+
+async function mixedPendingCases() {
+  const link = { id: 106, ...renamed, plaid_metadata: { transaction_id: 'invented-posted',
+    pending_transaction_id: 'invented-pending' } };
+  const pending = { plaid_metadata: { transaction_id: 'invented-pending' } };
+  const rule = { ...identity.rules[0], lunchMoneyRecurringIds: [84] };
+  for (const [changes, posted, expected] of [
+    [{}, link, unlinked],
+    [{ recurring_id: 84, payee: 'Invented unrelated display' }, link, settled],
+    [{}, { ...link, payee: original }, settled],
+  ]) {
+    const scenario = input(posted, { ...pending, ...changes });
+    scenario.identity = { ...identity, rules: [rule] };
+    await rendered(Live.fromObservation(scenario).data, expected);
+  }
+  console.log('  PASS  one payee-plus-recurring rule distinguishes payee-only pending evidence from a real recurring link');
 }
 
 async function rendered(data, expected) {
@@ -179,10 +240,7 @@ async function refreshCases() {
   }
 }
 
-if (!threads.isMainThread) {
-  // Worker preload: inject invented rules into the production observation path.
-  const read = fs.readFileSync;
-  fs.readFileSync = (file, ...args) => file === Observe.DEFAULT_IDENTITY ? JSON.stringify(identity) : read(file, ...args);
-} else {
-  observationCases().then(archiveCase).then(refreshCases).catch(error => { console.error(error); process.exitCode = 1; });
+if (threads.isMainThread) {
+  observationCases().then(paymentIdentityCases).then(mixedPendingCases).then(archiveCase).then(refreshCases)
+    .catch(error => { console.error(error); process.exitCode = 1; });
 }
