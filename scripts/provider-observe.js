@@ -1860,6 +1860,20 @@ function stampRecurringFoundTransactions(transactions, rawRecurring) {
 }
 // A pending row is tied only by the note line (lead 13 on Grok Bot's 10:13 MST finding): no recurring-match path is
 // claimed for a pending row, from the row or from the item.
+// Bills paid from Weekly spend (owner, Dale, #821 7168507103; Grok Bot, rule 17, 7169173042): a plan bill's debit rule
+// whose payment is tied by Lunch Money's own recurring match (the row's recurring_id, or the item's foundTransactions)
+// or the `bill paid:` note accepts a debit from either household chequing account, Bills or Weekly spend, whichever
+// one its rule names. Nothing else moves: a non-household or card account is still refused, a card minimum or other
+// obligation rule keeps its account, a transfer rule keeps its account, and a rule linked only by payee or category
+// keeps its account pin (no tie, no widening).
+const HOUSEHOLD_CHEQUING_ACCOUNT_IDS = new Set(['chequing-a', 'chequing-b']);
+function ruleAccountAccepts(rule, accountId, tx, plan, tied) {
+  if (!rule || !rule.atlasAccountId || accountId === rule.atlasAccountId) return true;
+  if (rule.direction !== 'debit' || rule.transactionKind === 'transfer') return false;
+  if (!HOUSEHOLD_CHEQUING_ACCOUNT_IDS.has(rule.atlasAccountId) || !HOUSEHOLD_CHEQUING_ACCOUNT_IDS.has(accountId)) return false;
+  if (!(plan && Array.isArray(plan.bills) && plan.bills.some(bill => bill && bill.id === rule.eventId))) return false;
+  return tied === true || billPaidTie(tx, [rule]);
+}
 function billPaidTie(tx, rules) {
   if (!tx || !Array.isArray(rules) || !rules.length) return false;
   if (tx.pending !== true) {
@@ -3137,7 +3151,7 @@ function collectIdentityHits(tx, input, rules) {
   const hits = [];
   for (const rule of rules || []) {
     if (cardMinimumNeedsConfirmation(input.plan, rule.eventId, mapDoc) && !lmMatchedCardMinimum(tx, rule)) continue;
-    if (rule.atlasAccountId && mapping.canonical.id !== rule.atlasAccountId) continue;
+    if (!ruleAccountAccepts(rule, mapping.canonical.id, tx, input.plan)) continue;
     if (!matchesIdentityFields(tx, rule)) continue;
     if (!ruleCurrencyQualified(tx, rule)) continue;
     if (rule.direction === 'credit' && !(amount < 0)) continue;
@@ -3695,7 +3709,8 @@ function stampLunchMoneyMatched(transactions, identityRules, plan, accountMap, r
     const accepted = tx => {
       if (!hasPostedReceipt(tx)) return false;
       const mapping = accountMap && mappingFor(accountMap, tx.providerAccountId);
-      if (!mapping || !mapping.canonical || (rule.atlasAccountId && mapping.canonical.id !== rule.atlasAccountId)) return false;
+      // Every row here is listed under the rule's own recurring item (foundTx), so it carries the tie.
+      if (!mapping || !mapping.canonical || !ruleAccountAccepts(rule, mapping.canonical.id, tx, plan, true)) return false;
       if (rule.transactionKind === 'transfer' && !transactionIsTransfer(tx)) return false;
       const amount = lunchMoneyDebitAmount(tx.amount);
       return ruleCurrencyQualified(tx, rule) && (rule.direction === 'credit' ? amount < 0 : amount > 0);
@@ -3773,7 +3788,7 @@ function representedEventHitGroups(input) {
     for (const rule of rules) {
       // E2: an opted-in card rule is let through only for its narrow LM case.
       if (cardMinimumNeedsConfirmation(input.plan, rule.eventId, mapDoc) && !lmMatchedCardMinimum(tx, rule)) continue;
-      if (rule.atlasAccountId && mapping.canonical.id !== rule.atlasAccountId) continue;
+      if (!ruleAccountAccepts(rule, mapping.canonical.id, tx, input.plan)) continue;
       if (!ruleMatchesTransactionIdentity(tx, rule)) continue;
       if (!ruleCurrencyQualified(tx, rule)) continue;
       if (rule.direction === 'credit' && !(amount < 0)) continue;
@@ -8609,6 +8624,7 @@ const api = {
   normalizeLunchMoneyAccount,
   billVerifiedMarker,
   billPaidNoteNames,
+  __ruleAccountAccepts: ruleAccountAccepts,
   postedBalanceEvidenceInstant,
   cashBalanceEvidenceInstant,
   genericAccountEvidenceInstant,

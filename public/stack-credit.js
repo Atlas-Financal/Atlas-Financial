@@ -181,8 +181,8 @@
   }
 
   // The sheet's view of one line (stack-sheet.js asks for it with its own helpers): the same "X / target" figure as the
-  // row, in the same colour, then the target's breakdown in plain words (OD-028): "Paid back" (the row's X), "New charges" (the
-  // card's Spent), "Minimum" (with its ✓ when covered, "Not due this period" when no minimum is due), "Over the limit by"
+  // row, in the same colour, then the target's breakdown in plain words (OD-028): "New charges" (the card's Spent),
+  // "Minimum" (with its ✓ when covered, "Not due this period" when no minimum is due), "Paid back" (the row's X), "Over the limit by"
   // (only when the card is over), and "Target", each Forecast's published figure; then the dated transactions.
   // "Over the limit by": Forecast's published part of the target, printed only when the card is over (a positive amount).
   const overLimitRow = (line, view, rowHtml, soft, formatMoney) => {
@@ -218,11 +218,11 @@
       + (r.x != null || r.target != null || r.min != null || !balanceShown(line)
         ? `<div class="stack-sheet-big stack-credit-big stack-n">${figureHtml(r)}</div>`
         : `<div class="stack-sheet-big stack-n${est(view, trustOf(line.balance))}" data-stack-credit-balance ${balanceAttrs(line, est(view, trustOf(line.balance)))}>${escape(formatMoney(amountOf(line.balance)))}</div>`)
-      + '<dl>' + (heloc ? '' : (r.x != null ? rowHtml('Paid back', soft(formatMoney(r.x), est(view, trustOf(line.paidBack)))) : '')
-        + (r.spent != null ? rowHtml('New charges', soft(formatMoney(r.spent), est(view, trustOf(line.spent)))) : ''))
+      + '<dl>' + (!heloc && r.spent != null ? rowHtml('New charges', soft(formatMoney(r.spent), est(view, trustOf(line.spent)))) : '')
       + (r.min != null
         ? rowHtml('Minimum', soft(formatMoney(r.min), r.minSoft) + (r.ok ? ' ' + soft('✓', r.tickSoft) : ''))
         : rowHtml('Minimum', r.notDue ? 'Not due this period' : dash))
+      + (!heloc && r.x != null ? rowHtml('Paid back', soft(formatMoney(r.x), est(view, trustOf(line.paidBack)))) : '')
       + (heloc ? '' : overLimitRow(line, view, rowHtml, soft, formatMoney) + targetRow(line, view, rowHtml, soft, formatMoney))
       + '</dl>'
       + (heloc ? '' : '<h4 class="stack-sheet-txh" aria-label="Card transactions">Transactions</h4>' + (tx.length
