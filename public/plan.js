@@ -4170,24 +4170,28 @@ function budgetGoalPaidProgressHtml(row) {
   const owner = cost.ownerConfirmation || null;
   const ownerFull = owner?.status === 'full';
   const paid = budgetGoalCostFact(owner ? cost.paid : cost?.confirmedLinkedPaid);
+  const spent = budgetGoalCostFact(cost?.taggedSpend);
   const unpaid = budgetGoalCostFact(cost?.unpaidCost);
   const original = budgetGoalCostFact(cost?.originalCost);
   const stillToFund = budgetGoalStillToFundHtml(row);
-  const geometry = paid?.amount != null && original?.amount > 0;
-  const fullyPaid = ownerFull && unpaid?.amount === 0 || geometry && unpaid?.amount === 0 && paid.amount > 0 && !owner;
+  const barFact = paid?.amount != null ? paid : spent;
+  const geometry = barFact?.amount != null && original?.amount > 0;
+  const fullyPaid = ownerFull && unpaid?.amount === 0 || paid?.amount != null && geometry && unpaid?.amount === 0 && paid.amount > 0 && !owner;
   const state = fullyPaid ? 'paid' : geometry ? 'funding' : 'unknown';
   const paidText = fullyPaid && ownerFull && !paid ? '' : budgetGoalCostText(paid);
   const saved = budgetV3Known(row.saved, row.savedTrust) ? row.saved : null;
   const fill = state === 'paid'
     ? '<span class="budget-goal-bar-paid" data-budget-goal-bar-paid style="--goal-paid:1"></span>'
     : state === 'funding'
-      ? `${paid.amount > 0 ? `<span class="budget-goal-bar-paid" data-budget-goal-bar-paid style="--goal-paid:${budgetGoalRatio(paid.amount, original.amount)}"></span>` : ''}${saved > 0 ? `<span class="budget-goal-bar-saved" data-budget-goal-bar-saved style="--goal-saved:${budgetGoalRatio(saved, original.amount)}"></span>` : ''}`
+      ? `${barFact.amount > 0 ? `<span class="budget-goal-bar-paid" data-budget-goal-bar-paid style="--goal-paid:${budgetGoalRatio(barFact.amount, original.amount)}"></span>` : ''}${saved > 0 ? `<span class="budget-goal-bar-saved" data-budget-goal-bar-saved style="--goal-saved:${budgetGoalRatio(saved, original.amount)}"></span>` : ''}`
       : '';
   const stamp = (name, fact) => fact?.amount != null ? ` data-budget-goal-${name}-amount="${fact.amount}"` : '';
   const gapStamp = stillToFund.known ? ` data-budget-goal-still-to-fund-amount="${stillToFund.amount}"` : '';
-  return `<div class="budget-goal-paid is-${state}" data-budget-goal-paid-progress="${state}"${stamp('paid', paid)}${stamp('original', original)}${gapStamp}>
+  const spentHtml = spent?.amount != null && spent.amount !== paid?.amount
+    ? `<span><small>Spent</small> <span class="budget-goal-paid-amount" data-budget-goal-spent>${budgetGoalCostText(spent)}${original?.amount > 0 ? ' / ' + money2(original.amount) : ''}</span></span>` : '';
+  return `<div class="budget-goal-paid is-${state}" data-budget-goal-paid-progress="${state}"${stamp('paid', paid)}${stamp('spent', spent)}${stamp('original', original)}${gapStamp}>
         <span class="budget-goal-bar" data-budget-goal-bar aria-hidden="true">${fill}</span>
-        <span class="budget-goal-paid-figures" data-budget-goal-paid-figures><span><small>Paid</small> <span class="budget-goal-paid-amount" data-budget-goal-paid>${paidText}</span>${budgetGoalOwnerConfirmationHtml(owner, cost.observedLinked, paid, original, cost.overspend)}</span><span><small>Still to fund</small> <span class="budget-goal-paid-amount" data-budget-goal-still-to-fund>${stillToFund.html}</span></span></span>
+        <span class="budget-goal-paid-figures" data-budget-goal-paid-figures><span><small>Paid</small> <span class="budget-goal-paid-amount" data-budget-goal-paid>${paidText}</span>${budgetGoalOwnerConfirmationHtml(owner, cost.observedLinked, paid, original, cost.overspend)}</span>${spentHtml}<span><small>Still to fund</small> <span class="budget-goal-paid-amount" data-budget-goal-still-to-fund>${stillToFund.html}</span></span></span>
       </div>`;
 }
 

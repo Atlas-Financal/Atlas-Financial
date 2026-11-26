@@ -1440,6 +1440,7 @@
       index.set(id, { source: SAVINGS_LEDGER_SOURCE, occurrenceKey: item.occurrenceKey, uncertain,
         paidCents: uncertain ? null : item.paid.cents, unpaidCents: uncertain ? null : item.unpaid.cents,
         linkedPaidCents: uncertain ? 0 : ownerOnly ? 0 : item.paid.cents, completedOn: null,
+        spentCents: item.spent && Number.isSafeInteger(item.spent.cents) && item.spent.cents >= 0 ? item.spent.cents : null,
         observedNetCents: item.net.cents, overspendCents: uncertain ? null : item.overspend.cents,
         ...(ownerOnly ? { ownerPaidCents: item.owner.cents, confirmedOn: item.owner.confirmedOn } : {}) });
     }
@@ -1587,6 +1588,9 @@
       if (!configured) for (const key of ['confirmedLinkedPaid', 'unpaidCost']) result[key].status = 'unconfigured';
       return result;
     }
+    const spentEntry = index.get(row.id);
+    if (spentEntry && Number.isSafeInteger(spentEntry.spentCents) && spentEntry.spentCents >= 0)
+      result.taggedSpend = { status: 'known', amount: spentEntry.spentCents / 100, range: null };
     const relief = settlementRowRelief(index, row, point);
     if (relief?.uncertain) return result;
     result.confirmedLinkedPaid = { status: 'known', amount: relief ? relief.linkedPaidCents / 100 : 0, range: null };
@@ -1625,6 +1629,11 @@
       if (known && Number.isSafeInteger(min) && Number.isSafeInteger(max)) result[key] = {
         status: 'known', amount: ranged ? null : min / 100, range: ranged ? { min: min / 100, max: max / 100 } : null };
     }
+    if (members.every(i => i.commitmentCost.taggedSpend?.status === 'known'
+        && Number.isSafeInteger(savingsCents(i.commitmentCost.taggedSpend.amount)))) {
+      const total = members.reduce((sum, i) => sum + savingsCents(i.commitmentCost.taggedSpend.amount), 0);
+      if (Number.isSafeInteger(total)) result.taggedSpend = { status: 'known', amount: total / 100, range: null };
+    }
     // A5: with any owner-confirmed member, Paid is each member's own Paid
     // fact (owner amount; Unknown for an unstated full amount; otherwise the
     // linked assignment), summed once. One member keeps its confirmation.
@@ -1651,6 +1660,8 @@
     // Linked spending the item ledger observed is shown beside the
     // confirmation as its own fact; it never becomes the owner's amount.
     const entry = index?.get(row.id), observed = entry?.source === SAVINGS_LEDGER_SOURCE ? entry.observedNetCents : null;
+    if (entry && Number.isSafeInteger(entry.spentCents) && entry.spentCents >= 0)
+      result.taggedSpend = { status: 'known', amount: entry.spentCents / 100, range: null };
     if (Number.isSafeInteger(observed) && observed > 0) result.observedLinked = { status: 'known', amount: observed / 100, range: null };
     if (point != null) result.originalCost = { status: 'known', amount: point / 100, range: null };
     result.unpaidCost = { status: 'known', amount: 0, range: null };
@@ -2227,9 +2238,29 @@
         const ownerPaid = commitments.length === 1 ? commitmentOwnerPaid(commitments[0], asOf) : null;
         if (ownerPaid) owner = { status: 'partial', cents: ownerPaid.cents, confirmedOn: ownerPaid.confirmedOn };
       }
+      // Plain tagged-spend tally for the item's bar: resolved purchases in
+      // the packet (posted and pending, the observer having already counted
+      // a pending row once with its posted twin) minus posted tagged
+      // refunds, through two weeks after the item's own date. It is shown
+      // no stronger than calculated and never relieves Paid or need: a
+      // pending or history hold still withholds those above.
+      const spentThrough = addDays(date, 14);
+      let spentCents = null;
+      if (!rows.some(item => item.state === 'unresolved')) {
+        let charges = 0, refunds = 0, usable = true;
+        for (const item of rows) {
+          if (spentThrough && item.date > spentThrough) continue;
+          const cents = savingsCents(txById.get(item.transactionRef)?.amount, true);
+          if (cents == null) { usable = false; break; }
+          if (cents > 0) charges += cents;
+          else if (cents < 0 && item.state === 'posted') refunds -= cents;
+        }
+        if (usable && refunds <= charges && Number.isSafeInteger(charges - refunds)) spentCents = charges - refunds;
+      }
       result.items.push({ occurrenceKey: key, goalKey: own[0].goalKey, needDate: date,
         evidence: rows.map(item => ({ transactionRef: item.transactionRef, direction: item.direction, state: item.state })),
-        ...savingsLedgerEntry({ plannedCents, transactions, owner, overlap }) });
+        ...savingsLedgerEntry({ plannedCents, transactions, owner, overlap }),
+        spent: ledgerFact(spentCents, 'calculated') });
     }
     if (opts.pool) {
       result.pool = savingsLedgerPool({ cashCents: opts.pool.cashCents, liabilities: opts.pool.liabilities,

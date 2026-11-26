@@ -2406,7 +2406,8 @@
       // progress block. A goal whose published state is paid renders full
       // and green. Rows without that published geometry keep the saved /
       // required band below, unchanged.
-      const paidValue = stampedAmount(progressBlock?.getAttribute('data-budget-goal-paid-amount'));
+      const paidValue = stampedAmount(progressBlock?.getAttribute('data-budget-goal-paid-amount'))
+        ?? stampedAmount(progressBlock?.getAttribute('data-budget-goal-spent-amount'));
       const originalValue = stampedAmount(progressBlock?.getAttribute('data-budget-goal-original-amount'));
       let band = 'is-unknown';
       if (paidState) {
