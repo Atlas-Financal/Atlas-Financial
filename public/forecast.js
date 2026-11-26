@@ -17413,6 +17413,15 @@
         }
       }
       const remainingCents = row => savingsCents(row.amount) - savingsCents(row.refunded) - savingsCents(row.covered);
+      // Grok Bot (rule 17, #1620 7201859819): bank lines read a generic transfer-to-card description that names no card,
+      // and many card transfers are purchase backfill, not minimums. A payment is confirmed card-payment evidence for a
+      // carried remainder only when the household debit's own `card payment:` note names this card: one card, not
+      // "(by amount)", with no payee/note conflict. The card-side credit, the amount and the description never are.
+      const confirmedCardPaymentNote = (pair, account) => {
+        const tx = pair && pair.cash && pair.cash.tx;
+        const note = tx ? cardPaymentNoteEvidence(tx) : null;
+        return !!note && note.destination === account && note.byAmount !== true && !cardPaymentDestinationConflict(tx);
+      };
       const consume = (state, cents, field, kind) => {
         const taken = [];
         while (cents > 0 && state.queue.length) {
@@ -17474,7 +17483,10 @@
             period.minimums = period.minimums || [];
             const previous = state.periods.get(previousPeriodStart);
             for (const m of (previous && previous.minimums) || []) {
-              if (m.carriedFrom || !(m.covered > 0) || !(m.covered < m.cents)) continue;
+              // Grok Bot (rule 17, #1620 7201859819): "partly paid" rests on confirmed card-payment notes only, never on
+              // a transfer's amount: every payment that covered part of it must be noted to this card.
+              if (m.carriedFrom || !(m.covered > 0) || !(m.covered < m.cents)
+                || !(m.payments || []).length || !m.payments.every(part => part.confirmedNote)) continue;
               period.minimums.push({ id: m.id, scheduledDate: m.scheduledDate, date: m.date, cents: m.cents - m.covered,
                 covered: 0, carriedFrom: m.date, carriedInto: start });
             }
@@ -17483,7 +17495,11 @@
           for (const pair of sortedPayments) {
             let amount = effective.get(pair), toMinimum = 0;
             const minimumParts = [];
+            const confirmedNote = confirmedCardPaymentNote(pair, account);
             for (const minimum of minimums) {
+              // A carried line is paid down only by a payment noted to this card (Grok Bot, rule 17): an unnamed
+              // transfer-to-card is often purchase backfill, so it pays the period's own minimum and purchases instead.
+              if (minimum.carriedFrom && !confirmedNote) continue;
               // The issuer's minimum still owing already reflects this payment: the
               // cutoff reads the household debit's own date, as the other two readers do.
               if (minimum.reflectedThrough
@@ -17491,7 +17507,7 @@
               const take = Math.min(amount - toMinimum, minimum.cents - minimum.covered);
               if (take <= 0) continue;
               minimum.covered += take; toMinimum += take;
-              (minimum.payments = minimum.payments || []).push({ creditRef: pair.card.tx.coverageRef, cents: take });
+              (minimum.payments = minimum.payments || []).push({ creditRef: pair.card.tx.coverageRef, cents: take, confirmedNote });
               minimumParts.push({ obligationId: minimum.id, scheduledDate: minimum.scheduledDate, amount: take / 100 });
             }
             amount -= toMinimum;

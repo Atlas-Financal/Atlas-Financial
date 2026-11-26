@@ -16,6 +16,8 @@
  *   6. Mutants: the carry removed; the carry ignoring this period's payments (a double count); and one per repair.
  *   7. The Stack bills split counts the carry as its card's minimum, so Credit nets it once (finding 2).
  *   8. An unrelated unknown-amount bill does not drop the carry from the debt or cash walk (finding 3).
+ *   9. Only a payment the household noted to the card ("card payment: <card>", not "(by amount)") makes or pays down
+ *      a carry (Grok Bot, rule 17): an unnamed transfer-to-card, often purchase backfill, does neither.
  * Invented world (test/fixtures/card-coverage-aggregate-world.js): pay periods 09-18..10-01, 10-02..10-15,
  * 10-16..10-29; Bills 500; one 25 card minimum due 2026-09-25. Every expectation is written by hand.
  * `node test/test-card-remainder-rolls-once.js` */
@@ -30,7 +32,10 @@ const ok = (cond, label, detail = '') => { checks++; if (!cond) failures++;
   console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${label}${!cond && detail ? ' — ' + detail : ''}`); };
 const J = JSON.stringify;
 const cents = x => Math.round(Number(x) * 100);
-const pay = (amount, date) => [['bills', amount, date, 'cash'], ['card', -amount, date, 'credit']];
+// A card payment the household noted to the Travel card (Grok Bot, rule 17: "partly paid" rests on confirmed
+// card-payment notes only), and the same transfer with no note: a generic "TFR-TO C/C" that names no card.
+const pay = (amount, date, notes = 'card payment: Travel Visa') => [['bills', amount, date, 'cash', { notes }], ['card', -amount, date, 'credit']];
+const payUnnamed = (amount, date) => [['bills', amount, date, 'cash'], ['card', -amount, date, 'credit']];
 const OPTS = { asOf: '2026-10-05', minimumDate: '2026-09-25' };
 const carriedLines = s => (s.coverage.minimumCoverage || []).filter(r => r.carriedFrom);
 const carriedRows = s => (s.period.bills || []).filter(b => b.carriedRemainder);
@@ -135,7 +140,7 @@ console.log('5c. A pay-down-only card: a payment beyond the carry still meets th
 // Invented pay-down-only card (one-sided Bills debits with the card's payment identity, as in
 // test-card-coverage-aggregate-rule section 14): 25 due 09-25 with 10 paid 09-26 leaves a 15.00 carry; the next
 // minimum, 25 due 10-25, is in the period after; 60 paid 10-03. Beyond the minimum: 60 - 15 carried - 25 met early = 20.
-const payDown = (amount, date) => ['bills', amount, date, 'cash', { payee: 'MBNA M/C', category_name: 'DEBT&PAYMENTS' }];
+const payDown = (amount, date) => ['bills', amount, date, 'cash', { payee: 'MBNA M/C', category_name: 'DEBT&PAYMENTS', notes: 'card payment: MBNA' }];
 const PAYDOWN = { card: 'mbna', payDownOnly: ['mbna', 'triangle'], asOf: '2026-10-05', minimumDate: '2026-09-25',
   edit: x => { const b = x.data.plan.obligations[0]; x.data.plan.obligations.push({ ...b, id: 'mbna-next', date: '2026-10-25' }); } };
 const beyondCents = s => (s.coverage.payDownBeyondMinimum || []).reduce((sum, r) => sum + cents(r.amount), 0);
@@ -194,6 +199,26 @@ function absorbedWithUnknown() {
   ok(J(ev) === J([['2026-10-05', 500]]), 'the cash walk still takes the 5.00 carry out on the as-of', J(ev));
 }
 
+console.log('9. Only a payment noted to the card makes or pays a carry (Grok Bot, rule 17, #1620 7201859819)');
+{
+  // The 09-25 minimum met 20.00 by a transfer that names no card (often purchase backfill): its 5.00 remainder is not
+  // known to be a partly paid minimum, so nothing rolls (as on main).
+  const unnamed = run(world(payUnnamed(20, '2026-09-26'), OPTS));
+  ok(carriedLines(unnamed).length === 0 && carriedRows(unnamed).length === 0 && walked(unnamed) === 0,
+    'an unnamed 20.00 transfer-to-card makes no carry', J(carriedLines(unnamed)));
+  // A note that named the card only by amount is not a confirmed card-payment note.
+  const byAmount = run(world(pay(20, '2026-09-26', 'card payment: Travel Visa (by amount)'), OPTS));
+  ok(carriedLines(byAmount).length === 0, 'a "(by amount)" note makes no carry', J(carriedLines(byAmount)));
+  // One noted and one unnamed payment together: the remainder rests partly on the unnamed one, so nothing rolls.
+  const mixed = run(world([...pay(10, '2026-09-26'), ...payUnnamed(10, '2026-09-27')], OPTS));
+  ok(carriedLines(mixed).length === 0, 'a remainder that rests partly on an unnamed transfer makes no carry', J(carriedLines(mixed)));
+  // A noted carry is not paid down by an unnamed 2.00 transfer this period: the line still owes 5.00.
+  const shrink = run(world([...pay(20, '2026-09-26'), ...payUnnamed(2, '2026-10-03')], OPTS));
+  const line = carriedLines(shrink)[0], row = carriedRows(shrink)[0];
+  ok(line && cents(line.covered) === 0 && row && cents(row.remaining) === 500 && walked(shrink) === 500,
+    'an unnamed 2.00 transfer this period does not shrink the 5.00 carry', J([line, row && row.remaining, walked(shrink)]));
+}
+
 console.log('6. Mutants');
 {
   const FILE = path.join(__dirname, '..', 'public', 'forecast.js');
@@ -250,6 +275,14 @@ console.log('6. Mutants');
   ok(carriedRows(m7).every(r => r.stackBillPart === 'other'),
     'MUTANT (rows mapped to a plan obligation by their own id): the carry is split as "other", not its card\'s minimum, which section 7 rejects',
     J(carriedRows(m7).map(r => r.stackBillPart)));
+  const anyPayment = compile('|| !(m.payments || []).length || !m.payments.every(part => part.confirmedNote)) continue;', ') continue;', 'any-payment');
+  const m9 = withEngine(anyPayment, () => run(world(payUnnamed(20, '2026-09-26'), OPTS)));
+  ok(carriedLines(m9).length === 1,
+    'MUTANT (any payment makes a carry): an unnamed transfer-to-card makes a 5.00 carry, which section 9 rejects', J(carriedLines(m9)));
+  const anyPayer = compile('if (minimum.carriedFrom && !confirmedNote) continue;', '', 'any-payer');
+  const m10 = withEngine(anyPayer, () => run(world([...pay(20, '2026-09-26'), ...payUnnamed(2, '2026-10-03')], OPTS)));
+  ok(carriedRows(m10).some(r => cents(r.remaining) === 300),
+    'MUTANT (any payment pays the carry): an unnamed 2.00 transfer shrinks it to 3.00, which section 9 rejects', J(carriedRows(m10).map(r => r.remaining)));
   const noTrace = compile('    if (omissionTrace && Array.isArray(omissionTrace.items)) {\n      const carriedLines', '    if (false) {\n      const carriedLines', 'no-trace');
   const m8 = withEngine(noTrace, () => absorbedWithUnknown());
   ok(!(m8['2026-10-05:travel#carried@2026-09-25'] > 0),

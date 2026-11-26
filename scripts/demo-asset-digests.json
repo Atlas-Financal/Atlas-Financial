@@ -4,7 +4,7 @@
   "public/app.js": "05ff085b7697b136eb8380abaa27b5239b5b01ca73339038a9694a775bec04e7",
   "public/display-name.js": "a07ece929b2ef2feee34538eb7db8f871107e1026e3a124e876b23df88d785ac",
   "public/forecast-card-period.js": "e8b4ab9315a883fe55f5b805d3872e969b9d45fb4ce39ca9a5cb386646bced2c",
-  "public/forecast.js": "b8dd003f98d534a6e339c6f0a96750c41da1bf2d91cca204dd6e848ca2db22e7",
+  "public/forecast.js": "45d0b73ce80c9acbc13640297eb5d213503cb882cb87bc7e6b25158776422ca4",
   "public/forecast-chequing.js": "251a249ad90b9ceca5deda55a7f0a1353686a057b182d775f04ff229b70fb598",
   "public/balance-history.js": "a82847d572ffc46087f60fc5bde6663da4393ba819584e5d83880963637ce2d4",
   "public/bill-detail.js": "1c03e0403375e5818d5b28f8cacfa0c653676659778b60ecb6abf94947437f0c",
