@@ -1318,6 +1318,8 @@ New bill-linking mechanisms from Grok's rule 4 (a payment links to a bill only b
 
 **Auto-scroll while dragging a stack** · ADDED TO BACKLOG (ATLAS LEAD 12, 2026-11-24). A held card cannot be dragged past the screen edge when an open card makes the pile taller than the screen; keyboard and screen-reader moves still work. A NEXT PR if Dale asks. Source: [#1629](https://github.com/Atlas-Financal/Atlas-Financial/pull/1629), Not covered item 2.
 
+**An incoming outside e-transfer must not withhold card progress** · **IN PROGRESS (T3-G)** (ATLAS LEAD 14, 2026-11-26). Source: [#1620 7182819003](https://github.com/Atlas-Financal/Atlas-Financial/issues/1620#issuecomment-7182819003).
+
 ## Done
 
 **The 9 August analysis run — five items, all published to the site.**
