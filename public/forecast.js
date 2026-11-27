@@ -13709,6 +13709,23 @@
   // builder (income, bills and surplus here; the cards key of the same build
   // adds its builder beside them). The plan, as-of and options are passed for
   // a builder that needs them.
+  // OD-045 for the Credit rows (BUILD 7 amendment, #1611 7176284777; lead disposition on #1671): a held card line from an
+  // earlier reading of the same household, context and period stands in for the current one only when the current line's
+  // Paid back is withheld for incomplete payer coverage alone (no reversal, conflict or other reason), its charges and target
+  // are unchanged from the held line, and the held line's target, Paid back and Still to pay back are all known. The memory
+  // keeps such a held line instead of letting the gap reading evict it, and publishStackSummary shows it, estimated. Any
+  // other newer reading replaces it.
+  const PAYER_COVERAGE_GAPS = new Set(['paying-side-coverage-incomplete', 'paying-account-not-observed']);
+  function heldCardLineCoversPayerGap(line, held) {
+    const paid = line && line.paidBack;
+    const centsOf = figure => (figure && Number.isFinite(figure.amount) ? Math.round(figure.amount * 100) : null);
+    const gapOnly = !!paid && paid.amount === null && Array.isArray(paid.reasons)
+      && paid.reasons.some(reason => PAYER_COVERAGE_GAPS.has(reason))
+      && paid.reasons.every(reason => reason === 'paid-unavailable' || PAYER_COVERAGE_GAPS.has(reason));
+    return !!held && gapOnly && centsOf(line.spent) !== null && centsOf(line.spent) === centsOf(held.spent)
+      && centsOf(line.target) !== null && centsOf(line.target) === centsOf(held.target)
+      && [held.target, held.stillToPayBack, held.paidBack].every(figure => centsOf(figure) !== null);
+  }
   function estimateStackCredit(node) {
     if (Array.isArray(node)) return node.map(estimateStackCredit);
     if (!node || typeof node !== 'object') return node;
@@ -13747,7 +13764,9 @@
       // retained lines, as before it published none.
       if (creditBreakdown && creditBreakdown.basis === 'targets' && activity?.start === view.start && activity.end === view.end) {
         credit = { ...credit, lines: credit.lines.map(line => {
-          const held = line.spent.amount === null && activity.cards.find(card => card.id === line.id);
+          const candidate = activity.cards.find(card => card.id === line.id);
+          // #1669: charges withheld; BUILD 7 (OD-045): Paid back withheld for payer coverage alone, charges unchanged.
+          const held = candidate && (line.spent.amount === null || heldCardLineCoversPayerGap(line, candidate)) ? candidate : null;
           if (!held || ![held.target, held.stillToPayBack, held.paidBack].every(figure => Number.isFinite(figure.amount))) return line;
           const { observedAt, asOf: _asOf, ...datedLine } = held;
           return { ...estimateStackCredit(datedLine), deduction: line.deduction, activityObservedAt: observedAt };
@@ -32440,7 +32459,7 @@
   }
 
   const Forecast = { earlyReceiptLegMembership, earlyReceiptOpeningSeed, earlyReceiptSweptSeed, cardPaymentNoteDestination, cardPaymentDestinationConflict, cardNotePaymentReceipts, periodBankCheck, billPaymentState, fixedBillPartialPayment, billPaymentHistorySummary, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, obligationAmountScheduleSelect, debtPrincipalShareFor, statementOccurrenceDate, statementOccurrenceIdentity, statementPaymentsReflectedThrough, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
-    cardPeriodMovements, payingSidePayment, carriedPayerReceipt, nextProvedPayerReceipts, stackCardSummary, stackCreditLines, stackCreditBreakdown, pendingHoldReleases, cardActivityForDisplay,
+    cardPeriodMovements, payingSidePayment, carriedPayerReceipt, nextProvedPayerReceipts, stackCardSummary, stackCreditLines, stackCreditBreakdown, pendingHoldReleases, cardActivityForDisplay, heldCardLineCoversPayerGap,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
     spendingCycle, incomeReceivedAmount, calendarIncomeContribution,

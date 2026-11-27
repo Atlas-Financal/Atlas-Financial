@@ -260,7 +260,10 @@ function lastKnownCardActivity(previous, display, current) {
   const asOf = Forecast.budgetAsOf(data);
   for (const card of current.cards) {
     const held = cards.get(card.id);
-    if (!held || (Date.parse(checkedAt) > Date.parse(held.observedAt) && asOf >= held.asOf)) {
+    // A newer reading replaces the held line, except one whose Paid back is withheld only for incomplete payer coverage
+    // with the same charges and target: the held line stays to be shown in its place (OD-045; Forecast owns the rule).
+    if (!held || (Date.parse(checkedAt) > Date.parse(held.observedAt) && asOf >= held.asOf
+      && !Forecast.heldCardLineCoversPayerGap(card, held))) {
       cards.set(card.id, { ...card, asOf, observedAt: checkedAt });
     }
   }

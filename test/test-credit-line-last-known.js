@@ -14,13 +14,16 @@
  *   2. Cold (never known): the row and the Credit line are withheld (a dash), never $0.
  *   3. Genuinely newer evidence (a $12 charge): the current reading wins (104), nothing retained.
  *   4. Contradictory evidence (a reversal): withheld even with a warm reading.
- *   5. Characterization, pending the lead's choice: the paying account's sync fails while charges stay known. Paid back is
- *      withheld by the paying-side rule and #1669 retains only lines whose charges are withheld, so the Credit line is a
- *      dash. (Reported on #1671; not changed here.)
+ *   5. The paying account's sync fails while charges stay the same (lead disposition on #1671): the earlier coherent line
+ *      stands, estimated, and the head and Credit line sum it; the deduction, Surplus, payment evidence and decisions stay
+ *      current. Not carried across changed charges, a reversal seen under the gap (the walk's veto), an unreadable payer
+ *      row (fail closed), a cold start or another household; newer complete data replaces it.
  *   6. A completed period never takes a retained line (the gate in publishStackSummary): its row keeps Forecast's
  *      published remainder (5 of the 25 minimum), with a mutant that removes the gate.
  *   7. Mutant: the breakdown reading the observation's own lines instead of the lines shown leaves case 1's Credit line
  *      withheld, so the left figure would disagree with the rows.
+ *   8. Mutants for case 5: the display swap without the payer-gap rule, the gap's veto walk removed, and a memory that lets
+ *      the gap reading evict the held line.
  *
  * Invented data only. The household history file is replaced with an empty one before any module reads it.
  * `node test/test-credit-line-last-known.js`
@@ -48,7 +51,7 @@ const context = { accountMap: 'invented map', categoryMapping: [] };
 const household = 4021;
 const day = '2026-09-20';
 
-function observation(hour, { cardSync = true, extra = false, reversal = false, payerSyncFailed = false } = {}) {
+function observation(hour, { cardSync = true, extra = false, reversal = false, payerSyncFailed = false, unreadablePayerRow = false } = {}) {
   const input = world([['card', 80, '2026-09-18', 'purchase', { id: 88101 }], ['card', 37, '2026-09-19', 'purchase', { id: 88102 }],
     ['bills', 25, day, 'cash', { id: 88103, notes: 'card payment: Travel Visa' }],
     ...(reversal ? [['bills', -25, day, 'cash', { id: 88106, notes: 'card payment: Travel Visa' }]] : []),
@@ -59,6 +62,13 @@ function observation(hour, { cardSync = true, extra = false, reversal = false, p
   for (const account of payload.accounts) account.last_fetch = payload.fetchedAt;
   if (!cardSync) delete payload.accounts.find(account => account.id === 3004).last_fetch;
   const { data } = Live.fromObservation(input);
+  if (unreadablePayerRow) {
+    // A copy of the noted $25 payer row with an unreadable date (invented): the walk cannot read it.
+    const rows = data.liveOverlay.currentPeriodActuals.transactions;
+    const payment = rows.find(tx => tx.amount === 25 && tx.atlasAccountId === 'chequing-a');
+    assert.ok(payment, 'the invented payer row is in the packet');
+    rows.push({ ...payment, id: 'invented-unreadable', coverageRef: undefined, date: 'not-a-date' });
+  }
   if (payerSyncFailed) {
     for (const row of data.liveOverlay.currentPeriodActuals.syncEvidence) if (row.role === 'household-cash') row.syncEvidence = 'failed';
   }
@@ -148,13 +158,56 @@ function membersAgree(r, label) {
     && reversed.s.creditBreakdown.stillToPayBack.amount === null, 'a reversal withholds the line and the Credit line, even after a warm reading');
   membersAgree(reversed, 'reversal');
 
-  console.log('5. Characterization (lead\'s choice pending): a failed payer sync with charges known');
-  const payer = read(warmThen({ payerSyncFailed: true }).data);
-  ok(payer.line.spent.amount === 117 && payer.line.paidBack.amount === null && !payer.line.activityObservedAt
-    && payer.s.creditBreakdown.stillToPayBack.amount === null,
-    'Paid back is withheld by the paying-side rule; #1669 does not retain a line whose charges are known; the Credit line is a dash',
-    JSON.stringify(payer.line.paidBack.reasons));
-  membersAgree(payer, 'payer sync failed');
+  console.log('5. A failed payer sync with the same charges: the earlier line stands (OD-045; lead disposition on #1671)');
+  const payerCase = warmThen({ payerSyncFailed: true });
+  const payer = read(payerCase.data), payerCold = read(payerCase.thin.data);
+  ok(payerCold.line.spent.amount === 117 && payerCold.line.paidBack.amount === null
+    && payerCold.line.paidBack.reasons.includes('paying-side-coverage-incomplete') && payerCold.s.creditBreakdown.stillToPayBack.amount === null,
+    'control: read cold, the gap reading withholds Paid back for payer coverage and the Credit line is a dash', JSON.stringify(payerCold.line.paidBack.reasons));
+  ok(payer.line.activityObservedAt === `${day}T18:00:00Z` && payer.line.paidBack.amount === 25 && payer.line.stillToPayBack.amount === 92
+    && payer.line.paidBack.trust === 'estimated', 'warm: the earlier coherent line (25 paid back, 92 still) shows, dated and estimated');
+  ok(payer.s.creditBreakdown.stillToPayBack.amount === 92 && payer.s.creditBreakdown.stillToPayBack.trust === 'estimated'
+    && payer.s.credit.totals.paidBack.amount === 25 && payer.s.credit.totals.target.amount === 117,
+    'the Credit line reads 92 and the head $25 / $117, estimated, over the line shown');
+  membersAgree(payer, 'payer gap');
+  ok(cents(payer.s.creditBreakdown.total) === cents(payerCold.s.creditBreakdown.total) && JSON.stringify(payer.s.surplus) === JSON.stringify(payerCold.s.surplus)
+    && JSON.stringify(payer.result.paydayAllocation) === JSON.stringify(payerCold.result.paydayAllocation)
+    && JSON.stringify(payer.result.currentPeriodAction) === JSON.stringify(payerCold.result.currentPeriodAction)
+    && JSON.stringify(payer.s.credit.unconfirmedPayments) === JSON.stringify(payerCold.s.credit.unconfirmedPayments),
+    'the deduction, Surplus, payment evidence and decisions stay on the current (gap) observation');
+  const payerPage = await loadStackPage({ data: payerCase.data });
+  const payerWf = payerPage.sandbox.StackWaterfall.html(payerPage.context(), { creditOpen: true });
+  ok(/data-stack-credit-total><span class="stack-credit-x">\$25<\/span><i> \/ \$117<\/i>/.test(payerPage.blockHtml('credit'))
+    && /data-source="stackSummary\.creditBreakdown\.stillToPayBack\.amount">\$92</.test(payerWf), 'the page reads $25 / $117 and a $92 Credit line');
+  // Never carried across changed charges, a reversal, a cold start or another household; newer complete data replaces it.
+  const changed = read(warmThen({ payerSyncFailed: true, extra: true }).data);
+  ok(!changed.line.activityObservedAt && changed.s.creditBreakdown.stillToPayBack.amount === null, 'a payer gap with changed charges (129): not carried, a dash');
+  const reversedGap = read(warmThen({ payerSyncFailed: true, reversal: true }).data);
+  ok(!reversedGap.line.activityObservedAt && reversedGap.s.creditBreakdown.stillToPayBack.amount === null, 'a payer gap with a reversal: not carried, a dash');
+  ok(reversedGap.line.paidBack.amount === null && reversedGap.line.paidBack.reasons.includes('paying-side-coverage-incomplete')
+    && reversedGap.line.paidBack.reasons.includes('payment-direction-unresolved') && reversedGap.s.credit.unconfirmedPayments.length === 0,
+    'under the gap the partial rows only veto: the gap stays, the reversal is named, and no amount or unconfirmed entry is supplied',
+    JSON.stringify([reversedGap.line.paidBack, reversedGap.s.credit.unconfirmedPayments]));
+  const unreadable = read(warmThen({ payerSyncFailed: true, unreadablePayerRow: true }).data);
+  ok(!unreadable.line.activityObservedAt && unreadable.line.paidBack.reasons.includes('transaction-date-unqualified')
+    && unreadable.s.creditBreakdown.stillToPayBack.amount === null, 'an unreadable paying-side row under the gap fails closed: not carried',
+    JSON.stringify(unreadable.line.paidBack.reasons));
+  ok(payerCold.line.activityObservedAt === undefined, 'cold (never known): a dash, as the control above');
+  {
+    const memory = Memory.create();
+    publish(memory, observation('18'));
+    const gap = observation('19', { payerSyncFailed: true });
+    publish(memory, gap);
+    const other = memory.withLastKnownCardActivity(context, household + 1, gap.checkedAt, gap.data);
+    ok(!read(other).line.activityObservedAt, 'another household: not served');
+    const fresh = observation('20', { extra: true });
+    publish(memory, fresh);
+    const after = read(served(memory, fresh));
+    ok(!after.line.activityObservedAt && after.line.stillToPayBack.amount === 104, 'newer complete data replaces the held line (104)');
+    const gapAgain = observation('21', { payerSyncFailed: true });
+    publish(memory, gapAgain);
+    ok(!read(served(memory, gapAgain)).line.activityObservedAt, 'a later gap whose charges differ from the held 129 line is not carried');
+  }
 
   console.log('6. A completed period never takes a retained line');
   const read2 = file => readFile(path.join(ROOT, file), 'utf8');
@@ -192,6 +245,46 @@ function membersAgree(r, label) {
   const m = read(thinCase.data, F2);
   ok(ownLines !== fsrc && m.line.stillToPayBack.amount === 92 && m.s.creditBreakdown.stillToPayBack.amount === null,
     'MUTANT: the Credit line goes to a dash while the Travel line still shows 92, which section 1 rejects');
+
+  console.log('8. Mutants: each restores the payer-gap dash');
+  const noSwap = fsrc.replace('(line.spent.amount === null || heldCardLineCoversPayerGap(line, candidate))', '(line.spent.amount === null)');
+  const swapLess = read(payerCase.data, engine(file => (file === 'public/forecast.js' ? noSwap : read2(file))));
+  ok(noSwap !== fsrc && swapLess.s.creditBreakdown.stillToPayBack.amount === null && !swapLess.line.activityObservedAt,
+    'MUTANT: the display swap without the payer-gap rule restores the dash, which section 5 rejects');
+  // The gap's veto walk removed: a reversal observed under the gap no longer beats the held line.
+  const msrcCard = read2('public/forecast-card-period.js');
+  const noVeto = msrcCard.replace('        const { unassigned } = walk(shadow, outside);', '        const unassigned = [];');
+  // The held warm line handed to the display directly (as a memory holding it would serve it), so the display's own veto
+  // is what decides.
+  const warmObs = observation('18'), act = Forecast.cardActivityForDisplay(warmObs.data);
+  const gapRev = observation('19', { payerSyncFailed: true, reversal: true });
+  const handed = { ...gapRev.data, liveOverlay: { ...gapRev.data.liveOverlay, lastKnownCardActivity: { start: act.start, end: act.end,
+    cards: act.cards.map(card => ({ ...card, asOf: day, observedAt: warmObs.checkedAt })) } } };
+  const vetoed = read(handed, engine(read2));
+  ok(!vetoed.line.activityObservedAt && vetoed.s.creditBreakdown.stillToPayBack.amount === null, 'control: the real display refuses the held line under a reversal');
+  const vetoLess = read(handed, engine(file => (file === 'public/forecast-card-period.js' ? noVeto : read2(file))));
+  ok(noVeto !== msrcCard && vetoLess.line.activityObservedAt && vetoLess.s.creditBreakdown.stillToPayBack.amount === 92,
+    'MUTANT: without the veto walk the reversal under the gap carries the held 92, which section 5 rejects');
+  // The memory evicting the held line on any newer reading (#1669's rule before this change).
+  const memSrc = read2('scripts/server-observation-memory.js');
+  const evicting = memSrc.replace('\n      && !Forecast.heldCardLineCoversPayerGap(card, held))) {', ')) {');
+  ok(evicting !== memSrc, 'the memory mutant targets the eviction rule');
+  const memPath = path.join(ROOT, 'scripts', 'server-observation-memory.js');
+  const Module = require('node:module');
+  const mod = new Module(memPath, module);
+  mod.filename = memPath; mod.paths = Module._nodeModulePaths(path.dirname(memPath));
+  mod._compile(evicting, memPath);
+  const EvictMemory = mod.exports;
+  {
+    const memory = EvictMemory.create();
+    const w = observation('18'), gap = observation('19', { payerSyncFailed: true });
+    const put = o => memory.publish('latest-source', o.evidence, { context, householdAccountId: household, lastBudgetAccountId: household,
+      credentialSource: 'env', data: o.data, checkedAt: o.checkedAt }, undefined, Forecast.cardActivityForDisplay(o.data));
+    put(w); put(gap);
+    const r = read(memory.withLastKnownCardActivity(context, household, gap.checkedAt, gap.data));
+    ok(r.s.creditBreakdown.stillToPayBack.amount === null && !r.line.activityObservedAt,
+      'MUTANT: a memory that lets the gap reading evict the held line restores the dash, which section 5 rejects');
+  }
 
   console.log(`\nPASS The Credit line follows the last known lines shown (${checks})`);
 })().catch(error => { console.error(error); process.exitCode = 1; });
