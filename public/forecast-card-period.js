@@ -1018,6 +1018,12 @@
     Object.assign(totals, creditHeadTotals(lines, unconfirmedPayments));
     return { lines, totals, unconfirmedPayments };
   }
+  function hasOpenCreditTarget(line) {
+    const target = cents(line.target.amount);
+    return target === null || target > 0
+      || (target === 0 && line.target.reasons?.includes('over-limit-unknown'));
+  }
+
   function creditHeadTotals(lines, unconfirmedPayments) {
     const out = {};
     // The Credit head (OD-052, Dale, 2026-11-25: "it should be [total paid back]/[sum of the card targets]"), over the lines
@@ -1029,7 +1035,10 @@
     // never a partial sum. An unidentified return withholds the paid side, as it withholds each such line's progress.
     // targetCovered is true only when every such line is published covered, so an overpaid card never shows another card's
     // shortfall as covered.
-    const openLines = lines.filter(line => cents(line.target.amount) === null || cents(line.target.amount) > 0);
+    // A zero lower bound still leaves coverage unresolved. Its paid amount
+    // does not join the head's sum against positive or withheld targets.
+    const coverageLines = lines.filter(hasOpenCreditTarget);
+    const openLines = coverageLines.filter(line => cents(line.target.amount) !== 0);
     const unseenPaid = openLines.filter(line => line.paidBack.amount === null);
     // An unidentified return withholds the paid side even with nothing to pay back, as it withholds minimumsPaid.
     const reversalHeld = (unconfirmedPayments || []).some(payment => payment.amount < 0);
@@ -1044,13 +1053,13 @@
       ? { amount: null, trust: 'unavailable', reasons: [...new Set(unseenTarget.flatMap(line => line.target.reasons))] }
       : { amount: lines.reduce((sum, line) => sum + cents(line.target.amount), 0) / 100,
         trust: weakest(...lines.map(line => line.target.trust)), reasons: [] };
-    const coverUnknown = !openLines.length || openLines.some(line => line.targetCovered.value === 'unknown');
+    const coverUnknown = !coverageLines.length || coverageLines.some(line => line.targetCovered.value === 'unknown');
     out.targetCovered = coverUnknown
-      ? { value: openLines.length ? 'unknown' : false, trust: openLines.length ? 'unavailable' : weakest(...lines.map(line => line.target.trust)),
-        reasons: openLines.length ? [...new Set(openLines.flatMap(line => line.targetCovered.reasons))] : [] }
-      : { value: openLines.every(line => line.targetCovered.value === true),
-        trust: weakest(...openLines.map(line => line.targetCovered.trust)), reasons: [] };
+      ? { value: coverageLines.length ? 'unknown' : false, trust: coverageLines.length ? 'unavailable' : weakest(...lines.map(line => line.target.trust)),
+        reasons: coverageLines.length ? [...new Set(coverageLines.flatMap(line => line.targetCovered.reasons))] : [] }
+      : { value: coverageLines.every(line => line.targetCovered.value === true),
+        trust: weakest(...coverageLines.map(line => line.targetCovered.trust)), reasons: [] };
     return out;
   }
-  return { publish, stackCards, stackCreditLines, creditHeadTotals };
+  return { publish, stackCards, stackCreditLines, creditHeadTotals, hasOpenCreditTarget };
 });

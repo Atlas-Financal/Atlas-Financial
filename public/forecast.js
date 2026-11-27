@@ -14125,8 +14125,8 @@
     const rows = [];
     for (const line of lines) {
       const still = line.stillToPayBack || { amount: null, trust: 'unavailable' };
-      // A withheld target is a row with a dash (its Still to pay back is withheld too), never the minimum in its place.
-      if (line.target.amount === null || stackCents(line.target.amount) > 0) rows.push({ debtId: line.id, amount: still.amount, trust: still.trust });
+      // Open targets with an unpublished remainder get a dash in the dropdown.
+      if (CardPeriodMovement.hasOpenCreditTarget(line)) rows.push({ debtId: line.id, amount: still.amount, trust: still.trust });
     }
     for (const card of (minimums || [])) if (!lineIds.has(String(card.debtId)) && stackCents(card.amount) > 0) {
       rows.push({ debtId: card.debtId, amount: card.amount, trust: bills.trust || 'calculated' });

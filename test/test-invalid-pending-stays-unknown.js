@@ -499,6 +499,73 @@ async function proveStaleAndLimitCases() {
     'a separate pending stays known and counted');
   eq(separate.line.target.overLimitBy, 2, 'its exact overage is still published');
 
+
+  // The earlier-period pair can push a card over its limit even when this
+  // period has neither new charges nor a minimum on that card.
+  async function zeroFloor({ twin, sibling }) {
+    const old = '2026-09-10';
+    const rows = [['card', 73, old, 'purchase', { payee: 'Invented old charge' }]];
+    if (twin) rows.push(['card', 73, old, 'purchase', {
+      payee: 'Invented old charge', is_pending: true, status: 'pending',
+      plaid_metadata: { transaction_id: 'tx-zero-floor-twin' },
+    }]);
+    if (sibling) rows.push(
+      ['card2', 70, null, 'purchase'],
+      ['bills', 70, null, 'cash', { notes: 'card payment: MBNA' }]
+    );
+    const x = aggregate.world(rows, { twoCards: sibling, windowStart: '2026-09-01', edit(xx) {
+      settle(xx, 500, twin ? 85 : 0);
+      xx.data.plan.obligations = sibling ? [{
+        ...xx.data.plan.obligations[0], id: 'invented-other-minimum', debtId: 'mbna',
+      }] : [];
+      for (const account of xx.payload.accounts) account.last_fetch = xx.asOf + 'T17:00:00Z';
+    } });
+    const { data } = Live.fromObservation(x);
+    const page = await loadStackPage({ data });
+    const ctx = page.context();
+    const view = ctx.recommendation.payPeriodViews.find(v => v.start === page.selectedKey());
+    const { credit, creditBreakdown, surplus } = view.stackSummary;
+    const waterfall = page.sandbox.StackWaterfall.html(ctx, { creditOpen: true });
+    const dropdown = waterfall.match(/<li[^>]*data-debt-id="travelvisa"[\s\S]*?<\/li>/)?.[0] || '';
+    const header = page.blockHtml('credit').match(/<button class="stack-credit-head"[\s\S]*?<\/button>/)?.[0] || '';
+    return { credit, creditBreakdown, surplus, dropdown, header,
+      card: data.debts.find(debt => debt.id === 'travelvisa') };
+  }
+
+  for (const sibling of [false, true]) {
+    const why = sibling ? 'zero floor beside a covered card' : 'zero floor on the only card';
+    const unresolved = await zeroFloor({ twin: true, sibling });
+    const quiet = await zeroFloor({ twin: false, sibling });
+    const line = unresolved.credit.lines.find(card => card.id === 'travelvisa');
+    eq([unresolved.card.pendingUnknown, unresolved.card.balance, line.spent.amount, line.target.minimum],
+      [true, 473, 0, 0], why + ': the only unknown is the earlier pending exposure');
+    eq([line.target.amount, line.target.overLimitBy, line.stillToPayBack.amount, line.targetCovered.value],
+      [0, null, null, 'unknown'], why + ': the card already withholds its remainder and coverage');
+    const coverage = unresolved.credit.totals.targetCovered;
+    eq([coverage.value, coverage.trust, ...coverage.reasons],
+      ['unknown', 'unavailable', 'over-limit-unknown'],
+      why + ': the credit head cannot claim the zero lower bound is covered');
+    const remainder = unresolved.creditBreakdown.stillToPayBack;
+    eq([remainder.amount, remainder.trust], [null, 'unavailable'],
+      why + ': the waterfall cannot publish a zero remainder');
+    const row = unresolved.creditBreakdown.rows.find(row => row.debtId === 'travelvisa');
+    eq([row?.amount, row?.trust], [null, 'unavailable'], why + ': the dropdown includes the unknown card');
+    yes(/data-unpublished="true"/.test(unresolved.dropdown) && /aria-label="not available"/.test(unresolved.dropdown),
+      why + ': the real waterfall renders a dash for the unknown card');
+    yes(unresolved.header.includes('data-stack-credit-total') && !unresolved.header.includes('stack-credit-x is-good'),
+      why + ': the real Credit head never draws a covered total');
+    eq(quiet.header.includes('stack-credit-x is-good'), sibling,
+      why + ': the backed sibling retains a green total when the other card truly owes nothing');
+    eq(quiet.credit.totals.targetCovered.value, sibling, why + ': a genuine zero still leaves coverage to active cards');
+    eq(quiet.creditBreakdown.stillToPayBack.amount, 0, why + ': the known zero control has no remaining payment');
+    yes(!quiet.creditBreakdown.rows.some(row => row.debtId === 'travelvisa'),
+      why + ': a truly quiet card adds no dropdown row');
+    eq(unresolved.credit.totals.paidBack.amount, quiet.credit.totals.paidBack.amount,
+      why + ': independently qualified payer amounts stay unchanged');
+    eq(unresolved.surplus.terms?.credit, quiet.surplus.terms?.credit,
+      why + ': cash deduction is unaffected by display membership');
+  }
+
   // Payoff and extra-debt targets read posted alone, never posted plus a stale amount.
   const ready = async (twin, canonicalPending) => {
     const old = '2026-09-10';
