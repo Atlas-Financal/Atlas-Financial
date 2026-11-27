@@ -57,7 +57,8 @@ const STUB = `;(function (F) {
         state: 'not-a-spend-card', status: null, minimumCovered: covered('unknown'), transactions: [] },
     ],
     totals: { paid: 500, spent: 660, trust: 'calculated', completeness: 'partial', excluded: ['tdcc'], reasons: [],
-      minimumsPaid: { amount: 500, trust: 'estimated', reasons: [] }, minimumsDue: { amount: 60, trust: 'calculated', reasons: [] }, minimumsDueCount: 4, minimumsCoveredCount: 2, minimumsCoveredTrust: 'calculated' },
+      minimumsPaid: { amount: 500, trust: 'estimated', reasons: [] }, minimumsDue: { amount: 60, trust: 'calculated', reasons: [] }, minimumsDueCount: 4, minimumsCoveredCount: 2, minimumsCoveredTrust: 'calculated',
+      paidBack: fig(500), target: fig(60), targetCovered: { value: false, trust: 'calculated', reasons: [] } },
   });
   // Each invented line's target is its minimum here (the simplest case, OD-028); the page prints what Forecast publishes.
   F.stackCreditLines = () => { const r = lines(); return { ...r, lines: r.lines.map(withTarget) }; };
@@ -108,12 +109,12 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
     const head = await textOf(page, '[data-stack-credit-toggle]');
     ok(/^Credit/.test(head), 'the card is titled Credit', head);
     if (stub) {
-      ok(/^Credit paid \/ card minimums due \$500 \/ \$60$/.test(head) && !!(await page.$('.stack-credit-bar')),
+      ok(/^Credit paid back \/ total to pay back \$500 \/ \$60$/.test(head) && !!(await page.$('.stack-credit-bar')),
         'the published paid toward the due minimums over the minimums due, whatever the paid total\'s completeness (never a dash)', head);
     } else {
       const complete = await page.evaluate(() => !!document.querySelector('[data-stack-credit-total]'));
-      ok(/^Credit paid \/ card minimums due (\u2014|\$[\d,.]+)( \/ (\$[\d,.]+|\u2014))?$/.test(head),
-        'the head is "Credit", its subtitle and the total paid over the minimums due (a dash when withheld)', head);
+      ok(/^Credit paid back \/ total to pay back (\u2014|\$[\d,.]+)( \/ (\$[\d,.]+|\u2014))?$/.test(head),
+        'the head is "Credit", its subtitle and the total paid back over the total target (OD-052; a dash when withheld)', head);
     }
     ok(!(await page.$('[data-stack-credit-excludes]')), 'no "excludes" line');
 
@@ -239,8 +240,8 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
       seen.push(await textOf(page, '.stack-sheet'));
       await page.keyboard.press('Escape');
     }
-    // the Credit head's subtitle from the approved design, exactly, is the one allowed wording
-    const clean = t => t.split('paid / card minimums due').join(' ').split('Not due this period').join(' ');
+    // the Credit head's subtitle (OD-052), exactly, is the one allowed wording
+    const clean = t => t.split('paid back / total to pay back').join(' ').split('Not due this period').join(' ');
     const hits = seen.filter(t => FORBIDDEN.test(clean(t))).map(t => clean(t).match(FORBIDDEN)[0]);
     ok(seen.length > 3 && hits.length === 0, `no explanatory word on the page or in ${seen.length - 1} sheets`, hits.join(', '));
     ok(FORBIDDEN.test('Upcoming $5') && FORBIDDEN.test('Due Mar 5') && !FORBIDDEN.test('Paid back $5 to go Minimum $5 covered ✓'),

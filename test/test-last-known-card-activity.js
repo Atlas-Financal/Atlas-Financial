@@ -106,6 +106,21 @@ if (threads.isMainThread) (async () => {
     const dropdown = held.view.stackSummary.creditBreakdown?.rows.find(row => row.debtId === cardId);
     assert.equal(dropdown?.amount, 117, `${name}: dropdown agrees with the card`);
     assert.equal(dropdown?.trust, 'estimated', name);
+    // BUILD 7 (OD-052, OD-057): the Credit head and the Credit line sum the lines the page shows, the retained line
+    // included, worked here from those lines; the deduction stays on the current observation.
+    const cents = v => Math.round(v * 100);
+    const shownLines = held.view.stackSummary.credit.lines;
+    const open = shownLines.filter(line => line.target.amount === null || cents(line.target.amount) > 0);
+    const totals = held.view.stackSummary.credit.totals;
+    assert.equal(cents(totals.target.amount), shownLines.reduce((s, line) => s + cents(line.target.amount), 0), `${name}: head target sums the shown lines`);
+    assert.equal(cents(totals.paidBack.amount), open.reduce((s, line) => s + cents(line.paidBack.amount), 0), `${name}: head paid back sums the shown lines`);
+    assert.equal(totals.target.amount, 117, `${name}: head target is the retained card's 117 (by hand)`);
+    assert.notEqual(current.view.stackSummary.credit.totals.target.amount, 117, `${name}: control: the thin observation alone heads differently`);
+    assert.equal(totals.target.trust, 'estimated', `${name}: head target no stronger than the retained line`);
+    const breakdown = held.view.stackSummary.creditBreakdown;
+    assert.equal(cents(breakdown.stillToPayBack.amount), breakdown.rows.reduce((s, row) => s + cents(row.amount), 0), `${name}: line total sums the rows`);
+    assert.equal(breakdown.stillToPayBack.trust, 'estimated', `${name}: line total no stronger than the retained line`);
+    assert.equal(breakdown.basis, 'targets', name);
     const sweeps = result => result.payPeriodViews.map(v => [v.paydaySweep, v.cardMatchingEstimate?.paydaySweep]);
     assert.ok(current.result.payPeriodViews.some(v => Object.hasOwn(v, 'paydaySweep')));
     assert.deepEqual(sweeps(held.result), sweeps(current.result), `${name}: sweeps`);
@@ -118,6 +133,8 @@ if (threads.isMainThread) (async () => {
     assert.doesNotMatch(sheet, /Not yet known/);
     assert.match(page.blockHtml('credit'), /data-stack-sheet="card:travelvisa"[^]*?\/ \$117/);
     assert.match(page.blockHtml('waterfall'), /data-debt-id="travelvisa"[^]*?stackSummary\.creditBreakdown\.rows\.\d+\.amount">\$117/);
+    assert.match(page.blockHtml('credit'), /data-stack-credit-total><span class="stack-credit-x">\$0<\/span><i> \/ \$117<\/i>/, `${name}: the head reads $0 / $117`);
+    assert.match(page.blockHtml('waterfall'), /data-source="stackSummary\.creditBreakdown\.stillToPayBack\.amount">\$117</, `${name}: the Credit line's remainder is $117`);
 
     const spentKey = `period.${held.view.start}.stackCard.${cardId}.spent`;
     const snapshot = buildFiguresSnapshot(data, []);

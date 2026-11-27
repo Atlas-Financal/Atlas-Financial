@@ -103,17 +103,10 @@
     const query = packet?.transactionWindow;
     const syncRows = Array.isArray(packet?.syncEvidence) ? packet.syncEvidence : [];
     const payerSync = syncRows.filter(row => ['household-cash', 'household-reserve'].includes(row?.role));
-    if (!observed || !query || query.complete !== true || query.hasMore !== false || query.truncated !== false
-      || (typeof primitives.coverageComplete === 'function' && !primitives.coverageComplete(query))
-      || query.startDate !== packet.coverageStart || query.endDate !== packet.coverageThrough
-      || payerSync.some(row => row.syncEvidence === 'failed')
-      || typeof primitives.payingSidePayment !== 'function') {
-      globalGaps.add('paying-side-coverage-incomplete');
-    } else {
-      // A page can be complete while the paying account is unseen. Require a proven payer sync or an observed debit.
-      let payerObserved = payerSync.some(row => row.id && row.syncEvidence === 'proven' && !row.reason
-        && (row.fields?.last_fetch === true || row.fields?.plaid_last_successful_update === true)
-        && syncRows.filter(other => other?.id === row.id).length === 1);
+    // The walk over the period's posted paying-side rows: per card its cents, reasons and gaps (in `buckets`), gaps with no
+    // card identity in `outside`; returns the assigned and unassigned rows and whether a debit was seen.
+    const walk = (buckets, outside) => {
+      let debitSeen = false;
       const candidates = [];
       const seen = new Set(), duplicates = new Set();
       for (const tx of packet.transactions) {
@@ -131,8 +124,8 @@
       }
       const unassigned = [], assigned = [];
       for (const { tx, destination, id, keys } of candidates) {
-        const bucket = byCard.get(destination.cardId);
-        const gaps = bucket ? bucket.gaps : globalGaps;
+        const bucket = buckets.get(destination.cardId);
+        const gaps = bucket ? bucket.gaps : outside;
         if (!primitives.date(tx.date)) { gaps.add('transaction-date-unqualified'); continue; }
         if (tx.date < start || tx.date > through) continue;
         const value = primitives.money(tx);
@@ -156,7 +149,7 @@
           gaps.add('duplicate-identity');
           continue;
         }
-        payerObserved ||= value > 0;
+        debitSeen ||= value > 0;
         // An internal debit can show the payer was observed without supplying a card payment or reversal.
         if (primitives.unnotedHouseholdMovement?.(tx)) continue;
         if (!bucket) {
@@ -172,6 +165,44 @@
           assigned.push({ tx, value, cardId: destination.cardId });
         }
       }
+      return { assigned, unassigned, debitSeen };
+    };
+    if (!observed || !query || query.complete !== true || query.hasMore !== false || query.truncated !== false
+      || (typeof primitives.coverageComplete === 'function' && !primitives.coverageComplete(query))
+      || query.startDate !== packet.coverageStart || query.endDate !== packet.coverageThrough
+      || payerSync.some(row => row.syncEvidence === 'failed')
+      || typeof primitives.payingSidePayment !== 'function') {
+      globalGaps.add('paying-side-coverage-incomplete');
+      // Veto only (OD-045; lead decision on #1671): the gap stands and the partial rows supply no amount, destination,
+      // receipt, unconfirmed entry or decision. The same walk, on a throwaway copy, only adds the reversal, conflict and
+      // evidence gaps it finds to each card, so a current observed contradiction beats a held line (heldCardLineCoversPayerGap
+      // in forecast.js accepts coverage reasons alone). Rows that cannot be inspected fail closed.
+      const inspectable = Array.isArray(packet?.transactions) && typeof primitives.payingSidePayment === 'function'
+        && typeof primitives.date === 'function' && typeof primitives.money === 'function' && typeof primitives.skipParent === 'function'
+        && !!primitives.date(start) && !!primitives.date(through);
+      if (!inspectable) {
+        for (const bucket of byCard.values()) bucket.gaps.add('paying-side-rows-uninspected');
+      } else {
+        const shadow = new Map([...byCard.keys()].map(id => [id, { cents: 0, reasons: new Set(), gaps: new Set() }]));
+        const outside = new Set();
+        const { unassigned } = walk(shadow, outside);
+        // A row the walk could not attribute to one card vetoes every card: an incoming one is a reversal of some card's
+        // payment; an outgoing one is a payment whose destination is in conflict (its own reason, for example a note that
+        // contradicts the payee, a proved receipt or another card or the HELOC) or not yet known. Its amount is never used.
+        const unattributed = new Set(unassigned.map(({ value, destination }) => (value < 0 ? 'payment-direction-unresolved'
+          : destination && destination.reason === 'card-payment-destination-conflict' ? 'card-payment-destination-conflict'
+            : 'card-payment-destination-unconfirmed')));
+        for (const [id, bucket] of byCard) {
+          for (const gap of [...shadow.get(id).gaps, ...outside, ...unattributed]) bucket.gaps.add(gap);
+        }
+      }
+    } else {
+      // A page can be complete while the paying account is unseen. Require a proven payer sync or an observed debit.
+      let payerObserved = payerSync.some(row => row.id && row.syncEvidence === 'proven' && !row.reason
+        && (row.fields?.last_fetch === true || row.fields?.plaid_last_successful_update === true)
+        && syncRows.filter(other => other?.id === row.id).length === 1);
+      const { assigned, unassigned, debitSeen } = walk(byCard, globalGaps);
+      payerObserved ||= debitSeen;
       for (const { tx, value, destination, reason } of inferDestinations(packet, start, end || through, assigned, unassigned, byCard, primitives)) {
         if (destination) {
           const bucket = byCard.get(destination.cardId);
@@ -980,7 +1011,42 @@
       : { amount: lines.reduce((sum, line) => sum + cents(line.deduction.amount), 0) / 100,
         trust: weakest(...lines.map(line => line.deduction.trust)),
         reasons: [...new Set(lines.flatMap(line => line.deduction.reasons))] };
+    Object.assign(totals, creditHeadTotals(lines, unconfirmedPayments));
     return { lines, totals, unconfirmedPayments };
   }
-  return { publish, stackCards, stackCreditLines };
+  function creditHeadTotals(lines, unconfirmedPayments) {
+    const out = {};
+    // The Credit head (OD-052, Dale, 2026-11-25: "it should be [total paid back]/[sum of the card targets]"), over the lines
+    // the page shows (stackCreditLines's own, or a current view's retained display lines, #1669). Over those with something
+    // to pay back (a target above $0, or a withheld one), the HELOC included: the sum of their printed Paid back over the
+    // sum of their targets, so the head adds up against those rows. A line with a published $0 target
+    // adds nothing to either side (as a card with no minimum due added nothing to the old head), so a quiet card with no
+    // payment evidence never withholds the head. Each side is withheld (amount null) when any of its lines' figures is,
+    // never a partial sum. An unidentified return withholds the paid side, as it withholds each such line's progress.
+    // targetCovered is true only when every such line is published covered, so an overpaid card never shows another card's
+    // shortfall as covered.
+    const openLines = lines.filter(line => cents(line.target.amount) === null || cents(line.target.amount) > 0);
+    const unseenPaid = openLines.filter(line => line.paidBack.amount === null);
+    // An unidentified return withholds the paid side even with nothing to pay back, as it withholds minimumsPaid.
+    const reversalHeld = (unconfirmedPayments || []).some(payment => payment.amount < 0);
+    out.paidBack = unseenPaid.length || reversalHeld
+      ? { amount: null, trust: 'unavailable',
+        reasons: [...new Set(unseenPaid.flatMap(line => line.paidBack.reasons).concat(reversalHeld ? ['payment-direction-unresolved'] : []))] }
+      : { amount: openLines.reduce((sum, line) => sum + cents(line.paidBack.amount), 0) / 100,
+        trust: openLines.length ? weakest(...openLines.map(line => line.paidBack.trust)) : weakest(...lines.map(line => line.target.trust)),
+        reasons: [...new Set(openLines.flatMap(line => line.paidBack.reasons))] };
+    const unseenTarget = lines.filter(line => line.target.amount === null);
+    out.target = unseenTarget.length
+      ? { amount: null, trust: 'unavailable', reasons: [...new Set(unseenTarget.flatMap(line => line.target.reasons))] }
+      : { amount: lines.reduce((sum, line) => sum + cents(line.target.amount), 0) / 100,
+        trust: weakest(...lines.map(line => line.target.trust)), reasons: [] };
+    const coverUnknown = !openLines.length || openLines.some(line => line.targetCovered.value === 'unknown');
+    out.targetCovered = coverUnknown
+      ? { value: openLines.length ? 'unknown' : false, trust: openLines.length ? 'unavailable' : weakest(...lines.map(line => line.target.trust)),
+        reasons: openLines.length ? [...new Set(openLines.flatMap(line => line.targetCovered.reasons))] : [] }
+      : { value: openLines.every(line => line.targetCovered.value === true),
+        trust: weakest(...openLines.map(line => line.targetCovered.trust)), reasons: [] };
+    return out;
+  }
+  return { publish, stackCards, stackCreditLines, creditHeadTotals };
 });

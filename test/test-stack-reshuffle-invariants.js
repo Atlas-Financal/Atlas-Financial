@@ -430,11 +430,21 @@ function surfaces(r, ids = ['travelvisa'], roundingDifference = 0) {
     paidBills,
     r.s.bills.paid === null ? shown(null) : shown(r.s.bills.paid) + ' / ' + shown(r.s.bills.other)
   );
+  // OD-052 (BUILD 7): the head is Σ Paid back / Σ target over the displayed lines with something to pay back, worked
+  // here from those lines (a withheld figure withholds its side; a reversal is read from Forecast's published side).
   const header = plain(capture(box.innerHTML, /data-stack-credit-total>([\s\S]*?)<\/i>/, 'Credit header'));
-  assert.equal(
-    header,
-    shown(r.s.credit.totals.minimumsPaid.amount) + ' / ' + shown(r.s.credit.totals.minimumsDue.amount)
-  );
+  const open = r.s.credit.lines.filter((l) => l.target.amount === null || cents(l.target.amount) > 0);
+  const sum = (ls, key) => (ls.some((l) => l[key].amount === null) ? null : ls.reduce((a, l) => a + cents(l[key].amount), 0) / 100);
+  const headTarget = sum(r.s.credit.lines, 'target');
+  assert.equal(r.s.credit.totals.target.amount, headTarget, 'head target is the sum of the displayed lines');
+  if (r.s.credit.totals.paidBack.amount !== null)
+    assert.equal(r.s.credit.totals.paidBack.amount, sum(open, 'paidBack'), 'head paid back is the sum of the displayed lines');
+  assert.equal(header, shown(r.s.credit.totals.paidBack.amount) + ' / ' + shown(headTarget));
+  // OD-057: the Credit line is the total still to pay back (Σ the dropdown rows, withheld when any is) over the deduction.
+  const rowsSum = breakdown.rows.some((row) => row.amount === null) ? null
+    : breakdown.rows.reduce((a, row) => a + cents(row.amount), 0) / 100;
+  assert.equal(breakdown.stillToPayBack.amount, rowsSum, 'line total is the sum of the dropdown rows');
+  assert.equal(cell(html, 'stackSummary.creditBreakdown.stillToPayBack.amount'), rowsSum === null ? null : Math.round(rowsSum));
   assert.ok(ids.length);
   for (const id of ids) {
     const line = r.s.credit.lines.find((l) => l.id === id);
@@ -732,7 +742,15 @@ async function compact(p) {
     cardTile(page.blockHtml('credit'), line);
     const html = page.sandbox.StackWaterfall.html(ctx, { creditOpen: true });
     const drop = capture(html, /(<li[^>]*data-debt-id="travelvisa"[\s\S]*?<\/li>)/, 'historical dropdown');
-    defect(9, 'completed period shows minimum', cell(drop, 'stackSummary.bills.cardMinimums.0.amount'), 25);
+    // Finding 9, fixed by BUILD 7: the completed period's dropdown prints the published remainder (25 − 20 = 5), and its
+    // Credit line reads that remainder over the historical cash deduction, the 25 minimum.
+    const index = historical.stackSummary.creditBreakdown.rows.findIndex((row) => row.debtId === 'travelvisa');
+    assert.equal(historical.stackSummary.creditBreakdown.basis, 'minimums', name + ': completed period keeps the minimums basis');
+    assert.equal(cell(drop, 'stackSummary.creditBreakdown.rows.' + index + '.amount'), 5, name + ': completed dropdown shows the remainder');
+    assert.ok(!/stackSummary\.bills\.cardMinimums/.test(drop), name + ': completed dropdown no longer falls back to the minimum');
+    assert.equal(cell(html, 'stackSummary.creditBreakdown.stillToPayBack.amount'), 5, name + ': completed Credit line remainder');
+    assert.equal(cell(html, 'stackSummary.surplus.terms.credit'), 25, name + ': completed Credit line keeps the minimum deduction');
+    assert.equal(historical.stackSummary.surplus.terms.credit, 25, name + ': completed Surplus still takes the minimum');
   }
   surfaces(observe({ ...p, bill: 16.5 }, 'mapped'), ['travelvisa'], 1);
 }
@@ -828,7 +846,8 @@ async function main() {
   const ids = new Set([...defects].map((s) => Number(s.split(' ')[0])));
   assert.deepEqual(
     [...ids].sort((a, b) => a - b),
-    [2, 4, 5, 6, 7, 9, 10, 11, 12]
+    // 9 (completed-period minimum in the dropdown) is fixed by BUILD 7 and is a hard assertion in compact().
+    [2, 4, 5, 6, 7, 10, 11, 12]
   );
   for (const label of defects) console.log('KNOWN-DEFECT ' + label);
   console.log(
