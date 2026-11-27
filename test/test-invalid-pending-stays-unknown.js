@@ -174,5 +174,150 @@ for (const [label, rows] of [
   }
 }
 
+// ── A pending row that may already be a posted row the card balance holds
+// (a surface twin, or several candidates, with no provider link to say which)
+// is neither added to the card's pending exposure nor dropped. Real observer
+// -> reconcile -> live plan -> Forecast, on the invented aggregate world.
+// Hand-computed expectations (nothing here is read back from the code under
+// test). Card opening balance 400, limit 500 unless stated, so:
+//   posted only: balance 400 + 60 posted purchase = 460, room 500 - 460 = 40,
+//                Stack target balance 460.
+//   a twin counted twice would read 460 + 60 = 520: over the limit by 20 and
+//                a Stack target balance of 520 (the defect).
+// Pending rows are not in the posted balance, so each ledger's posted balance
+// is 400 plus its posted purchases only. ──
+{
+  const aggregate = require('./fixtures/card-coverage-aggregate-world');
+  const LIMIT = 500;
+  const POLICY = { policy: 'true-surplus-highest-interest', provenance: 'owner-stated' };
+  const pendingOf = (amount, id, extra, account = 'card') => [account, amount, null, 'purchase',
+    { is_pending: true, status: 'pending', plaid_metadata: { transaction_id: id }, ...(extra || {}) }];
+  const postedOf = (amount, predecessor, postedId = 'tx-post') => ['card', amount, null, 'purchase',
+    predecessor ? { plaid_metadata: { transaction_id: postedId, pending_transaction_id: predecessor } } : {}];
+  const cafe = { payee: 'Invented cafe' };
+
+  function ledger(rows, opts = {}) {
+    const x = aggregate.world(rows, { twoCards: opts.twoCards, edit: xx => {
+      // The posted balance never holds a pending row.
+      for (const [index, accountId] of [[3, 3004], [4, 3005]]) {
+        if (!xx.payload.accounts[index]) continue;
+        xx.payload.accounts[index].balance -= xx.payload.transactions
+          .filter(t => t.account_id === accountId && t.is_pending).reduce((s, t) => s + t.amount, 0);
+      }
+      xx.data.meta.asOf = xx.data.plan.opening.asOf = xx.asOf;
+      xx.data.debts[0].limit = opts.limit || LIMIT;
+      xx.data.debts[0].rate = 19.99;
+    } });
+    const report = O.observe({ provider: 'lunchmoney', ...x });
+    const out = aggregate.run(x);
+    const debts = out.observed.data.debts;
+    const plan = Object.assign({}, out.observed.data.plan, { nextDollar: POLICY });
+    const util = F.utilisation(debts, [], plan);
+    const pendingFor = id => report.observations.find(o => o.fact === 'pending' && o.cardId === id);
+    return {
+      obs: pendingFor('travelvisa'),
+      obs2: pendingFor('mbna'),
+      posted: report.observations.find(o => o.fact === 'posted-balance' && o.cardId === 'travelvisa'),
+      debts, card: debts.find(d => d.id === 'travelvisa'), util, row: util.rows.find(r => r.id === 'travelvisa'),
+      target: F.debtPriority(plan, debts).target,
+      issues: ((out.coverage && out.coverage.issues) || []).map(i => i.code),
+      coverage: out.coverage,
+    };
+  }
+  const unknownLane = (r, count, label) => {
+    eq([r.obs.unknown, r.obs.evidenceValue, r.obs.unknownReason, r.obs.unresolvedReplacementCount],
+      [true, null, 'pending-replacement-unresolved', count], label + ': pending exposure unknown, not a sum');
+    eq(r.card.pendingUnknown, true, label + ': live plan marks the card pending unknown');
+  };
+  const noExactOverage = (r, label) => {
+    eq([r.row.available, r.row.overLimit, r.row.overLimitBy, r.row.pendingUnknown], [null, null, null, true],
+      label + ': no exact room or overage is published');
+    eq(r.util.totalAvailable, null, label + ': credit left is unknown');
+    eq([r.target.balance, r.target.pendingUnknown], [460, true],
+      label + ': Stack target is the posted 460 held as unknown pending, not 520');
+  };
+
+  // Posted only, and the directed twin counted once, read the same.
+  for (const [label, rows] of [
+    ['posted only', [postedOf(60)]],
+    ['directed twin counted once', [postedOf(60, 'tx-pend'), pendingOf(60, 'tx-pend')]],
+  ]) {
+    const r = ledger(rows);
+    eq([r.obs.unknown, r.obs.evidenceValue], [false, 0], label + ': pending exposure is a known zero');
+    eq([r.posted.evidenceValue, r.card.balance, !!r.card.pendingUnknown], [460, 460, false], label + ': posted 460, pending known');
+    eq([r.row.available, r.row.overLimit, r.target.balance], [40, false, 460], label + ': room 40, not over, target balance 460');
+    eq(r.coverage.status, 'ready', label + ': card coverage is ready');
+  }
+
+  // A lone surface twin with no identity: unknown, never 520 and never dropped.
+  {
+    const r = ledger([postedOf(60), pendingOf(60, 'tx-pend')]);
+    unknownLane(r, 1, 'unresolved twin');
+    eq(r.posted.evidenceValue, 460, 'unresolved twin: the posted balance is still observed as 460');
+    eq(r.obs.components.length, 1, 'unresolved twin: the pending row is kept, not collapsed');
+    noExactOverage(r, 'unresolved twin');
+    eq([r.coverage.status, r.issues.includes('coverage-replacement-ambiguous')], ['unavailable', true],
+      'unresolved twin: card coverage keeps coverage-replacement-ambiguous');
+    // The same twin on a card already over its limit on posted alone stays a known over-limit.
+    const over = ledger([postedOf(60), pendingOf(60, 'tx-pend')], { limit: 450 });
+    eq([over.row.overLimit, over.row.overLimitBy, over.row.available], [true, 10, 0],
+      'unresolved twin on a card over its limit on posted alone: the posted overage 10 is still known');
+  }
+
+  // Genuinely separate pending is retained and counted: 460 + 35 = 495, room 5.
+  {
+    const r = ledger([postedOf(60), pendingOf(35, 'tx-cafe', cafe)]);
+    eq([r.obs.unknown, r.obs.evidenceValue, !!r.card.pendingUnknown], [false, 35, false], 'separate pending: counted as 35, known');
+    eq([r.row.available, r.row.overLimit, r.target.balance], [5, false, 495], 'separate pending: room 5, target balance 495');
+    eq(r.obs.components.some(c => c.possibleReplacement), false, 'separate pending: not flagged as a possible replacement');
+    eq(r.issues.includes('coverage-replacement-ambiguous'), false, 'separate pending: no replacement ambiguity');
+  }
+
+  // Known pending beside an unresolved twin: the card total is unknown, and
+  // the known row stays listed and unflagged.
+  {
+    const r = ledger([postedOf(60), pendingOf(60, 'tx-pend'), pendingOf(35, 'tx-cafe', cafe)]);
+    unknownLane(r, 1, 'known pending beside an unresolved twin');
+    noExactOverage(r, 'known pending beside an unresolved twin');
+    const flagged = r.obs.components.filter(c => c.possibleReplacement === true);
+    const known = r.obs.components.filter(c => c.possibleReplacement !== true);
+    eq([r.obs.components.length, flagged.length, known.length, known[0].amount, known[0].contributesToCurrentPending],
+      [2, 1, 1, 35, true],
+      'known pending beside an unresolved twin: both rows listed, only the twin flagged, the other still contributes 35');
+  }
+
+  // Several candidates: two posted rows both name the one pending, or two
+  // pending rows both claim the one posted row. Neither resolves.
+  {
+    const r = ledger([postedOf(60, 'tx-pend', 'tx-post-1'), postedOf(60, 'tx-pend', 'tx-post-2'), pendingOf(60, 'tx-pend')],
+      { limit: 600 });
+    unknownLane(r, 1, 'two posted candidates for one pending');
+    eq([r.posted.evidenceValue, r.row.available, r.row.overLimit], [520, null, null],
+      'two posted candidates for one pending: posted 520 observed, room unknown (never 600 - 520 - 60 = 20)');
+    const r2 = ledger([postedOf(60, 'tx-pend'), pendingOf(60, 'tx-pend'), pendingOf(60, 'tx-pend')], { limit: 600 });
+    unknownLane(r2, 2, 'two pending rows claiming one posted');
+    eq([r2.obs.components.length, r2.row.available], [2, null], 'two pending rows claiming one posted: both kept, room unknown');
+  }
+
+  // A second same-amount pending the provider says is a different transaction
+  // (the posted row's predecessor is the first) is separate and still counted:
+  // 460 + 60 = 520 against a 600 limit, room 80.
+  {
+    const r = ledger([postedOf(60, 'tx-pend-1'), pendingOf(60, 'tx-pend-1'), pendingOf(60, 'tx-pend-2')], { limit: 600 });
+    eq([r.obs.unknown, r.obs.evidenceValue, r.obs.components.length], [false, 60, 1],
+      'directed twin counted once, a different-identity pending retained: pending 60, known');
+    eq([r.row.available, r.row.overLimit, r.target.balance], [80, false, 520], 'that pending is counted: room 80, target balance 520');
+  }
+
+  // The unknown is the affected card only.
+  {
+    const r = ledger([postedOf(60), ['card2', 40, null, 'purchase'], pendingOf(40, 'tx-two', {}, 'card2')], { twoCards: true });
+    eq([r.obs.unknown, r.obs.evidenceValue, !!r.card.pendingUnknown], [false, 0, false], 'other card: its own pending stays a known zero');
+    eq([r.obs2.unknown, r.obs2.evidenceValue, r.obs2.unknownReason], [true, null, 'pending-replacement-unresolved'],
+      'twin on the second card: only that card is unknown');
+    eq(r.debts.find(d => d.id === 'mbna').pendingUnknown, true, 'the second card is marked unknown in the live plan');
+  }
+}
+
 console.log('PASS an invalid pending amount keeps card pending unknown through observe -> reconcile -> live plan -> Forecast: '
   + checks + ' independent checks');

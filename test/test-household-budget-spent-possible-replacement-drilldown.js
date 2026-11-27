@@ -236,10 +236,15 @@ console.log('\n=== 1–5. flagged pending omitted from drill-down; Forecast evid
   });
   const pending = (report.observations || []).find(o => o.observationId === 'lm-3006-pending');
   const aiPend = pending && (pending.components || []).find(c => c.providerTransactionId === '91002');
-  ok(pending && near(pending.evidenceValue, independentPending)
+  // No provider link ties the unresolved twin to the posted row, so the card's
+  // pending exposure is unknown rather than the exact sum above; the row is
+  // still kept in the exposure's components, flagged as a possible replacement.
+  ok(pending && pending.unknown === true && pending.evidenceValue === null
+      && pending.unknownReason === 'pending-replacement-unresolved'
       && aiPend && aiPend.contributesToCurrentPending === true
-      && aiPend.settlementTreatment === 'unresolved',
-    'revolving pending exposure still contains the unresolved $44.99',
+      && aiPend.settlementTreatment === 'unresolved'
+      && aiPend.possibleReplacement === true,
+    'revolving pending exposure is unknown; the unresolved row is kept and flagged',
     pending && String(pending.evidenceValue));
 }
 
