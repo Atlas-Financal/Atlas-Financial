@@ -218,6 +218,7 @@
   ["week lows read from their own days: every answer unchanged","test-week-low-own-days.js"],
   ["Stack Wallet surplus after deductions per pay period","test-stack-summary-surplus.js"],
   ["Ledger re-sorts preserve Forecast and Stack figures across refreshes","test-stack-reshuffle-invariants.js"],
+  ["Invented habits household: dated card settlement and independent Bills evidence under a card sync fault","test-habits-household.js"],
   ["Stack page waterfall block: every printed amount is a named published value","test-stack-waterfall.js"],
   ["The waterfall Credit dropdown lists only the minimums due this pay period, each with a check once Forecast publishes it covered","test-stack-credit-minimum-checks.js"],
   ["Stack Wallet savings per goal: this period's plan beside what moved (A5)","test-stack-savings-summary.js"],
