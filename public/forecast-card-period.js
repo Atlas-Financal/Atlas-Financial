@@ -368,7 +368,17 @@
         const positiveNonCharge = id !== 'heloc' && value > 0 && (tx.isIncome === true
           || ['transfer', 'internal-transfer', 'refund', 'income'].includes(hint)
           || ['transfer', 'refund', 'income'].includes(classification?.kind));
-        const kind = ['payment', 'card-payment', 'bill-payment'].includes(hint) || tx.cardPaymentIdentity === true ? 'payment'
+        // The issuer's own receipt (Grok Bot ruling, rule 17, 2026-11-17): a signed credit on a mapped TD card whose original bank
+        // description is exactly "PAYMENT - THANK YOU", qualified once by the observer and Forecast (primitives.tdCardPaymentCredit,
+        // never re-derived here). It is a card-side payment only when it is a posted, unambiguous row of this card: a pending,
+        // replaced, duplicate, contradictory or unpostable one stays credit-unconfirmed and still withholds Spent, and a credit
+        // without the flag is never inferred a payment from its sign, text or amount. This reads the card side only: Paid back
+        // stays the paying side's (payerPaid), so the receipt is never a second count of the debit that funded it.
+        const issuerReceipt = id !== 'heloc' && value != null && value < 0 && hint === ''
+          && tx.pending === false && tx.savingsPostingEvidence === 'posted' && tx.tdCardPaymentCredit === true
+          && typeof primitives.tdCardPaymentCredit === 'function' && primitives.tdCardPaymentCredit(tx) === true
+          && !replaced && tx.pendingPostedAmbiguous !== true && tx.pendingPostedDuplicate !== true && tx.contradictoryEvidence !== true;
+        const kind = ['payment', 'card-payment', 'bill-payment'].includes(hint) || tx.cardPaymentIdentity === true || issuerReceipt ? 'payment'
           : positiveNonCharge ? 'movement-unconfirmed'
           : id === 'heloc' && hint === 'interest' || classification?.kind === 'interest' ? 'interest'
           : value != null && value < 0 ? 'credit-unconfirmed'

@@ -84,6 +84,9 @@
       balanceEvidence: opts.cardPeriodBalanceEvidence || null, overlay: opts.liveOverlay || null }, {
       date: savingsDate, cents: savingsCents, money: cardMoneyCents, addDays, skipParent: skipSplitParent,
       payingSidePayment,
+      // The one qualified TD "PAYMENT - THANK YOU" receipt identity (Grok Bot ruling, rule 17, 2026-11-17): a signed credit on a
+      // mapped TD card. The card publication reads it for a posted card-side credit only; it never decides the payer's side.
+      tdCardPaymentCredit: tx => isTdCardPaymentCredit(tx),
       // Incoming deposits count as card reversals only with card identity.
       incomingCardReversal: incomingCardReversalIdentity,
       unnotedHouseholdMovement: tx => provenInternalMovementForTx(tx, opts) && !cardPaymentNoteEvidence(tx),
