@@ -202,7 +202,8 @@ for (const [label, rows] of [
         xx.payload.accounts[index].balance -= xx.payload.transactions
           .filter(t => t.account_id === accountId && t.is_pending).reduce((s, t) => s + t.amount, 0);
       }
-      xx.data.meta.asOf = xx.data.plan.opening.asOf = xx.asOf;
+      // An advance leaves the canonical opening earlier than the live day.
+      if (!opts.advance) xx.data.meta.asOf = xx.data.plan.opening.asOf = xx.asOf;
       xx.data.debts[0].limit = opts.limit || LIMIT;
       xx.data.debts[0].rate = 19.99;
     } });
@@ -304,6 +305,32 @@ for (const [label, rows] of [
     eq([r.obs.unknown, r.obs.evidenceValue, r.obs.components.length], [false, 60, 1],
       'directed twin counted once, a different-identity pending retained and counted, known');
     eq([r.row.available, r.row.overLimit, r.target.balance], [80, false, 520], 'that pending is counted: room and target include it');
+  }
+
+  // The live day is later than the canonical opening (the normal live refresh).
+  // The unresolved replacement is fresh and explicitly unknown, so the advance
+  // is not refused: posted facts stay current, the card is pending-unknown,
+  // and nothing exact is published. An unusable pending row on an advance is
+  // still refused (pinned above).
+  {
+    for (const [label, rows, count] of [
+      ['unresolved twin', [postedOf(60), pendingOf(60, 'tx-pend')], 1],
+      ['known pending beside an unresolved twin', [postedOf(60), pendingOf(60, 'tx-pend'), pendingOf(35, 'tx-cafe', cafe)], 1],
+      ['two pending rows claiming one posted', [postedOf(60, 'tx-pend'), pendingOf(60, 'tx-pend'), pendingOf(60, 'tx-pend')], 2],
+    ]) {
+      const r = ledger(rows, { advance: true, limit: 600 });
+      unknownLane(r, count, 'advance, ' + label);
+      eq([r.row.available, r.row.overLimit, r.row.overLimitBy], [null, null, null], 'advance, ' + label + ': no exact room or overage');
+      eq(r.posted.evidenceValue, 460, 'advance, ' + label + ': the observed posted balance is current');
+    }
+    // Controls on an advance: a posted-only card and a genuinely separate
+    // pending are unaffected, and a twin on another card marks only that card.
+    const posted = ledger([postedOf(60)], { advance: true });
+    eq([posted.obs.unknown, posted.obs.evidenceValue, !!posted.card.pendingUnknown], [false, 0, false], 'advance, posted only: known zero');
+    const separate = ledger([postedOf(60), pendingOf(35, 'tx-cafe', cafe)], { advance: true });
+    eq([separate.obs.evidenceValue, separate.row.available, separate.target.balance], [35, 5, 495], 'advance, separate pending: counted');
+    const two = ledger([postedOf(60), ['card2', 40, null, 'purchase'], pendingOf(40, 'tx-two', {}, 'card2')], { twoCards: true, advance: true });
+    eq([!!two.card.pendingUnknown, two.debts.find(d => d.id === 'mbna').pendingUnknown], [false, true], 'advance, twin on a second card: only that card unknown');
   }
 
   // The unknown is the affected card only.

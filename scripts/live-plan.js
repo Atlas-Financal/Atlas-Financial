@@ -285,6 +285,19 @@ function pendingFreshForLiveAsOf(row, report, liveAsOf) {
   return true;
 }
 
+// A pending row dated the live day that says its exposure is unknown only
+// because a pending row may already be a posted row the provider does not link
+// is not stale evidence: the card is marked pending-unknown by
+// markUnknownPending, so the advance keeps its fresh posted figures and
+// Forecast holds everything that depends on the pending exposure. An unusable
+// pending row (invalid-pending-row) stays refused as before.
+function unresolvedReplacementUnknownForLiveAsOf(row, report, liveAsOf) {
+  if (!row || row.fact !== 'pending' || row.unknown !== true || row.status === 'CONFLICT' || !liveAsOf
+    || liveEvidenceDate(row) !== liveAsOf) return false;
+  const obs = ((report && report.observations) || []).find(o => o && o.observationId === row.observationId);
+  return !!(obs && obs.unknown === true && obs.unknownReason === 'pending-replacement-unresolved');
+}
+
 function rowFreshForLiveAsOf(row, report, liveAsOf) {
   if (!row || !liveAsOf) return false;
   if (row.fact === 'pending') return pendingFreshForLiveAsOf(row, report, liveAsOf);
@@ -329,7 +342,8 @@ function assertFreshLivePacket(data, report, liveAsOf) {
     const pendingRows = pendingRowsForDebt(report, debt.id);
     if (!mappedDebts.has(debt.id) && !pendingRows.length) continue;
     const locator = `debts:${debt.id}#pending`;
-    const fresh = pendingRows.find(row => pendingFreshForLiveAsOf(row, report, liveAsOf));
+    const fresh = pendingRows.find(row => pendingFreshForLiveAsOf(row, report, liveAsOf)
+      || unresolvedReplacementUnknownForLiveAsOf(row, report, liveAsOf));
     if (!fresh) fail(`pending-freshness-unproven: ${locator}`);
   }
 }
