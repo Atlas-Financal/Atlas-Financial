@@ -18,7 +18,15 @@ function assertHousehold(served, result, e) {
   assert.equal(served.plan.opening.paydaySnapshot.opening, 300 + 100, 'independent pre-pay opening');
   assert.equal(served.plan.opening.representedEvents.filter(r => r.id === 'payroll').length, 1);
   assert.equal(served.debts[0].balance, e.card);
-  assert.equal(served.debts[0].pending, e.pending);
+  if (e.hold) {
+    // The unlinked pair has no provider identity, so the card's pending is
+    // unknown (never an exact sum that may count one purchase twice); the
+    // posted balance above is still the observed one.
+    assert.equal(served.debts[0].pendingUnknown, true);
+  } else {
+    assert.equal(served.debts[0].pending, e.pending);
+    assert.notEqual(served.debts[0].pendingUnknown, true);
+  }
   const stocks = served.plan.startingCash.breakdown;
   assert.equal(stocks.find(a => a.id === 'chequing-a').value, e.a);
   assert.equal(stocks.find(a => a.id === 'chequing-b').value, e.b);

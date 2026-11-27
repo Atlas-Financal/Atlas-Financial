@@ -1350,6 +1350,11 @@ function pendingComponentsForCard(transactions, mapping, asOf, opts) {
       confidence: treatment.confidence,
       conflict: treatment.conflict === true,
       contributesToCurrentPending: treatment.treatment === 'unresolved' && treatment.conflict !== true,
+      // The settlement pass flagged this pending row as a possible earlier
+      // state of a posted row it could not link by identity (a lone surface
+      // twin, or two or more candidates). The row is kept, never collapsed.
+      ...(tx.pendingPostedDuplicate === true || tx.pendingPostedAmbiguous === true
+        ? { possibleReplacement: true } : {}),
     });
   }
   return components;
@@ -1451,6 +1456,38 @@ function pendingObservationsFromTransactions(input) {
         canonical: { collection: 'debts', id: mapping.canonical.id, field: 'pending' },
         source: 'provider-observe:lunchmoney-transactions',
         note: 'A pending transaction on this card has an unusable amount or date. Pending exposure is unknown, not zero. Posted balance is a separate fact. Not household cash.',
+        components,
+      });
+      continue;
+    }
+    // A pending row that may already be settled into a posted row the card's
+    // own balance reports, with no provider identity to say so, is neither
+    // added to the exposure nor dropped: the card's pending exposure is
+    // unknown (the existing unknown lane), never an exact figure that may
+    // count one purchase twice. The posted balance is a separate fact and is
+    // left as observed; other pending rows stay listed as components.
+    const unresolvedReplacement = components.filter(c =>
+      c.possibleReplacement === true && c.contributesToCurrentPending).length;
+    if (unresolvedReplacement > 0) {
+      out.push({
+        observationId: `lm-${mapping.providerAccountId}-pending`,
+        fact: 'pending',
+        cardId: mapping.canonical.id,
+        provider: 'lunchmoney',
+        providerAccountId: String(mapping.providerAccountId),
+        accountLabel: mapping.canonical.id,
+        evidenceValue: null,
+        observedAsOf: asOf,
+        evidenceDate: asOf,
+        unknown: true,
+        unknownReason: 'pending-replacement-unresolved',
+        unresolvedReplacementCount: unresolvedReplacement,
+        balanceIncludesPending: false,
+        pendingCoverage: coverage.status,
+        pendingProof: null,
+        canonical: { collection: 'debts', id: mapping.canonical.id, field: 'pending' },
+        source: 'provider-observe:lunchmoney-transactions',
+        note: 'A pending transaction on this card may already be the posted transaction the card balance includes, and the provider gives no link that says so. Pending exposure is unknown, not an exact sum. Posted balance is a separate fact. Not household cash.',
         components,
       });
       continue;

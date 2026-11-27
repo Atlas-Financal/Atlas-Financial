@@ -282,10 +282,17 @@ console.log('\n=== 4b. unresolved pending exposure is not discarded ===');
   });
   const pending = (report.observations || []).find(o => o.observationId === 'lm-3006-pending');
   const aiPend = pending && (pending.components || []).find(c => c.providerTransactionId === '91002');
-  ok(pending && near(pending.evidenceValue, independentPending)
+  // The unresolved twin has no provider link to the posted row, so the card's
+  // pending exposure is unknown (never the exact sum above, which may count
+  // the one purchase twice). The row is still kept: not collapsed, not zeroed.
+  ok(pending && pending.unknown === true && pending.evidenceValue === null
+      && pending.unknownReason === 'pending-replacement-unresolved'
       && aiPend && aiPend.contributesToCurrentPending === true
-      && aiPend.settlementTreatment === 'unresolved',
-    'observer pending exposure keeps the unresolved $44.99; it is not collapsed or zeroed',
+      && aiPend.settlementTreatment === 'unresolved'
+      && aiPend.possibleReplacement === true
+      && (pending.components || []).some(c => c !== aiPend && near(c.amount, 250)
+        && c.possibleReplacement !== true && c.contributesToCurrentPending === true),
+    'observer pending exposure is unknown, not an exact sum; the unresolved row is kept and flagged, the other pending row stays listed',
     pending && String(pending.evidenceValue));
   const actuals = report.currentPeriodActuals || {};
   const twins = (actuals.transactions || []).filter(tx => near(tx.amount, AICHAT_AMT));

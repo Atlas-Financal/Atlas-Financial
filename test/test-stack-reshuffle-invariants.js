@@ -542,12 +542,25 @@ function generated(p) {
       [bill, hold, surplus],
       name
     );
-    const trust = name === 'pending' ? 'estimated' : 'calculated';
-    assert.deepEqual(
-      [l.spent.trust, l.target.trust, l.deduction.trust, r.s.surplus.trust],
-      [trust, trust, trust, trust],
-      name + ' trust'
-    );
+    if (name === 'twins') {
+      // An unlinked pending/posted pair leaves the card's pending unknown. Spent still counts the purchase once and
+      // the payer and cash figures reconcile (asserted above), but the over-limit is unknown, so the target and what
+      // hangs on it are a lower bound, estimated.
+      assert.deepEqual(
+        [l.spent.trust, l.paidBack.trust, l.target.trust, [...l.target.reasons], l.target.overLimitBy,
+          l.stillToPayBack.trust, l.deduction.trust, l.targetCovered.trust, r.s.surplus.trust],
+        ['calculated', 'calculated', 'estimated', ['over-limit-unknown'], null,
+          'estimated', 'estimated', 'estimated', 'estimated'],
+        name + ' trust'
+      );
+    } else {
+      const trust = name === 'pending' ? 'estimated' : 'calculated';
+      assert.deepEqual(
+        [l.spent.trust, l.target.trust, l.deduction.trust, r.s.surplus.trust],
+        [trust, trust, trust, trust],
+        name + ' trust'
+      );
+    }
     surfaces(r);
   }
   // #1664: every recognized debit adds to the card. An excluded purchase

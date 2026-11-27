@@ -790,6 +790,8 @@
       if (!rows.length) return { cents: 0, trust: 'calculated', reasons: [] };
       const by = cents(rows[0].overLimitBy);
       if (by === null) return { cents: 0, trust: 'estimated', reasons: ['over-limit-unknown'] };
+      // Posted alone is over the limit but the card's pending is unknown: the posted overage is only a lower bound.
+      if (rows[0].pendingUnknown === true) return { cents: Math.max(0, by), trust: 'estimated', reasons: ['over-limit-unknown'] };
       const stale = rows[0].balanceTrust === 'estimated';
       const out = { cents: Math.max(0, by), trust: stale ? 'estimated' : 'calculated',
         reasons: stale ? ['over-limit-balance-estimated'] : [] };
@@ -904,14 +906,16 @@
       // A lower-bound target cannot establish full repayment. With unknown charges, withhold a remainder
       // below half a dollar because the Stack displays whole dollars and would print it as $0.
       const chargesUnavailable = target.reasons.includes('new-charges-unavailable');
+      const overLimitUnknown = target.reasons.includes('over-limit-unknown');
       const remainderCents = targetCents === null || towardCents === null ? null : Math.max(0, targetCents - towardCents);
-      const remainderUnavailable = remainderCents === null || (chargesUnavailable && remainderCents < 50);
+      const remainderUnavailable = remainderCents === null || ((chargesUnavailable || overLimitUnknown) && remainderCents < 50);
       const coverageReasons = [...new Set((targetCents === null ? target.reasons : [])
-        .concat(towardCents === null ? progress.reasons : [], chargesUnavailable ? ['new-charges-unavailable'] : []))];
+        .concat(towardCents === null ? progress.reasons : [], chargesUnavailable ? ['new-charges-unavailable'] : [], overLimitUnknown ? ['over-limit-unknown'] : []))];
       const stillToPayBack = remainderUnavailable
         ? { amount: null, trust: 'unavailable', reasons: coverageReasons }
         : { amount: remainderCents / 100, trust: weakest(target.trust, progress.trust), reasons: [] };
-      const targetCovered = remainderUnavailable || chargesUnavailable
+      // A lower-bound target can show the target is not yet covered, never that it is.
+      const targetCovered = remainderUnavailable || chargesUnavailable || (overLimitUnknown && !(towardCents < targetCents))
         ? { value: 'unknown', trust: 'unavailable', reasons: coverageReasons.slice() }
         : { value: targetCents > 0 && towardCents >= targetCents, trust: weakest(target.trust, progress.trust), reasons: [] };
       // Covered reads posted payments only: a pending payment never by itself makes a minimum covered (lead ruling, 2026-11-22).
@@ -1014,6 +1018,12 @@
     Object.assign(totals, creditHeadTotals(lines, unconfirmedPayments));
     return { lines, totals, unconfirmedPayments };
   }
+  function hasOpenCreditTarget(line) {
+    const target = cents(line.target.amount);
+    return target === null || target > 0
+      || (target === 0 && line.target.reasons?.includes('over-limit-unknown'));
+  }
+
   function creditHeadTotals(lines, unconfirmedPayments) {
     const out = {};
     // The Credit head (OD-052, Dale, 2026-11-25: "it should be [total paid back]/[sum of the card targets]"), over the lines
@@ -1025,7 +1035,10 @@
     // never a partial sum. An unidentified return withholds the paid side, as it withholds each such line's progress.
     // targetCovered is true only when every such line is published covered, so an overpaid card never shows another card's
     // shortfall as covered.
-    const openLines = lines.filter(line => cents(line.target.amount) === null || cents(line.target.amount) > 0);
+    // A zero lower bound still leaves coverage unresolved. Its paid amount
+    // does not join the head's sum against positive or withheld targets.
+    const coverageLines = lines.filter(hasOpenCreditTarget);
+    const openLines = coverageLines.filter(line => cents(line.target.amount) !== 0);
     const unseenPaid = openLines.filter(line => line.paidBack.amount === null);
     // An unidentified return withholds the paid side even with nothing to pay back, as it withholds minimumsPaid.
     const reversalHeld = (unconfirmedPayments || []).some(payment => payment.amount < 0);
@@ -1040,13 +1053,13 @@
       ? { amount: null, trust: 'unavailable', reasons: [...new Set(unseenTarget.flatMap(line => line.target.reasons))] }
       : { amount: lines.reduce((sum, line) => sum + cents(line.target.amount), 0) / 100,
         trust: weakest(...lines.map(line => line.target.trust)), reasons: [] };
-    const coverUnknown = !openLines.length || openLines.some(line => line.targetCovered.value === 'unknown');
+    const coverUnknown = !coverageLines.length || coverageLines.some(line => line.targetCovered.value === 'unknown');
     out.targetCovered = coverUnknown
-      ? { value: openLines.length ? 'unknown' : false, trust: openLines.length ? 'unavailable' : weakest(...lines.map(line => line.target.trust)),
-        reasons: openLines.length ? [...new Set(openLines.flatMap(line => line.targetCovered.reasons))] : [] }
-      : { value: openLines.every(line => line.targetCovered.value === true),
-        trust: weakest(...openLines.map(line => line.targetCovered.trust)), reasons: [] };
+      ? { value: coverageLines.length ? 'unknown' : false, trust: coverageLines.length ? 'unavailable' : weakest(...lines.map(line => line.target.trust)),
+        reasons: coverageLines.length ? [...new Set(coverageLines.flatMap(line => line.targetCovered.reasons))] : [] }
+      : { value: coverageLines.every(line => line.targetCovered.value === true),
+        trust: weakest(...coverageLines.map(line => line.targetCovered.trust)), reasons: [] };
     return out;
   }
-  return { publish, stackCards, stackCreditLines, creditHeadTotals };
+  return { publish, stackCards, stackCreditLines, creditHeadTotals, hasOpenCreditTarget };
 });
