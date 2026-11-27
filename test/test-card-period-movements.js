@@ -32,6 +32,31 @@ const publish = x => F.cardPeriodMovements(x.plan, x.debts, x.asOf, x.window,
   eq([view.balanceAfterDeductions, view.balanceAfterDeductionsTrust, view.stackSummary.surplus.amount, view.stackSummary.surplus.trust],
     [825, 'estimated', 825, 'estimated'], 'income 1000 less hold 150 less minimum 25');
 }
+// A named guilt-free category is ordinary card spending, including while pending.
+{
+  const { world } = require('./fixtures/card-coverage-aggregate-world');
+  const Live = require('../scripts/live-plan');
+  for (const [category, categoryId] of [['Dale', 'dale-guilt-free'], ['Amanda', 'amanda-guilt-free']]) {
+    const input = world([
+      ['card', 80, null, 'purchase'],
+      ['card', 37, null, 'purchase', {
+        category_name: category, is_pending: true, payee: 'Invented allowance purchase',
+      }],
+    ]);
+    input.payload.accounts[3].last_fetch = input.asOf + 'T17:00:00Z';
+    const { data } = Live.fromObservation(input);
+    const { currentPeriodActuals } = data.liveOverlay;
+    const pending = currentPeriodActuals.transactions.find(row => row.categoryLabel === category);
+    const classification = F.classifyCurrentPeriodTransaction(pending, data.plan);
+    eq([pending.pending, classification.kind, classification.categoryId], [true, 'spend', categoryId],
+      category + ' remains an ordinary pending purchase in the named budget category');
+    const period = F.recommend(data.plan, input.asOf, F.budgetRecommendInputs(data)).payPeriodViews.find(view => view.role === 'active');
+    const card = period.stackSummary.credit.lines.find(line => line.id === input.cardId);
+    eq([card.spent.amount, card.spent.trust, card.target.amount], [117, 'estimated', 117],
+      category + ' keeps the posted 80 and pending 37 in New charges and the target');
+    assert.ok(card.spent.reasons.includes('includes-pending'), category + ' is still marked pending');
+  }
+}
 const x = fixture(), before = JSON.stringify(x), pub = publish(x);
 // Existing engine mutation suites expose module.exports without require.
 const sandbox = { module: { exports: {} } };
