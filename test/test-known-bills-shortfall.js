@@ -21,6 +21,7 @@ try {
   const Live = require('../scripts/live-plan');
   const Refresh = require('../scripts/refresh-trust');
   const History = require('../scripts/private-period-history');
+  const Assistant = require('../scripts/assistant-packet');
   const { world } = require('./fixtures/card-coverage-aggregate-world');
 
   function scenario(balance, charges, {
@@ -117,7 +118,12 @@ try {
     assert.equal(active.billsAccountPeriodBalance.additionalCardCash, 0);
     assert.equal(active.billsAccountPeriodBalance.trust, 'estimated');
     assert.equal(active.billsAccountPeriodBalance.grantsSpendPermission, false);
+    assert.equal(active.plannedPeriodCloseTrust, 'estimated');
+    assert(active.plannedPeriodCloseReason.includes(observed.coverage.estimateReason));
     assert.equal(funding.contribution, null);
+    assert.equal(funding.estimateCause, undefined);
+    assert.equal(advice.paydayShellEstimateCause?.available, undefined);
+    assert.equal(advice.paydayShellEstimateCause?.household, undefined);
     assert.equal(funding.cashAfterProposal, null);
     assert(funding.periods.every(period => period.status === 'unavailable' && period.contribution === null));
     assert.equal(advice.planSpendPaydayFunding.status, 'unavailable');
@@ -176,6 +182,25 @@ try {
   assert.equal(outsideBills.advice.savingsFunding.period.proposal, null, 'other cash cannot release a Savings proposal');
   assert.equal(outsideBills.advice.currentPeriodAction.spendPermission, null);
   assert.deepEqual(outsideBills.advice.currentPeriodAction.todayActions, []);
+  const allocation = outsideBills.advice.paydayAllocation;
+  const essentialsLine = allocation.lines.find(row => row.kind === 'essentials');
+  assert(essentialsLine.amount > 0, 'fixture funds an essentials reserve from other cash');
+  for (const candidate of [allocation, allocation.essentials, essentialsLine]) {
+    assert.equal(candidate.weeklyCap, null);
+    assert.equal(candidate.spendPermission, null);
+  }
+
+  const packet = Assistant.buildPacket({ data: outsideBills.data, periods: null, questionsMarkdown: '',
+    env: {}, now: outsideBills.input.payload.fetchedAt });
+  const estimate = packet.forecast.cardCoverageEstimate;
+  assert.deepEqual(estimate, { basis: outsideBills.coverage.estimateBasis,
+    reason: outsideBills.coverage.estimateReason, toConfirmCount: 0 });
+  assert.equal(packet.forecast.horizon.minBalance, null);
+  assert.equal(packet.forecast.horizon.minReason, estimate.reason);
+  for (const projection of [packet.forecast.facilityCrossings, packet.planning.trajectory]) {
+    assert.equal(projection.status, 'unavailable');
+    assert.equal(projection.reason, estimate.reason);
+  }
 
   console.log('PASS known Bills shortfall is distinct from unreadable backing');
 } finally {
