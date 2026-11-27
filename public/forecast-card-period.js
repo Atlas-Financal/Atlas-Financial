@@ -790,6 +790,8 @@
       if (!rows.length) return { cents: 0, trust: 'calculated', reasons: [] };
       const by = cents(rows[0].overLimitBy);
       if (by === null) return { cents: 0, trust: 'estimated', reasons: ['over-limit-unknown'] };
+      // Posted alone is over the limit but the card's pending is unknown: the posted overage is only a lower bound.
+      if (rows[0].pendingUnknown === true) return { cents: Math.max(0, by), trust: 'estimated', reasons: ['over-limit-unknown'] };
       const stale = rows[0].balanceTrust === 'estimated';
       const out = { cents: Math.max(0, by), trust: stale ? 'estimated' : 'calculated',
         reasons: stale ? ['over-limit-balance-estimated'] : [] };
@@ -904,14 +906,16 @@
       // A lower-bound target cannot establish full repayment. With unknown charges, withhold a remainder
       // below half a dollar because the Stack displays whole dollars and would print it as $0.
       const chargesUnavailable = target.reasons.includes('new-charges-unavailable');
+      const overLimitUnknown = target.reasons.includes('over-limit-unknown');
       const remainderCents = targetCents === null || towardCents === null ? null : Math.max(0, targetCents - towardCents);
-      const remainderUnavailable = remainderCents === null || (chargesUnavailable && remainderCents < 50);
+      const remainderUnavailable = remainderCents === null || ((chargesUnavailable || overLimitUnknown) && remainderCents < 50);
       const coverageReasons = [...new Set((targetCents === null ? target.reasons : [])
-        .concat(towardCents === null ? progress.reasons : [], chargesUnavailable ? ['new-charges-unavailable'] : []))];
+        .concat(towardCents === null ? progress.reasons : [], chargesUnavailable ? ['new-charges-unavailable'] : [], overLimitUnknown ? ['over-limit-unknown'] : []))];
       const stillToPayBack = remainderUnavailable
         ? { amount: null, trust: 'unavailable', reasons: coverageReasons }
         : { amount: remainderCents / 100, trust: weakest(target.trust, progress.trust), reasons: [] };
-      const targetCovered = remainderUnavailable || chargesUnavailable
+      // A lower-bound target can show the target is not yet covered, never that it is.
+      const targetCovered = remainderUnavailable || chargesUnavailable || (overLimitUnknown && !(towardCents < targetCents))
         ? { value: 'unknown', trust: 'unavailable', reasons: coverageReasons.slice() }
         : { value: targetCents > 0 && towardCents >= targetCents, trust: weakest(target.trust, progress.trust), reasons: [] };
       // Covered reads posted payments only: a pending payment never by itself makes a minimum covered (lead ruling, 2026-11-22).

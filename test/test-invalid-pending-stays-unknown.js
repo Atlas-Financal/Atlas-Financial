@@ -416,5 +416,117 @@ for (const [label, rows] of [
   }
 }
 
+// ── A stale dated canonical pending amount is never a known exposure, and an
+// unknown card pending never publishes an exact overage or a covered flag.
+// Invented ledgers, hand-computed. Posted balance = opening plus the posted
+// purchases (a pending twin is never in it). The canonical pending left from an
+// earlier refresh is nonzero: it must not be added to any published balance.
+// Posted alone is the true floor. ──
+async function proveStaleAndLimitCases() {
+  const aggregate = require('./fixtures/card-coverage-aggregate-world');
+  const { loadStackPage } = require('./lib/budget-page-harness');
+  const POLICY = { policy: 'true-surplus-highest-interest', provenance: 'owner-stated' };
+  const purchase = (extra = {}) => ['card', 37, null, 'purchase', { payee: 'Invented merchant', category_name: null, ...extra }];
+  const twinRow = () => purchase({ is_pending: true, status: 'pending', plaid_metadata: { transaction_id: 'tx-twin' } });
+  const settle = (xx, limit, canonicalPending) => {
+    xx.payload.accounts[3].balance -= xx.payload.transactions
+      .filter(t => t.account_id === 3004 && t.is_pending).reduce((s, t) => s + t.amount, 0);
+    xx.data.debts[0].limit = limit; xx.payload.accounts[3].credit_limit = limit;
+    xx.data.debts[0].pending = canonicalPending;
+  };
+  async function stack(rows, { limit, pay, canonicalPending }) {
+    const x = aggregate.world([['card', 80, null, 'purchase'], ...rows,
+      ['bills', pay, null, 'cash', { notes: 'card payment: Travel Visa' }]], { edit(xx) {
+      xx.data.plan.budget.excluded = [{ from: 'Invented business' }];
+      for (const a of xx.payload.accounts) a.last_fetch = xx.asOf + 'T17:00:00Z';
+      settle(xx, limit, canonicalPending);
+      xx.data.meta.asOf = xx.data.plan.opening.asOf = xx.asOf;
+    } });
+    const { data } = Live.fromObservation(x);
+    const page = await loadStackPage({ data });
+    const ctx = page.context();
+    const view = ctx.recommendation.payPeriodViews.find(v => v.start === page.selectedKey());
+    const waterfall = page.sandbox.StackWaterfall.html(ctx, { creditOpen: true })
+      .match(/<li[^>]*data-debt-id="travelvisa"[\s\S]*?<\/li>/)?.[0] || '';
+    return { card: data.debts.find(d => d.id === 'travelvisa'), line: view.stackSummary.credit.lines.find(l => l.id === 'travelvisa'),
+      breakdown: view.stackSummary.creditBreakdown.rows.find(row => row.debtId === 'travelvisa'), waterfall };
+  }
+  // The row, the head's remainder and the dropdown say one thing: a withheld remainder is shown as not available.
+  const coherent = (r, why) => {
+    eq(r.breakdown.amount, r.line.stillToPayBack.amount, why + ': the breakdown row carries the line remainder');
+    if (r.line.stillToPayBack.amount === null) yes(/data-unpublished="true"/.test(r.waterfall) && /aria-label="not available"/.test(r.waterfall) && !/\$0\b/.test(r.waterfall), why + ': the dropdown shows the remainder as not available, never zero');
+  };
+  const unknownLowerBound = (r, why) => {
+    eq([r.card.pendingUnknown, r.card.balance], [true, 517], why + ': pending unknown, posted balance observed');
+    eq([r.line.target.amount, r.line.target.trust, r.line.target.overLimitBy], [117, 'estimated', null],
+      why + ': the target is the lower bound, estimated, with no exact overage');
+    yes(r.line.target.reasons.includes('over-limit-unknown'), why + ': the target says the over-limit is unknown');
+  };
+
+  // Control: nothing unknown, so the exact overage and the covered flag stand.
+  const control = await stack([purchase()], { limit: 400, pay: 25, canonicalPending: 0 });
+  eq([!!control.card.pendingUnknown, control.line.target.overLimitBy, control.line.target.reasons.includes('over-limit-unknown')],
+    [false, 117, false], 'control: a known card publishes its exact posted overage');
+  eq([control.line.targetCovered.value, control.line.stillToPayBack.amount], [false, 92], 'control: not covered, the unpaid remainder is known');
+
+  // Posted alone is already over the limit: the overage is only a lower bound.
+  const above = await stack([purchase(), twinRow()], { limit: 400, pay: 25, canonicalPending: 15 });
+  unknownLowerBound(above, 'over the limit on posted alone');
+  eq([above.line.targetCovered.value, above.line.stillToPayBack.amount, above.line.paidBack.amount], [false, 92, 25],
+    'over the limit on posted alone: paid is below the lower bound, so not covered is still known');
+  const aboveCovered = await stack([purchase(), twinRow()], { limit: 400, pay: 130, canonicalPending: 15 });
+  unknownLowerBound(aboveCovered, 'over the limit on posted alone, paid past the lower bound');
+  eq([aboveCovered.line.targetCovered.value, aboveCovered.line.targetCovered.trust, aboveCovered.line.stillToPayBack.amount, aboveCovered.line.paidBack.amount,
+    aboveCovered.line.minimumCovered.value], ['unknown', 'unavailable', null, 130, true],
+    'paid past the lower bound is never published as covered; the payer and minimum facts stay');
+  coherent(aboveCovered, 'over the limit on posted alone, paid past the lower bound');
+
+  // Posted is under the limit but the unknown pending could push it over.
+  const below = await stack([purchase(), twinRow()], { limit: 550, pay: 130, canonicalPending: 15 });
+  unknownLowerBound(below, 'under the limit on posted alone');
+  eq([below.line.targetCovered.value, below.line.stillToPayBack.amount, below.line.paidBack.amount], ['unknown', null, 130],
+    'under the limit on posted alone: paid past the lower bound is not published as covered');
+  coherent(below, 'under the limit on posted alone, paid past the lower bound');
+  coherent(above, 'over the limit on posted alone, paid short');
+  const belowShort = await stack([purchase(), twinRow()], { limit: 550, pay: 25, canonicalPending: 15 });
+  eq([belowShort.line.targetCovered.value, belowShort.line.stillToPayBack.amount], [false, 92],
+    'under the limit on posted alone: paid below the lower bound is still known to be uncovered');
+
+  // A genuinely separate pending is known and counted, so the exact overage is published.
+  const separate = await stack([purchase(), ['card', 35, null, 'purchase', { is_pending: true, status: 'pending', payee: 'Invented cafe',
+    plaid_metadata: { transaction_id: 'tx-cafe' } }]], { limit: 550, pay: 25, canonicalPending: 0 });
+  eq([!!separate.card.pendingUnknown, separate.card.pending, separate.line.target.reasons.includes('over-limit-unknown')], [false, 35, false],
+    'a separate pending stays known and counted');
+  eq(separate.line.target.overLimitBy, 2, 'its exact overage is still published');
+
+  // Payoff and extra-debt targets read posted alone, never posted plus a stale amount.
+  const ready = async (twin, canonicalPending) => {
+    const old = '2026-09-10';
+    const x = aggregate.world([['card', 60, old, 'purchase'], ...(twin ? [['card', 60, old, 'purchase',
+      { is_pending: true, status: 'pending', plaid_metadata: { transaction_id: 'tx-old-twin' } }]] : [])],
+    { windowStart: '2026-09-01', edit(xx) {
+      settle(xx, 1000, canonicalPending);
+      xx.data.debts[0].rate = 19.99;
+      xx.data.plan.nextDollar = POLICY;
+    } });
+    const out = aggregate.run(x);
+    const debts = out.observed.data.debts;
+    return { debt: debts.find(d => d.id === 'travelvisa'), coverage: out.coverage.status,
+      priority: F.debtPriority(Object.assign({}, out.observed.data.plan, { nextDollar: POLICY }), debts),
+      extra: out.advice.paydayAllocation.extraDebt };
+  };
+  const clean = await ready(false, 0), unresolved = await ready(true, 15);
+  eq([clean.debt.pendingUnknown === true, clean.priority.target.balance, clean.extra.absorbable], [false, 460, 460], 'control: payoff and extra-debt balance is posted');
+  eq([unresolved.debt.pendingUnknown, unresolved.debt.pending, unresolved.coverage], [true, 15, 'ready'],
+    'an earlier-period unresolved pair leaves pending unknown with the stale amount stored and card coverage ready');
+  eq([unresolved.priority.target.balance, unresolved.priority.target.pendingUnknown, unresolved.extra.status, unresolved.extra.absorbable, unresolved.extra.target.balance],
+    [460, true, 'ready', 460, 460], 'payoff target and absorbable read posted alone, not posted plus the stale amount');
+  // Known pending is still added: a facility with a known pending reads posted plus pending.
+  const knownDebt = [{ id: 'k', label: 'Invented card', balance: 460, pending: 35, rate: 19.99, secured: false, structure: 'Revolving', limit: 1000 }];
+  eq(F.debtPriority({ nextDollar: POLICY }, knownDebt).target.balance, 495, 'a known pending is still part of the payoff balance');
+}
+
+proveStaleAndLimitCases().then(() => {
 console.log('PASS an invalid pending amount keeps card pending unknown through observe -> reconcile -> live plan -> Forecast: '
-  + checks + ' independent checks');
+    + checks + ' independent checks');
+}).catch(error => { console.error(error); process.exitCode = 1; });

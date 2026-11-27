@@ -1294,6 +1294,10 @@
   }
   const openingBalance = debt => postedPlusPending(debt.balance, debt.pending);
   const pendingUnknown = x => !!(x && (x.pendingUnknown === true || x.unknownPending === true));
+  // The balance a facility is known to owe. With pending unknown it is the
+  // posted balance alone, as utilisation reads it: a stale dated pending value
+  // is not a known exposure and is never added to a published balance.
+  const knownOwed = debt => (pendingUnknown(debt) ? postedPlusPending(debt.balance, 0) : openingBalance(debt));
   // Published headroom and over-limit. Known pending is already inside
   // `openingBalance`. Unknown pending is not $0: posted room is not published,
   // and under-limit is not claimed, until pending is observed. A posted
@@ -21545,7 +21549,7 @@
       if (pendingUnknown(d) && !(posted > EPSILON)) {
         return unavailable(`${d.label || d.id} may owe an unknown pending balance.`);
       }
-      if (openingBalance(d) > EPSILON) owing.push(d);
+      if (knownOwed(d) > EPSILON) owing.push(d);
     }
     for (const d of owing) {
       if (typeof d.rate !== 'number' || !isFinite(d.rate)) {
@@ -21564,7 +21568,7 @@
       label: d.label,
       rate: d.rate,
       confidence: d.confidence || null,
-      balance: roundCent(openingBalance(d)),
+      balance: roundCent(knownOwed(d)),
       pendingUnknown: pendingUnknown(d),
     }));
     const target = order[0] || null;
@@ -21613,7 +21617,7 @@
     }
     let absorbable = 0;
     for (const d of chain) {
-      absorbable += Math.max(0, openingBalance(d));
+      absorbable += Math.max(0, knownOwed(d));
       // Unknown pending is not $0. Proven posted may receive extra principal;
       // anything after this debt — another target or leftover cash — is not
       // proven true surplus until exposure is known.
