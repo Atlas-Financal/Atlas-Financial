@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 const threads = require('node:worker_threads');
+const Forecast = require('../public/forecast');
 const Live = require('../scripts/live-plan');
 const Observe = require('../scripts/provider-observe');
 const { world } = require('./fixtures/card-coverage-aggregate-world');
@@ -91,6 +92,51 @@ async function paymentIdentityCases() {
   console.log('  PASS  a receipt cannot keep its bill match after acquiring a conflicting payment or cash-movement identity');
 }
 
+async function conflictingClassificationCases() {
+  const cancelledPayee = 'Invented former service';
+  for (const [account, providerId, payee, reason, budget, credit, category = 'Utilities'] of [
+    ['chequing-a', 3001, cancelledPayee, 'cancelled-service-charge', 216, 0],
+    ['travelvisa', 3004, 'INTEREST CHARGE', 'revolving-finance-charge', 200, 16],
+    ['heloc', 3006, 'INTEREST CHARGE', 'heloc-capitalised-interest', 200, 0],
+    // Forecast can hold a cancelled-service debit with this category.
+    ['chequing-a', 3001, cancelledPayee, 'mortgage-labelled-debit', 200, 0, 'Mortgage'],
+  ]) {
+    const scenario = name => {
+      const x = input({ payee: name, account_id: providerId, category_name: category });
+      x.identity = { ...identity, rules: [{ ...identity.rules[0], atlasAccountId: account }] };
+      x.data.plan.bills[0].payingAccount = account;
+      if (account === 'chequing-a') {
+        x.data.plan.cancelledServices = [{ id: 'old-service', label: cancelledPayee,
+          confirmedCancelledAsOf: '2026-09-19', merchantKeys: [cancelledPayee] }];
+      }
+      if (account === 'heloc') {
+        x.accountMap.mappings.push({ providerAccountId: String(providerId),
+          canonical: { collection: 'debts', id: account }, atlasRole: 'heloc' });
+        x.payload.accounts.push({ id: providerId, type: 'credit', currency: 'cad', balance: 416,
+          updated_at: date + 'T17:00:00Z', balance_last_update: date + 'T17:00:00Z' });
+        x.data.debts.push({ id: account, label: 'Invented line of credit', structure: 'HELOC',
+          balance: 400, rate: 0, limit: 2000 });
+      }
+      return x;
+    };
+    const before = Live.fromObservation(scenario(original));
+    assert.ok(before.report.postedBillReceipts, 'the original bill has a receipt to carry forward');
+    await rendered(before.data, settled);
+    const after = Live.fromObservation({ ...scenario(payee),
+      priorPostedBillReceipts: before.report.postedBillReceipts });
+    const row = after.report.currentPeriodActuals.transactions.find(tx => tx.amount === 16);
+    assert.equal(Forecast.classifyCurrentPeriodTransaction(row, after.data.plan).reason, reason);
+
+    // The $16 scheduled bill remains due. The debit adds $16 to Budget or
+    // Credit. The capitalised and held rows add no cash deduction here.
+    const surplus = 1000 - 16 - budget - 95 - credit;
+    const page = await rendered(after.data, [0, 16, budget, surplus]);
+    assert.match(page.blockHtml('waterfall'),
+      new RegExp(`data-source="stackSummary\\.surplus\\.terms\\.credit">\\$${credit}<`));
+    console.log(`  PASS  ${reason} leaves the bill unpaid in Stack`);
+  }
+}
+
 async function mixedPendingCases() {
   const link = { id: 106, ...renamed, plaid_metadata: { transaction_id: 'invented-posted',
     pending_transaction_id: 'invented-pending' } };
@@ -120,6 +166,7 @@ async function rendered(data, expected) {
   const waterfall = page.blockHtml('waterfall');
   assert.match(waterfall, new RegExp(`data-source="budgetHold">\\$${budget}<`));
   assert.match(waterfall, new RegExp(`data-source="stackSummary\\.surplus\\.amount">\\+\\$${remainder}<`));
+  return page;
 }
 
 async function observationCases() {
@@ -241,6 +288,7 @@ async function refreshCases() {
 }
 
 if (threads.isMainThread) {
-  observationCases().then(paymentIdentityCases).then(mixedPendingCases).then(archiveCase).then(refreshCases)
+  observationCases().then(paymentIdentityCases).then(conflictingClassificationCases)
+    .then(mixedPendingCases).then(archiveCase).then(refreshCases)
     .catch(error => { console.error(error); process.exitCode = 1; });
 }

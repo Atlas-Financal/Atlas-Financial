@@ -2193,13 +2193,18 @@ function postedBillReceiptKey(tx, window, mapping, plan, priorReceipts) {
     tx.pendingTransactionId, tx.plaidPendingTransactionId,
     tx.categoryId, tx.categoryLabel, tx.kind, tx.excludeFromBudget === true]));
   if (priorReceipts && !priorReceipts.has(key)) return null;
-  const flags = Forecast.classifyCurrentPeriodTransaction.derivedFlags({
+  const flagInput = {
     ...currentPeriodTransactionFlagInput(tx, mapping, tx.amount, tx.tags),
     categoryId: tx.categoryId, recurringId: tx.recurringId,
-  }, plan);
+    accountRole: atlasAccountRole(mapping),
+  };
+  const classify = Forecast.classifyCurrentPeriodTransaction;
+  const flags = classify.derivedFlags(flagInput, plan);
   if (isMbnaCardPayment(tx) || flags.cardPaymentNoteDestination
     || flags.cardPaymentIdentity || flags.tdCardPaymentIdentity || flags.internalTransferIdentity
-    || flags.cashWithdrawalIdentity || flags.externalCashDeposit) return null;
+    || flags.cashWithdrawalIdentity || flags.externalCashDeposit
+    || flags.cardFinanceChargeIdentity || flags.helocFinanceChargeIdentity
+    || classify.cancelledServiceForTransaction(flagInput, plan)) return null;
   return key;
 }
 
