@@ -3,7 +3,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
-const approvedAssets = require('./demo-asset-digests.json');
 
 // Deny every other environment key, including new credentials whose names
 // Atlas does not yet know. Check presence, including empty values.
@@ -15,6 +14,10 @@ const BOOT_ENV = new Set([
 ]);
 const ROOT = path.join(__dirname, '..');
 const FIXTURE_PATH = 'test/fixtures/figures-inputs/stack-card-summary.json';
+const DIGESTS_REL = 'scripts/demo-asset-digests';
+const DIGESTS_DIR = path.join(ROOT, DIGESTS_REL);
+const TEXT_ASSET = /\.(?:js|json|html|css|svg|webmanifest)$/;
+const HASH_RE = /^[0-9a-f]{64}$/;
 const HOUSEHOLD_PATHS = ['data.json', 'public/periods.json', 'raw', 'derived', 'snapshots'];
 const CREDENTIAL_PATHS = ['scripts/local-config.json', 'docs/connectivity/provider-account-map.local.json'];
 const DEMO_SCRIPT_MARKER = '/* Atlas demo asset */\n';
@@ -35,13 +38,77 @@ const ASSETS = [
   'boot-campfire.avif', 'boot-campfire.jpg', 'manifest.webmanifest',
   'apple-touch-icon.png', 'icon.svg', 'icon-192.png', 'icon-512.png',
 ];
+const ASSET_FILES = Object.freeze([FIXTURE_PATH, 'public/index.html', ...ASSETS.map(name => 'public/' + name)]);
+const ASSET_FILE_SET = new Set(ASSET_FILES);
 
 const BANNER = '<p id="atlas-demo-banner" style="margin:0;padding:10px 16px;background:#ffe7a3;' +
   'color:#241c0a;text-align:center;font:600 15px/1.4 system-ui">' +
   'Demo — made-up numbers, not a real household.</p>';
 
-function verifyAsset(name, body) {
-  if (!Object.hasOwn(approvedAssets, name) || createHash('sha256').update(body).digest('hex') !== approvedAssets[name]) {
+function assetDigest(body) {
+  return createHash('sha256').update(Buffer.isBuffer(body) ? body : Buffer.from(body)).digest('hex');
+}
+
+function formatDigest(hash) {
+  return hash + '\n';
+}
+
+function parseDigest(text, label) {
+  const normalized = text.replaceAll('\r\n', '\n');
+  if (!normalized.endsWith('\n')) throw new Error(`Malformed demo asset digest: ${label}`);
+  const lines = normalized.slice(0, -1).split('\n');
+  if (lines.length !== 1 || !HASH_RE.test(lines[0])) {
+    throw new Error(`Malformed demo asset digest: ${label}`);
+  }
+  return lines[0];
+}
+
+function listDigestFiles(dir) {
+  const baseStat = fs.lstatSync(dir);
+  if (!baseStat.isDirectory()) throw new Error('Unexpected demo digest directory');
+  const rootReal = fs.realpathSync(dir);
+  const out = [];
+  const walk = rel => {
+    const abs = rel ? path.join(rootReal, rel) : rootReal;
+    for (const entry of fs.readdirSync(abs, { withFileTypes: true })) {
+      const childRel = rel ? `${rel}/${entry.name}` : entry.name;
+      const childAbs = path.join(abs, entry.name);
+      if (entry.isSymbolicLink()) throw new Error(`Unexpected demo digest file: ${childRel}`);
+      if (fs.realpathSync(childAbs) !== childAbs) throw new Error(`Unexpected demo digest file: ${childRel}`);
+      if (entry.isDirectory()) walk(childRel);
+      else if (entry.isFile()) out.push(childRel);
+      else throw new Error(`Unexpected demo digest file: ${childRel}`);
+    }
+  };
+  walk('');
+  return out.sort();
+}
+
+function loadApprovedAssets(dir = DIGESTS_DIR) {
+  const files = listDigestFiles(dir);
+  const approved = new Map();
+  for (const rel of files) {
+    if (!rel.endsWith('.sha256')) throw new Error(`Unexpected demo digest file: ${rel}`);
+    const name = rel.slice(0, -'.sha256'.length);
+    if (!ASSET_FILE_SET.has(name)) throw new Error(`Unexpected demo digest file: ${rel}`);
+    const text = fs.readFileSync(path.join(dir, rel), 'utf8');
+    approved.set(name, parseDigest(text, rel));
+  }
+  for (const name of ASSET_FILES) {
+    if (!approved.has(name)) throw new Error(`Missing demo asset digest: ${name}`);
+  }
+  return approved;
+}
+
+let approvedAssets = null;
+function getApprovedAssets() {
+  if (!approvedAssets) approvedAssets = loadApprovedAssets();
+  return approvedAssets;
+}
+
+function verifyAsset(name, body, approved = getApprovedAssets()) {
+  const expected = approved.get(name);
+  if (!expected || assetDigest(body) !== expected) {
     throw new Error(`Unexpected demo asset contents: ${name}`);
   }
 }
@@ -94,6 +161,7 @@ function start(environment) {
   }
 
   const express = require('express');
+  approvedAssets = loadApprovedAssets();
   const fixture = JSON.parse(readApprovedFile(FIXTURE_PATH));
   if (fixture.schema !== 'atlas-figures-input/v1' || fixture.id !== 'stack-card-summary'
     || fixture.invented !== true || !fixture.data?.meta?.asOf) {
@@ -151,4 +219,8 @@ function start(environment) {
   return server;
 }
 
-module.exports = { start, ASSETS, FIXTURE_PATH, DEMO_SCRIPT_MARKER, verifyAsset };
+module.exports = {
+  start, ASSETS, ASSET_FILES, FIXTURE_PATH, DIGESTS_REL, DIGESTS_DIR, TEXT_ASSET,
+  DEMO_SCRIPT_MARKER, assetDigest, formatDigest, parseDigest, listDigestFiles,
+  loadApprovedAssets, verifyAsset,
+};

@@ -170,6 +170,36 @@ function transaction(row) {
   }
   return out;
 }
+function provedPayerReceipts(value) {
+  if (!Array.isArray(value)) throw new Error('observation-input-invalid');
+  const cards = new Set(['cashback', 'travelvisa', 'tdcc', 'triangle', 'mbna', 'heloc']);
+  return value.map(proof => {
+    if (!proof || typeof proof !== 'object' || Array.isArray(proof)) throw new Error('observation-input-invalid');
+    const allowed = ['coverageRef', 'id', 'account', 'amountCents', 'cardId', 'trust', 'reason'];
+    if (Object.keys(proof).some(key => !allowed.includes(key))) throw new Error('observation-input-invalid');
+    const coverageRef = proof.coverageRef;
+    const id = proof.id;
+    const hasRef = typeof coverageRef === 'string' && /^pc-[a-f0-9]{24}$/.test(coverageRef);
+    const hasId = typeof id === 'string' && /^[A-Za-z0-9:_-]{1,80}$/.test(id);
+    if ((coverageRef != null && !hasRef) || (id != null && !hasId) || (!hasRef && !hasId)) {
+      throw new Error('observation-input-invalid');
+    }
+    if (typeof proof.account !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(proof.account)) {
+      throw new Error('observation-input-invalid');
+    }
+    if (!Number.isSafeInteger(proof.amountCents) || proof.amountCents === 0) throw new Error('observation-input-invalid');
+    if (!cards.has(proof.cardId)) throw new Error('observation-input-invalid');
+    if (proof.trust !== 'calculated' && proof.trust !== 'estimated') throw new Error('observation-input-invalid');
+    if (proof.reason != null && (typeof proof.reason !== 'string' || !/^[a-z0-9-]{1,80}$/.test(proof.reason))) {
+      throw new Error('observation-input-invalid');
+    }
+    const out = { account: proof.account, amountCents: proof.amountCents, cardId: proof.cardId, trust: proof.trust };
+    if (hasRef) out.coverageRef = coverageRef;
+    if (hasId) out.id = id;
+    if (proof.reason) out.reason = proof.reason;
+    return out;
+  });
+}
 function sourceInputs(payload) {
   if (payload?.provider !== 'lunchmoney' || typeof payload.fetchedAt !== 'string'
     || !Number.isFinite(Date.parse(payload.fetchedAt))) throw new Error('observation-input-invalid');
@@ -184,7 +214,9 @@ function sourceInputs(payload) {
     ...(Object.hasOwn(payload, 'amountFixedDerivation')
       ? { amountFixedDerivation: amountFixedDerivation(payload.amountFixedDerivation) } : {}),
     ...(Object.hasOwn(payload, 'billPaymentHistory')
-      ? { billPaymentHistory: billPaymentHistory(payload.billPaymentHistory) } : {}) };
+      ? { billPaymentHistory: billPaymentHistory(payload.billPaymentHistory) } : {}),
+    ...(Object.hasOwn(payload, 'provedPayerReceipts')
+      ? { provedPayerReceipts: provedPayerReceipts(payload.provedPayerReceipts) } : {}) };
   const numeric = value => typeof value === 'number' && Number.isFinite(value)
     || typeof value === 'string' && /^[+-]?\d+(?:\.\d+)?$/.test(value.trim()) && Number.isFinite(Number(value));
   const id = value => typeof value === 'string' && value.length > 0 || typeof value === 'number' && Number.isFinite(value);
@@ -239,7 +271,9 @@ function create() {
   let slot = null;
   return Object.freeze({
     clear() { slot = null; },
-    clearCurrent() { if (slot) { slot.context = null; slot.evidence = null; } },
+    clearCurrent() {
+      if (slot) { slot.context = null; slot.evidence = null; slot.postedBills = null; }
+    },
     read(context) {
       if (!slot || slot.context !== context) {
         if (slot) { slot.context = null; slot.evidence = null; }
@@ -250,6 +284,15 @@ function create() {
     replayHousehold(context, checkedAt) {
       return slot?.context === context && slot.evidence?.payload.fetchedAt === checkedAt
         ? slot.sourceHouseholdAccountId : null;
+    },
+    // A miss returns null and leaves the slot. read() clears a mismatched slot;
+    // a live fetch must be able to look up an earlier proof list without that.
+    peek(context) {
+      if (!slot || slot.context !== context) return null;
+      return structuredClone(slot.evidence);
+    },
+    readPostedBills(context) {
+      return slot?.postedBills?.context === context ? structuredClone(slot.postedBills) : null;
     },
     readDisplay(context) {
       if (!slot?.display || !isDeepStrictEqual(slot.display.context, context)) {
@@ -292,7 +335,7 @@ function create() {
     noteAttempt(context, attempt) {
       if (slot?.display && isDeepStrictEqual(slot.display.context, context)) slot.display.attempt = structuredClone(attempt);
     },
-    publish(context, evidence, display, activity) {
+    publish(context, evidence, display, billContext, activity) {
       if (evidence?.schema !== SCHEMA) throw new Error('observation-input-invalid');
       const incompleteCandidate = display && !completeTransactionCohort(display.data);
       const retained = display && display.context != null
@@ -312,7 +355,10 @@ function create() {
       let cardActivity = kept && (!retained || retained.householdAccountId === slot.cardActivity?.householdAccountId)
         ? slot.cardActivity : null;
       if (retained && !planWithheld(retained.data)) cardActivity = lastKnownCardActivity(cardActivity, retained, activity);
-      slot = { context, evidence: { schema: SCHEMA, payload: sourceInputs(evidence.payload) },
+      const receipts = evidence.postedBillReceipts?.length ? structuredClone(evidence.postedBillReceipts) : null;
+      const postedBills = receipts && billContext ? { ...billContext, receipts } : null;
+      slot = { context, evidence: { schema: SCHEMA, payload: sourceInputs(evidence.payload),
+        ...(receipts ? { postedBillReceipts: receipts } : {}) }, postedBills,
         sourceHouseholdAccountId: retained?.credentialSource === 'env' ? retained.householdAccountId : null,
         display: nextDisplay, clearDisplay, cardActivity };
     },

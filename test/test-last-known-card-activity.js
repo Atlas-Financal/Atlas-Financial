@@ -1,6 +1,9 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const threads = require('node:worker_threads');
 const Forecast = require('../public/forecast');
 const Live = require('../scripts/live-plan');
 const Memory = require('../scripts/server-observation-memory');
@@ -13,11 +16,39 @@ const cardId = 'travelvisa';
 const context = { accountMap: 'invented map', categoryMapping: [] };
 const householdId = 4021;
 const day = '2026-09-20';
+const utility = 'Invented utility';
+const utilityId = 'invented-card-proof-utility';
+const receiptIdentity = { rules: [{ eventId: utilityId, payeePattern: utility,
+  atlasAccountId: 'chequing-a', direction: 'debit' }], billPaymentPayees: [] };
 
-function observation(hour, { asOf = day, through = asOf, sync = true, extra = false, payingDebit = false } = {}) {
-  const input = world([['card', 80, '2026-09-18', 'purchase'], ['card', 37, '2026-09-19', 'purchase'],
+// LivePlan's timing and identity inputs are invented in the worker too.
+const periodsPath = path.resolve(__dirname, '../public/periods.json');
+const identityPath = require('../scripts/provider-observe').DEFAULT_IDENTITY;
+const readFile = fs.readFileSync;
+fs.readFileSync = (file, ...args) => {
+  if (file === periodsPath) return JSON.stringify({ monthly: [] });
+  if (!threads.isMainThread && file === identityPath) return JSON.stringify(receiptIdentity);
+  return readFile(file, ...args);
+};
+
+function observation(hour, { asOf = day, through = asOf, sync = true, extra = false,
+  payingDebit = false, receipts = null } = {}) {
+  const edited = receipts === 'edited';
+  const input = world([['card', 80, '2026-09-18', 'purchase', { id: 88101 }],
+    ['card', 37, '2026-09-19', 'purchase', { id: 88102 }],
     ...(payingDebit ? [['bills', 17, asOf, 'cash', { notes: 'card payment: Travel Visa' }]] : []),
-    ...(extra ? [['card', 12, asOf, 'purchase']] : [])], { asOf, windowStart: '2026-09-18' });
+    ...(receipts ? [
+      ['bills', 25, asOf, 'cash', { id: 88103, category_name: edited ? 'Groceries' : 'Credit Card Payment',
+        payee: edited ? 'Invented edited payer' : 'TFR-TO C/C', notes: edited ? null : 'card payment: Travel Visa' }],
+      ['bills', 16, asOf, 'purchase', { id: 88104, payee: edited ? 'Invented renamed utility' : utility,
+        original_name: null, category_name: 'Utilities' }],
+    ] : []),
+    ...(extra ? [['card', 12, asOf, 'purchase', { id: 88105 }]] : [])], { asOf, windowStart: '2026-09-18' });
+  if (receipts) {
+    input.data.plan.bills = [{ id: utilityId, label: utility, frequency: 'monthly', day: 20,
+      amount: 16, confidence: 'confirmed', payee: utility }];
+    input.identity = receiptIdentity;
+  }
   const { payload } = input;
   Object.assign(payload, { categories: [], tags: [], fetchedAt: `${asOf}T${hour}:00:00Z` });
   payload.pendingCoverage.truncated = false;
@@ -30,7 +61,7 @@ function observation(hour, { asOf = day, through = asOf, sync = true, extra = fa
 
 function publish(memory, { data, evidence, checkedAt }, householdAccountId = householdId, activity = Forecast.cardActivityForDisplay(data)) {
   memory.publish('latest-source', evidence, { context, householdAccountId, lastBudgetAccountId: householdAccountId,
-    credentialSource: 'env', data, checkedAt }, activity);
+    credentialSource: 'env', data, checkedAt }, undefined, activity);
 }
 
 function served(memory, { data, checkedAt }, id = householdId, key = context) {
@@ -43,7 +74,7 @@ function read(data) {
   return { result, view, card: view.stackSummary.credit.lines.find(line => line.id === cardId) };
 }
 
-(async () => {
+if (threads.isMainThread) (async () => {
   for (const [name, options] of [['missing sync', { sync: false }], ['short query', { through: '2026-09-19' }]]) {
     const memory = Memory.create();
     const good = observation('18'), thin = observation('19', options);
@@ -129,35 +160,73 @@ function read(data) {
       'a newer known charge reading without coherent repayment does not revive an older card or mix readings');
   }
 
-  // Exercise the actual server worker, publication and replay with an invented
-  // provider. The short-window branch above supplies the window directly.
+  // The same worker must keep both receipt proofs in its current evidence
+  // while selecting the earlier card line for display only.
+  const good = observation('18', { receipts: 'original' });
+  const thin = observation('19', { sync: false, receipts: 'edited' });
+  const next = observation('20', { extra: true, receipts: 'edited' });
   const mock = await provider({ accountId: householdId });
-  const Refresh = require('../scripts/server-live-refresh');
-  const good = observation('18'), thin = observation('19', { sync: false });
   const canonical = good.input.data;
-  const env = { ...environment(mock.base),
+  const env = { ...environment(mock.base), ATLAS_LIVE_OVERLAY_NOW: good.checkedAt,
     ATLAS_PROVIDER_ACCOUNT_MAP_JSON: JSON.stringify({ ...good.input.accountMap, scope: 'live' }) };
   const now = Date.now;
+  const Worker = threads.Worker;
+  const exits = [];
+  let clock = good.checkedAt;
+  Date.now = () => Date.parse(clock);
+  // Advance the worker's clock without changing the server's job key.
+  threads.Worker = class extends Worker {
+    constructor(file, options) {
+      super(file, { ...options, env: { ...options.env, ATLAS_LIVE_OVERLAY_NOW: clock },
+        execArgv: [...process.execArgv, '--require', __filename] });
+      exits.push(new Promise(resolve => this.once('exit', resolve)));
+    }
+  };
   try {
+    const Refresh = require('../scripts/server-live-refresh');
     const force = async sample => {
       mock.payload(sample.evidence.payload);
-      Date.now = () => Date.parse(sample.checkedAt);
-      env.ATLAS_LIVE_OVERLAY_NOW = sample.checkedAt;
+      clock = sample.checkedAt;
       let check;
       const data = await Refresh.serve(canonical, env, { forceRefresh: true, onCheck: value => { check = value; } });
       assert.equal(check.qualified, true, 'the worker earned qualified current source evidence');
       return data;
     };
-    assert.equal(read(await force(good)).card.spent.amount, 117);
-    assert.equal(read(await force(thin)).card.spent.amount, 117, 'forced refresh serves the held card activity');
-    assert.equal(read(await Refresh.serve(canonical, env, { preferObservation: true })).card.spent.amount,
-      117, 'ordinary load replaying the thinner source also serves the held activity');
+    const cold = read(thin.data);
+    assert.equal(cold.card.paidBack.amount, 0, 'the edited payer needs an earlier proof');
+    assert.equal(cold.view.stackSummary.bills.paid, 0, 'the renamed bill needs an earlier proof');
+    const initial = read(await force(good));
+    assert.deepEqual([initial.card.spent.amount, initial.card.paidBack.amount, initial.view.stackSummary.bills.paid], [117, 25, 16]);
+
+    function assertThin(data) {
+      const actuals = structuredClone(data);
+      delete actuals.liveOverlay.lastKnownCardActivity;
+      const current = read(actuals);
+      assert.deepEqual([current.card.spent.amount, current.card.paidBack.amount, current.view.stackSummary.bills.paid],
+        [null, 25, 16], 'the qualified source preserves both receipts independently of the display');
+      const held = read(data);
+      assert.deepEqual([held.card.spent.amount, held.card.target.amount, held.card.paidBack.amount, held.card.stillToPayBack.amount],
+        [117, 117, 25, 92]);
+      assert.equal(held.card.activityObservedAt, good.checkedAt);
+    }
+
+    assertThin(await force(thin));
+    const reads = mock.calls.length;
+    assertThin(await Refresh.serve(canonical, env, { preferObservation: true }));
+    assert.equal(mock.calls.length, reads, 'source replay does not fetch the provider again');
     mock.mode('failure');
     assert.equal(read(await Refresh.serve(canonical, env, { forceRefresh: true })).card.spent.amount,
       117, 'a later failed provider check still renders the held card activity');
+    mock.mode('ok');
+    const complete = read(await force(next));
+    assert.deepEqual([complete.card.spent.amount, complete.card.stillToPayBack.amount, complete.view.stackSummary.bills.paid],
+      [129, 104, 16], 'the next complete refresh advances the dated picture and keeps the receipts');
+    assert.equal(complete.card.activityObservedAt, undefined);
   } finally {
     Date.now = now;
+    threads.Worker = Worker;
     await mock.close();
+    await Promise.all(exits);
   }
   console.log('Last known card activity survives thinner observations in the Stack summary');
 })().catch(error => { console.error(error); process.exitCode = 1; });
