@@ -19,11 +19,12 @@
  *   Bills          stackSummary.bills.other
  *   Budget         budgetHold (the Household budget hold the surplus deducts)
  *   Mortgage       stackSummary.bills.mortgage
- *   Credit         stackSummary.surplus.terms.credit, opening in place to one
+ *   Credit         creditBreakdown.stillToPayBack / stackSummary.surplus.terms.credit (OD-057), opening in place to one
  *                  row per card: stackSummary.creditBreakdown.rows[i].amount (its
  *                  Still to pay back, OD-033; no "Already counted above" row, Dale, 7121410691) (desk ruling
- *                  (E)); where Forecast publishes no breakdown (a completed or saved
- *                  period), stackSummary.bills.cardMinimums[i].amount
+ *                  (E)), on completed and saved periods too (their Credit term stays
+ *                  the minimums); where Forecast publishes no breakdown (no card
+ *                  lines), stackSummary.bills.cardMinimums[i].amount
  *   Savings items  stackSummary.surplus.terms.savingsItemSpending, its own row only when Forecast published that
  *                  term and it is not zero (Surplus subtracts it, so the rows must show it); Surplus's own trust
  *   Surplus        stackSummary.surplus.amount
@@ -213,6 +214,23 @@
     return caption + cards;
   }
 
+  // The Credit line (OD-057, Dale, 2026-11-25: "Just give me the amount needing to pay payback/the total amount."): the
+  // total still to pay back over the Credit deduction, both Forecast's (creditBreakdown.stillToPayBack, the sum of the rows
+  // the dropdown lists, and surplus.terms.credit, the term the Surplus takes). The deduction keeps its own cell on the
+  // right, so the Surplus sum still reads. A withheld total is a dash; with no breakdown the line is the deduction alone.
+  const STILL_SOURCE = 'stackSummary.creditBreakdown.stillToPayBack.amount';
+  function creditFigure(view) {
+    const breakdown = view.stackSummary ? view.stackSummary.creditBreakdown : null;
+    if (!breakdown || !breakdown.stillToPayBack || typeof breakdown.stillToPayBack !== 'object') return amountCell(view, 'credit');
+    const still = readPath(view, STILL_SOURCE);
+    const stillCell = isAmount(still)
+      ? `<span class="n${est(view, 'stackSummary.creditBreakdown.stillToPayBack.trust')}" data-source="${STILL_SOURCE}">${escape(money(still))}</span>`
+      : `<span class="n" data-source="${STILL_SOURCE}" data-unpublished="true"></span>${DASH}`;
+    // A withheld deduction (the Surplus unavailable) is a dash after the slash, never a dangling slash.
+    const deduction = isAmount(readPath(view, LINE_SOURCES.credit)) ? '' : DASH;
+    return `<span class="wf-of">${stillCell}<i aria-hidden="true"> / </i>${amountCell(view, 'credit')}${deduction}</span>`;
+  }
+
   // The waterfall's Mortgage line opens the mortgage sheet (owner, Dale, 2026-11-20: no Mortgage card; the line stays
   // as in the approved design and keeps the payment reachable). Its key is the selected period's mortgage row, as
   // Forecast publishes it in view.bills (debtId or id 'mortgage', with a paid state that is not 'carried'): the same
@@ -235,7 +253,7 @@
     const cards = creditRows(ctx, view);
     const credit = `<li class="wf-line wf-credit ${open ? 'open' : ''}" data-row="credit">
       <button type="button" class="wf-toggle" data-wf-toggle="credit" aria-expanded="${open}"${cards ? '' : ' disabled'}>
-        <span class="op" aria-hidden="true">−</span><span class="lab">${mark('credit')}Credit</span>${amountCell(view, 'credit')}</button>
+        <span class="op" aria-hidden="true">−</span><span class="lab">${mark('credit')}Credit</span>${creditFigure(view)}</button>
       <ul class="wf-cards"${open ? '' : ' hidden'}>${cards}</ul></li>`;
     const sheetKey = mortgageSheetKey(view);
     const mortgage = sheetKey

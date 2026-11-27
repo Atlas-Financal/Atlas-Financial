@@ -13712,6 +13712,46 @@
   // builder (income, bills and surplus here; the cards key of the same build
   // adds its builder beside them). The plan, as-of and options are passed for
   // a builder that needs them.
+  // OD-045 for the Credit rows (BUILD 7 amendment, #1611 7176284777; lead dispositions and review on #1671). A held card line
+  // from an earlier reading of the same household, context and period stands in for the current one only when the two are
+  // the same reading in every figure the current one still knows:
+  //   * the held line's target, Paid back and Still to pay back are all known;
+  //   * the current minimum equals the held one (a changed minimum never shows a stale minimum or minimum tick);
+  //   * nothing current contradicts the paying side: no unidentified return or destination conflict among the unconfirmed
+  //     payments, and no reversal, conflict, unreadable, duplicate or uninspected row in the card's Paid back or Still to pay
+  //     back reasons (these withhold the current figures and must not be papered over by an older reading);
+  //   * the charges side: withheld now (#1669's thin card feed, where a known current Paid back keeps #1669's rule of one
+  //     coherent dated reading, and a withheld one must be the payer gap alone), or unchanged in charges and target while
+  //     the paid side is withheld for the payer gap alone.
+  // heldCardLineCoversPayerGap is the payer-gap case the memory uses to keep the held line instead of letting the gap
+  // reading evict it; heldCardLineStandsIn is the whole rule publishStackSummary applies before showing it, estimated.
+  const PAYER_COVERAGE_GAPS = new Set(['paying-side-coverage-incomplete', 'paying-account-not-observed']);
+  const heldCents = figure => (figure && Number.isFinite(figure.amount) ? Math.round(figure.amount * 100) : null);
+  function payerGapOnly(paid) {
+    return !!paid && paid.amount === null && Array.isArray(paid.reasons)
+      && paid.reasons.some(reason => PAYER_COVERAGE_GAPS.has(reason))
+      && paid.reasons.every(reason => reason === 'paid-unavailable' || PAYER_COVERAGE_GAPS.has(reason));
+  }
+  function heldLineComplete(line, held) {
+    return !!held && [held.target, held.stillToPayBack, held.paidBack].every(figure => heldCents(figure) !== null)
+      && heldCents(line && line.minimum) === heldCents(held.minimum);
+  }
+  function heldCardLineCoversPayerGap(line, held) {
+    return heldLineComplete(line, held) && payerGapOnly(line && line.paidBack)
+      && heldCents(line.spent) !== null && heldCents(line.spent) === heldCents(held.spent)
+      && heldCents(line.target) !== null && heldCents(line.target) === heldCents(held.target);
+  }
+  const PAYING_SIDE_CONTRADICTIONS = new Set(['payment-direction-unresolved', 'card-payment-destination-conflict',
+    'paying-side-evidence-unconfirmed', 'duplicate-identity', 'transaction-date-unqualified', 'transaction-amount-unqualified',
+    'paying-side-rows-uninspected']);
+  function heldCardLineStandsIn(line, held, unconfirmedPayments) {
+    if (!heldLineComplete(line, held)) return false;
+    const reasons = [].concat((line.paidBack && line.paidBack.reasons) || [], (line.stillToPayBack && line.stillToPayBack.reasons) || []);
+    if (reasons.some(reason => PAYING_SIDE_CONTRADICTIONS.has(reason))
+      || (unconfirmedPayments || []).some(payment => payment && (payment.amount < 0 || payment.reason === 'card-payment-destination-conflict'))) return false;
+    if (line.spent.amount !== null) return heldCardLineCoversPayerGap(line, held);
+    return heldCents(line.paidBack) !== null || payerGapOnly(line.paidBack);
+  }
   function estimateStackCredit(node) {
     if (Array.isArray(node)) return node.map(estimateStackCredit);
     if (!node || typeof node !== 'object') return node;
@@ -13746,13 +13786,19 @@
       const activity = opts?.lastKnownCardActivity;
       // Keep the current deduction and its trust. If the dropdown cannot
       // publish, a retained line would disagree with its minimum-only fallback.
-      if (creditBreakdown && activity?.start === view.start && activity.end === view.end) {
+      // Current and upcoming views only (basis 'targets'): a completed view's minimums breakdown (BUILD 7) never takes
+      // retained lines, as before it published none.
+      if (creditBreakdown && creditBreakdown.basis === 'targets' && activity?.start === view.start && activity.end === view.end) {
         credit = { ...credit, lines: credit.lines.map(line => {
-          const held = line.spent.amount === null && activity.cards.find(card => card.id === line.id);
-          if (!held || ![held.target, held.stillToPayBack, held.paidBack].every(figure => Number.isFinite(figure.amount))) return line;
+          const candidate = activity.cards.find(card => card.id === line.id);
+          // #1669's thin card feed and BUILD 7's payer gap, under one rule (heldCardLineStandsIn above).
+          const held = candidate && heldCardLineStandsIn(line, candidate, credit.unconfirmedPayments) ? candidate : null;
+          if (!held) return line;
           const { observedAt, asOf: _asOf, ...datedLine } = held;
           return { ...estimateStackCredit(datedLine), deduction: line.deduction, activityObservedAt: observedAt };
         }) };
+        // The Credit head sums the lines the page shows, a retained line included (OD-052, BUILD 7).
+        credit = { ...credit, totals: { ...credit.totals, ...CardPeriodMovement.creditHeadTotals(credit.lines, credit.unconfirmedPayments) } };
         creditBreakdown = stackCreditBreakdown(cardCredit, bills, credit);
       }
       view.stackSummary = Object.assign(view.stackSummary || {},
@@ -14051,30 +14097,49 @@
   // terms carry the item spending) is. Shape, shared with the other
   // stackSummary keys: { amount, trust, ... }, with `reason` only when
   // withheld (amount null, trust 'unavailable').
-  // The waterfall's Credit dropdown (OD-033; desk ruling (1), Plan #6; lead, 2026-11-24): display only. One row per card
-  // with a target above $0, at its Still to pay back (target − paid back, the line's published stillToPayBack: unknown is
-  // null, never $0), and a card minimum with no line at that minimum. No "Already counted above" row (Dale, 2026-11-24,
-  // #1617 7121410691: "i dont need this red circled line"); each line's own deduction still carries its alreadyCounted.
-  // The rows do not add up to the Credit line, and nothing here claims they do: `total` is (E)'s Credit deduction, Σ each
-  // line's deduction, unchanged. Null where the Credit term is the minimums (a completed or saved period, or no card
-  // evidence): the dropdown then lists the minimums, as before.
+  // The waterfall's Credit rows (OD-033; OD-057): each card's Still to pay back from the view's one card publication, joined
+  // by debt id, on every view that publishes card lines. total is the Credit term the Surplus takes: the targets' deduction
+  // on a current or upcoming view (desk ruling (E), basis 'targets'), the period's card minimums on a completed or saved one
+  // (its historical cash deduction, basis 'minimums'). stillToPayBack is the sum of the rows, withheld when any row is, so the
+  // Credit line's two figures and the rows under it come from one publication (BUILD 7). displayCredit is the publication the
+  // page shows (#1669: a current view's retained card lines); total stays on the view's own observation.
   function stackCreditBreakdown(entry, bills, displayCredit = entry?.credit) {
-    if (!entry || !entry.adjusts || !Number.isSafeInteger(entry.creditCents) || !entry.credit) return null;
+    if (!entry || !entry.credit) return null;
+    const minimums = bills && Array.isArray(bills.cardMinimums) ? bills.cardMinimums : null;
+    let basis, totalCents;
+    if (entry.adjusts) {
+      if (!Number.isSafeInteger(entry.creditCents)) return null;
+      basis = 'targets';
+      totalCents = entry.creditCents;
+    } else {
+      if (!minimums || !minimums.every(card => isStackFigure(card && card.amount))) return null;
+      basis = 'minimums';
+      totalCents = minimums.reduce((sum, card) => sum + stackCents(card.amount), 0);
+    }
     const lines = displayCredit.lines;
-    const minimums = bills && Array.isArray(bills.cardMinimums) ? bills.cardMinimums : [];
     const lineIds = new Set(lines.map(line => String(line.id)));
     const rows = [];
     for (const line of lines) {
-      if (line.target.amount === null) return null;
       const still = line.stillToPayBack || { amount: null, trust: 'unavailable' };
-      if (stackCents(line.target.amount) > 0) rows.push({ debtId: line.id, amount: still.amount, trust: still.trust });
+      // A withheld target is a row with a dash (its Still to pay back is withheld too), never the minimum in its place.
+      if (line.target.amount === null || stackCents(line.target.amount) > 0) rows.push({ debtId: line.id, amount: still.amount, trust: still.trust });
     }
-    for (const card of minimums) if (!lineIds.has(String(card.debtId)) && stackCents(card.amount) > 0) {
+    for (const card of (minimums || [])) if (!lineIds.has(String(card.debtId)) && stackCents(card.amount) > 0) {
       rows.push({ debtId: card.debtId, amount: card.amount, trust: bills.trust || 'calculated' });
     }
     const RANK = { calculated: 0, estimated: 1, unavailable: 2 };
-    const trust = [(bills && bills.trust) || 'calculated', entry.trust || 'calculated'].reduce((worst, t) => (RANK[t] ?? 2) > (RANK[worst] ?? 2) ? t : worst, 'calculated');
-    return { rows, total: entry.creditCents / 100, trust };
+    // An unrecognised trust word is the weakest there is ('unavailable'), never published as itself.
+    const worst = words => words.map(t => (Object.hasOwn(RANK, t) ? t : 'unavailable'))
+      .reduce((w, t) => (RANK[t] > RANK[w] ? t : w), 'calculated');
+    const trust = worst([(bills && bills.trust) || 'calculated', basis === 'targets' ? entry.trust || 'calculated' : 'calculated']);
+    const heldRow = rows.some(row => !isStackFigure(row.amount));
+    // Its trust follows the evidence: no more certain than its rows, the Credit term's own, or any shown line's target (a line
+    // left out at a $0 target contributes that zero, so an estimated zero from unobserved charges stays estimated, on a
+    // completed or saved view as on a current one).
+    const evidence = rows.map(row => row.trust).concat(trust, lines.map(line => (line.target && line.target.trust) || 'unavailable'));
+    const stillToPayBack = heldRow ? { amount: null, trust: 'unavailable' }
+      : { amount: rows.reduce((sum, row) => sum + stackCents(row.amount), 0) / 100, trust: worst(evidence) };
+    return { basis, rows, stillToPayBack, total: totalCents / 100, trust };
   }
   const STACK_SURPLUS_UNAVAILABLE = 'Surplus after deductions is unavailable: a term it sums (income, a bills part or the Household budget) is withheld for this period.';
   function stackSurplus(view, bills) {
@@ -32425,7 +32490,7 @@
   }
 
   const Forecast = { earlyReceiptLegMembership, earlyReceiptOpeningSeed, earlyReceiptSweptSeed, cardPaymentNoteDestination, cardPaymentDestinationConflict, cardNotePaymentReceipts, periodBankCheck, billPaymentState, fixedBillPartialPayment, billPaymentHistorySummary, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, obligationAmountScheduleSelect, debtPrincipalShareFor, statementOccurrenceDate, statementOccurrenceIdentity, statementPaymentsReflectedThrough, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
-    cardPeriodMovements, payingSidePayment, carriedPayerReceipt, nextProvedPayerReceipts, stackCardSummary, stackCreditLines, stackCreditBreakdown, pendingHoldReleases, cardActivityForDisplay,
+    cardPeriodMovements, payingSidePayment, carriedPayerReceipt, nextProvedPayerReceipts, stackCardSummary, stackCreditLines, stackCreditBreakdown, pendingHoldReleases, cardActivityForDisplay, heldCardLineCoversPayerGap,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
     spendingCycle, incomeReceivedAmount, calendarIncomeContribution,

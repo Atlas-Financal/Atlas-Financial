@@ -65,6 +65,11 @@ function unconfirmedText(page, id) {
   return plain(section[1]);
 }
 
+// The sum of one published figure over the Credit lines with something to pay back (a target that is not a published $0),
+// in whole cents (the invented amounts are whole dollars); a $0 target adds nothing to the target sum either way.
+const sumOf = (credit, key) => credit.lines.filter(line => line.target.amount === null || line.target.amount > 0)
+  .reduce((sum, line) => sum + Math.round(line[key].amount * 100), 0) / 100;
+
 function checkPayment(page, amount, trust, reason, cardId = 'travelvisa') {
   const { credit } = page;
   const line = credit.lines.find(item => item.id === cardId);
@@ -88,7 +93,10 @@ function checkPayment(page, amount, trust, reason, cardId = 'travelvisa') {
   assert.ok(paid === '$' + amount || paid === '+$' + amount, 'the row prints its own Paid back');
   const head = page.card.match(/data-stack-credit-total>([\s\S]*?)<\/i>/)?.[1];
   assert.ok(head, 'the Credit head has a published amount');
-  assert.equal(plain(head), '$' + amount + ' / $20');
+  // OD-052: the head is Σ Paid back / Σ target over every line (the HELOC included), worked here from the lines.
+  assert.equal(plain(head), '$' + sumOf(credit, 'paidBack') + ' / $' + sumOf(credit, 'target'));
+  assert.equal(credit.totals.paidBack.amount, sumOf(credit, 'paidBack'));
+  assert.equal(credit.totals.target.amount, sumOf(credit, 'target'));
   assert.match(plain(page.sheet(cardId)), new RegExp('Paid back \\+?\\$' + amount + '(?![\\d.])'));
 }
 
@@ -330,7 +338,7 @@ function checkWithheld(page, reason) {
   }
   assert.ok(line.paidBack.reasons.includes(reason));
   assert.equal(line.minimumCovered.value, 'unknown');
-  assert.match(plain(page.card.match(/data-stack-credit-total>([\s\S]*?)<\/i>/)[1]), /^— \/ \$20$/);
+  assert.equal(plain(page.card.match(/data-stack-credit-total>([\s\S]*?)<\/i>/)[1]), '— / $' + sumOf(page.credit, 'target'));
 }
 
 test('a named reversal withholds the affected payment and its minimum coverage', async () => {
@@ -651,7 +659,8 @@ function assertHandDerivedProgress(page) {
   assert.equal(cashback.paidBack.amount, 0);
   assert.equal(cashback.stillToPayBack.amount, 71);
   assert.equal(cashback.targetCovered.value, false);
-  assert.equal(plain(page.card.match(/data-stack-credit-total>([\s\S]*?)<\/i>/)[1]), '$43 / $20');
+  // OD-052: the head is Σ Paid back (43 + 0) over Σ target (20 + 71), by hand.
+  assert.equal(plain(page.card.match(/data-stack-credit-total>([\s\S]*?)<\/i>/)[1]), '$43 / $91');
   assert.match(creditLineHtml(page, 'travelvisa'), /stack-credit-tick is-on/);
   assert.match(waterfallCardRow(page.openWaterfall(), 'travelvisa'),
     /data-source="stackSummary\.creditBreakdown\.rows\.\d+\.amount">\$0<\/span>/);
@@ -679,7 +688,7 @@ function assertReversalWithheld(page) {
     assert.equal(line.targetCovered.value, 'unknown');
     assert.equal(line.minimumCovered.value, 'unknown');
   }
-  assert.match(plain(page.card.match(/data-stack-credit-total>([\s\S]*?)<\/i>/)[1]), /^— \/ \$20$/);
+  assert.equal(plain(page.card.match(/data-stack-credit-total>([\s\S]*?)<\/i>/)[1]), '— / $' + sumOf(page.credit, 'target'));
   assert.doesNotMatch(creditLineHtml(page, 'travelvisa'), /stack-credit-tick is-on/);
   assert.doesNotMatch(creditLineHtml(page, 'cashback'), /stack-credit-tick is-on/);
   for (const id of ['travelvisa', 'cashback']) {
@@ -729,7 +738,7 @@ function assertAmbiguousIdentityWithheld(page, reason = 'paying-side-evidence-un
   assert.equal(credit.lines.find(line => line.id === 'cashback').stillToPayBack.amount, null);
   assert.doesNotMatch(creditLineHtml(page, 'travelvisa'), /stack-credit-tick is-on/);
   assert.doesNotMatch(creditLineHtml(page, 'cashback'), /stack-credit-tick is-on/);
-  assert.match(plain(page.card.match(/data-stack-credit-total>([\s\S]*?)<\/i>/)[1]), /^— \/ \$20$/);
+  assert.equal(plain(page.card.match(/data-stack-credit-total>([\s\S]*?)<\/i>/)[1]), '— / $' + sumOf(page.credit, 'target'));
   for (const id of ['travelvisa', 'cashback']) {
     const row = waterfallCardRow(page.openWaterfall(), id);
     assert.match(row, /data-unpublished="true"/);

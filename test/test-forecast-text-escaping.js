@@ -181,13 +181,16 @@ function savingsWorld() {
   return d;
 }
 // A world may force one Forecast answer a household cannot reach on its own, as the classic worlds above do: here every card
-// minimum the waterfall lists carries a hostile debt id (Forecast only publishes the fixed credit-line ids, so the attribute
-// cannot carry hostile text through the data alone).
+// row the waterfall's Credit dropdown lists carries a hostile debt id (Forecast only publishes the fixed credit-line ids, so the
+// attribute cannot carry hostile text through the data alone). The dropdown lists the Credit breakdown's rows wherever
+// Forecast publishes one (current and completed periods, BUILD 7), else the minimums: both are forced.
 const hostileIds = real => function (...args) {
   const out = real.apply(this, args);
   for (const view of (out && out.payPeriodViews) || []) {
-    const rows = view && view.stackSummary && view.stackSummary.bills && view.stackSummary.bills.cardMinimums;
-    if (Array.isArray(rows)) for (const row of rows) row.debtId = H.ID;
+    const summary = view && view.stackSummary;
+    for (const rows of [summary && summary.bills && summary.bills.cardMinimums, summary && summary.creditBreakdown && summary.creditBreakdown.rows]) {
+      if (Array.isArray(rows)) for (const row of rows) row.debtId = H.ID;
+    }
   }
   return out;
 };
@@ -274,8 +277,10 @@ function copyRoot(file, from, to) {
   return dir;
 }
 const MUTANTS = [
-  ['the waterfall prints a card name unescaped', 'stack-waterfall.js', '<b>${escape(cardLabel(ctx, card && card.debtId))}</b>', '<b>${String(cardLabel(ctx, card && card.debtId))}</b>', ['household']],
-  ['the waterfall prints a card row\'s debt id unescaped in its attribute', 'stack-waterfall.js', 'data-debt-id="${escape(card && card.debtId)}"', 'data-debt-id="${String(card && card.debtId)}"', ['hostile card ids (forced)']],
+  // The Credit dropdown's rows where Forecast publishes a breakdown (current and completed periods, BUILD 7): the branch these
+  // worlds run.
+  ['the waterfall prints a card name unescaped', 'stack-waterfall.js', '<b>${escape(cardLabel(ctx, row && row.debtId))}</b>', '<b>${String(cardLabel(ctx, row && row.debtId))}</b>', ['household']],
+  ['the waterfall prints a card row\'s debt id unescaped in its attribute', 'stack-waterfall.js', 'data-debt-id="${escape(row && row.debtId)}"', 'data-debt-id="${String(row && row.debtId)}"', ['hostile card ids (forced)']],
   ['the Credit card prints a card name unescaped', 'stack-credit.js', '<b>${esc(line.label)}</b>', '<b>${String(line.label)}</b>', ['household']],
   ['a card sheet prints a transaction name unescaped', 'stack-credit.js', '${t.pending ? PENDING_DOT : \'\'}${escape(t.name || \'\')}`', '${t.pending ? PENDING_DOT : \'\'}${String(t.name || \'\')}`', ['cards']],
   ['the Bills card prints a bill id unescaped in its attribute', 'stack-cards.js', `' data-stack-sheet="' + esc(target) + '"`, `' data-stack-sheet="' + String(target) + '"`, ['household']],
