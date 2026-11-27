@@ -4,7 +4,10 @@
 // the resulting directory before starting it. The destination must be new.
 const fs = require('node:fs');
 const path = require('node:path');
-const { ASSETS, FIXTURE_PATH, DEMO_SCRIPT_MARKER, verifyAsset } = require('./demo-server');
+const {
+  ASSET_FILES, FIXTURE_PATH, DIGESTS_REL, TEXT_ASSET, DEMO_SCRIPT_MARKER,
+  loadApprovedAssets, verifyAsset,
+} = require('./demo-server');
 const privacy = require('./privacy-guard');
 const { mask } = require('./js-scan');
 const root = path.join(__dirname, '..');
@@ -85,10 +88,10 @@ function demoScript(name, text, fixture) {
     .replace(/\bSeaspan\b/gi, word => word === word.toLowerCase() ? 'demoEmployer' : 'Primary employer');
 }
 
-const assetFiles = [FIXTURE_PATH, 'public/index.html', ...ASSETS.map(name => 'public/' + name)];
+const assetFiles = ASSET_FILES;
 
 function prepareAsset(name, bytes, fixture) {
-  if (!/\.(?:js|json|html|css|svg|webmanifest)$/.test(name)) return bytes;
+  if (!TEXT_ASSET.test(name)) return bytes;
   let text = bytes.toString('utf8').replaceAll('\r\n', '\n');
   if (name.endsWith('.js')) text = demoScript(path.basename(name), text, fixture);
   if (name.endsWith('.css')) text = text.replace(/\/\*(?![!])[\s\S]*?\*\//g, '');
@@ -97,37 +100,40 @@ function prepareAsset(name, bytes, fixture) {
 }
 
 function checkDemoPrivacy(name, body, fingerprints) {
-  if (!/\.(?:js|json|html|css|svg|webmanifest)$/.test(name)) return;
+  if (!TEXT_ASSET.test(name)) return;
   const hits = privacy.scanFiles({ files: [name], patterns: privacy.CONTENT_PATTERNS,
     readFile: () => body.toString('utf8'), fingerprints });
   if (hits.length) throw new Error(`Demo asset rejected by privacy guard: ${name}`);
 }
 
-function readSource(name) {
-  const source = path.join(root, name);
+function readSource(name, sourceRoot = root) {
+  const source = path.join(sourceRoot, name);
   if (fs.realpathSync(source) !== source) throw new Error('Unexpected demo file location');
   return fs.readFileSync(source);
 }
 
-function packageDemo(destination) {
-  const fixtureBytes = prepareAsset(FIXTURE_PATH, readSource(FIXTURE_PATH));
-  verifyAsset(FIXTURE_PATH, fixtureBytes);
+function packageDemo(destination, sourceRoot = root) {
+  const resolvedRoot = fs.realpathSync(path.resolve(sourceRoot));
+  const approved = loadApprovedAssets(path.join(resolvedRoot, DIGESTS_REL));
+  const fixtureBytes = prepareAsset(FIXTURE_PATH, readSource(FIXTURE_PATH, resolvedRoot));
+  checkDemoPrivacy(FIXTURE_PATH, fixtureBytes);
+  verifyAsset(FIXTURE_PATH, fixtureBytes, approved);
   const fixture = JSON.parse(fixtureBytes);
   const assets = new Map([[FIXTURE_PATH, fixtureBytes]]);
-  checkDemoPrivacy(FIXTURE_PATH, fixtureBytes);
   for (const name of assetFiles) {
     if (assets.has(name)) continue;
-    const prepared = prepareAsset(name, readSource(name), fixture);
+    const prepared = prepareAsset(name, readSource(name, resolvedRoot), fixture);
     checkDemoPrivacy(name, prepared);
-    verifyAsset(name, prepared);
+    verifyAsset(name, prepared, approved);
     assets.set(name, prepared);
   }
   const files = [
-    'server.js', 'package.json', 'package-lock.json', 'scripts/demo-server.js', 'scripts/demo-asset-digests.json',
+    'server.js', 'package.json', 'package-lock.json', 'scripts/demo-server.js',
+    ...assetFiles.map(name => `${DIGESTS_REL}/${name}.sha256`),
   ];
   fs.mkdirSync(destination);
   for (const name of files) {
-    const source = path.join(root, name);
+    const source = path.join(resolvedRoot, name);
     if (fs.realpathSync(source) !== source) throw new Error('Unexpected demo file location');
     const target = path.join(destination, name);
     fs.mkdirSync(path.dirname(target), { recursive: true });
