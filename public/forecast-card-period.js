@@ -186,11 +186,14 @@
         const shadow = new Map([...byCard.keys()].map(id => [id, { cents: 0, reasons: new Set(), gaps: new Set() }]));
         const outside = new Set();
         const { unassigned } = walk(shadow, outside);
-        // An incoming row with no card identity that is not an outside deposit is a reversal of some card's payment.
-        const reversal = unassigned.some(({ value }) => value < 0);
+        // A row the walk could not attribute to one card vetoes every card: an incoming one is a reversal of some card's
+        // payment; an outgoing one is a payment whose destination is in conflict (its own reason, for example a note that
+        // contradicts the payee, a proved receipt or another card or the HELOC) or not yet known. Its amount is never used.
+        const unattributed = new Set(unassigned.map(({ value, destination }) => (value < 0 ? 'payment-direction-unresolved'
+          : destination && destination.reason === 'card-payment-destination-conflict' ? 'card-payment-destination-conflict'
+            : 'card-payment-destination-unconfirmed')));
         for (const [id, bucket] of byCard) {
-          for (const gap of [...shadow.get(id).gaps, ...outside]) bucket.gaps.add(gap);
-          if (reversal) bucket.gaps.add('payment-direction-unresolved');
+          for (const gap of [...shadow.get(id).gaps, ...outside, ...unattributed]) bucket.gaps.add(gap);
         }
       }
     } else {
@@ -1024,7 +1027,8 @@
     // shortfall as covered.
     const openLines = lines.filter(line => cents(line.target.amount) === null || cents(line.target.amount) > 0);
     const unseenPaid = openLines.filter(line => line.paidBack.amount === null);
-    const reversalHeld = (unconfirmedPayments || []).some(payment => payment.amount < 0) && openLines.length > 0;
+    // An unidentified return withholds the paid side even with nothing to pay back, as it withholds minimumsPaid.
+    const reversalHeld = (unconfirmedPayments || []).some(payment => payment.amount < 0);
     out.paidBack = unseenPaid.length || reversalHeld
       ? { amount: null, trust: 'unavailable',
         reasons: [...new Set(unseenPaid.flatMap(line => line.paidBack.reasons).concat(reversalHeld ? ['payment-direction-unresolved'] : []))] }

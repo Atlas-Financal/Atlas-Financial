@@ -51,17 +51,27 @@ const context = { accountMap: 'invented map', categoryMapping: [] };
 const household = 4021;
 const day = '2026-09-20';
 
-function observation(hour, { cardSync = true, extra = false, reversal = false, payerSyncFailed = false, unreadablePayerRow = false } = {}) {
+function observation(hour, { cardSync = true, extra = false, reversal = false, payerSyncFailed = false, unreadablePayerRow = false,
+  payerNote = 'card payment: Travel Visa', payerEdit = null, unassignedReversal = false, minimum = null, transactionsNull = false } = {}) {
   const input = world([['card', 80, '2026-09-18', 'purchase', { id: 88101 }], ['card', 37, '2026-09-19', 'purchase', { id: 88102 }],
-    ['bills', 25, day, 'cash', { id: 88103, notes: 'card payment: Travel Visa' }],
+    ['bills', 25, day, 'cash', { id: 88103, notes: payerNote }],
     ...(reversal ? [['bills', -25, day, 'cash', { id: 88106, notes: 'card payment: Travel Visa' }]] : []),
+    ...(unassignedReversal ? [['bills', -25, day, 'cash', { id: 88107 }]] : []),
     ...(extra ? [['card', 12, day, 'purchase', { id: 88105 }]] : [])], { asOf: day, windowStart: '2026-09-18' });
+  if (minimum != null) input.data.plan.obligations[0].amount = minimum;
   const { payload } = input;
   Object.assign(payload, { categories: [], tags: [], fetchedAt: `${day}T${hour}:00:00Z` });
   payload.pendingCoverage.truncated = false;
   for (const account of payload.accounts) account.last_fetch = payload.fetchedAt;
   if (!cardSync) delete payload.accounts.find(account => account.id === 3004).last_fetch;
   const { data } = Live.fromObservation(input);
+  if (payerEdit) {
+    const rows = data.liveOverlay.currentPeriodActuals.transactions;
+    const payment = rows.find(tx => tx.amount === 25 && tx.atlasAccountId === 'chequing-a');
+    assert.ok(payment, 'the invented payer row is in the packet');
+    payerEdit(payment, rows);
+  }
+  if (transactionsNull) data.liveOverlay.currentPeriodActuals.transactions = null;
   if (unreadablePayerRow) {
     // A copy of the noted $25 payer row with an unreadable date (invented): the walk cannot read it.
     const rows = data.liveOverlay.currentPeriodActuals.transactions;
@@ -247,7 +257,7 @@ function membersAgree(r, label) {
     'MUTANT: the Credit line goes to a dash while the Travel line still shows 92, which section 1 rejects');
 
   console.log('8. Mutants: each restores the payer-gap dash');
-  const noSwap = fsrc.replace('(line.spent.amount === null || heldCardLineCoversPayerGap(line, candidate))', '(line.spent.amount === null)');
+  const noSwap = fsrc.replace('    if (line.spent.amount !== null) return heldCardLineCoversPayerGap(line, held);', '    if (line.spent.amount !== null) return false;');
   const swapLess = read(payerCase.data, engine(file => (file === 'public/forecast.js' ? noSwap : read2(file))));
   ok(noSwap !== fsrc && swapLess.s.creditBreakdown.stillToPayBack.amount === null && !swapLess.line.activityObservedAt,
     'MUTANT: the display swap without the payer-gap rule restores the dash, which section 5 rejects');
@@ -285,6 +295,96 @@ function membersAgree(r, label) {
     ok(r.s.creditBreakdown.stillToPayBack.amount === null && !r.line.activityObservedAt,
       'MUTANT: a memory that lets the gap reading evict the held line restores the dash, which section 5 rejects');
   }
+
+  console.log('9. Review blockers on 8125066b (Gemini 4 Neon): conflicts, a changed minimum, thin feed contradictions, completed trust');
+  // A held line must never stand in over current contradicting evidence; each case below is a warm reading (Travel 117
+  // charged, 25 paid back, 92 still) followed by the named newer refresh. The page's head, card row and Credit line are read
+  // from the one publication and must agree with the current figures.
+  const refused = (label, options, extraCheck) => {
+    const r = read(warmThen(options).data);
+    const b = r.s.creditBreakdown;
+    ok(!r.line.activityObservedAt, `${label}: the held line is refused; the head, row and Credit line read the current publication`,
+      JSON.stringify([r.line.paidBack, r.line.stillToPayBack, b.stillToPayBack, r.s.credit.totals.paidBack]));
+    membersAgree(r, label);
+    if (extraCheck) extraCheck(r);
+    return r;
+  };
+  // 1. Destination conflicts under the payer gap (positive debits): each refuses, with the conflict named and no amount.
+  const conflictNamed = r => ok(r.line.paidBack.amount === null && r.line.paidBack.reasons.some(x => x === 'card-payment-destination-conflict'
+    || x === 'card-payment-destination-unconfirmed') && r.s.credit.unconfirmedPayments.length === 0,
+    'the conflict is named in the withheld Paid back, and no amount or unconfirmed entry is supplied', JSON.stringify(r.line.paidBack.reasons));
+  refused('payer gap, payee destination names another card', { payerSyncFailed: true, payerEdit: tx => { tx.cardPaymentDestination = 'cashback'; } }, conflictNamed);
+  refused('payer gap, minimum category names another card', { payerSyncFailed: true, payerEdit: tx => { tx.minimumCategoryDebt = 'cashback'; } }, conflictNamed);
+  refused('payer gap, a two-card note', { payerSyncFailed: true, payerNote: 'card payment: Travel Visa; card payment: Cash Back' }, conflictNamed);
+  refused('payer gap, a HELOC note against a card destination', { payerSyncFailed: true, payerNote: 'card payment: HELOC',
+    payerEdit: tx => { tx.cardPaymentDestination = 'travelvisa'; } }, conflictNamed);
+  {
+    const warmRows = observation('18').data.liveOverlay.currentPeriodActuals.transactions;
+    const proof = Forecast.nextProvedPayerReceipts(warmRows, []).find(p => p.cardId === 'travelvisa' && p.amountCents === 2500);
+    ok(!!proof, 'control: the warm payer debit is a proved Travel receipt');
+    refused('payer gap, a proved Travel receipt whose current note names another card', { payerSyncFailed: true,
+      payerNote: 'card payment: Cash Back', payerEdit: tx => { tx.provedPayerReceipt = proof; } }, conflictNamed);
+  }
+  // 2. A changed minimum with the same charges and target: never the stale minimum or tick.
+  refused('payer gap, the minimum changed from 25 to 50', { payerSyncFailed: true, minimum: 50 }, r => ok(r.line.minimum.amount === 50
+    && r.line.minimumCovered.value !== true && cents(r.s.bills.cardMinimums.find(m => m.debtId === 'travelvisa').amount) === 5000,
+    'the line shows the current 50 minimum and no stale minimum tick, matching the bills split', JSON.stringify([r.line.minimum.amount, r.line.minimumCovered])));
+  refused('thin card feed, the minimum changed from 25 to 50', { cardSync: false, minimum: 50 }, r => ok(r.line.minimum.amount === 50
+    && r.line.minimumCovered.value !== true, 'the thin-feed line shows the current minimum, never the held one'));
+  // 3. Thin card feed with a current contradiction or an uninspected ledger.
+  refused('thin card feed with an unassigned reversal', { cardSync: false, unassignedReversal: true }, r => ok(r.s.credit.totals.paidBack.amount === null
+    && r.s.creditBreakdown.stillToPayBack.amount === null && r.line.stillToPayBack.amount === null,
+    'the head\'s paid side, the row and the Credit line are all withheld together (no stale 25 or 92)'));
+  refused('thin card feed with a named reversal', { cardSync: false, reversal: true }, r => ok(r.line.paidBack.reasons.includes('payment-direction-unresolved')
+    && r.s.creditBreakdown.stillToPayBack.amount === null, 'the named reversal withholds the row and the Credit line'));
+  refused('thin card feed with an uninspected ledger (transactions: null)', { cardSync: false, transactionsNull: true }, r => ok(r.line.paidBack.amount === null
+    && r.s.creditBreakdown.stillToPayBack.amount === null, 'the uninspected ledger withholds Paid back and the Credit line', JSON.stringify(r.line.paidBack.reasons)));
+  // Control: a thin card feed with a clean current payer reading keeps #1669's one coherent dated reading.
+  const clean = read(warmThen({ cardSync: false }).data);
+  ok(clean.line.activityObservedAt && clean.s.creditBreakdown.stillToPayBack.amount === 92, 'control: a clean thin card feed still shows the held line');
+  // 4. A completed view with no minimum due and unobserved charges: its zero is no more certain than the targets behind it.
+  const quiet = world([], { asOf: '2026-10-05', minimumDate: '2026-10-10' });
+  const qd = Live.fromObservation(quiet).data;
+  const qRec = engine(read2).recommend(qd.plan, quiet.asOf, { debts: qd.debts, currentPeriodActuals: qd.liveOverlay.currentPeriodActuals });
+  const qv = qRec.payPeriodViews.find(v => v.start === '2026-09-18');
+  const qb = qv.stackSummary.creditBreakdown;
+  ok(qv.role === 'lookback' && qb.basis === 'minimums' && qb.rows.length === 0
+    && qv.stackSummary.credit.lines.some(l => l.target.amount === 0 && l.target.trust === 'estimated'),
+    'control: a completed view with no row and estimated zero targets', JSON.stringify(qv.stackSummary.credit.lines.map(l => [l.id, l.target.amount, l.target.trust])));
+  ok(qb.stillToPayBack.amount === 0 && qb.stillToPayBack.trust === 'estimated', 'its Credit line zero is estimated, never calculated', JSON.stringify(qb.stillToPayBack));
+
+  console.log('10. Mutants for the review blockers');
+  const cardSrc = read2('public/forecast-card-period.js');
+  const noUnattributed = cardSrc.replace('...outside, ...unattributed]) bucket.gaps.add(gap);', '...outside]) bucket.gaps.add(gap);');
+  const fsNow = read2('public/forecast.js');
+  // The memory (real rule) would refuse to keep the held line; hand it to the display as a memory holding it would serve it.
+  const handedOf = (options, base = observation('18')) => {
+    const act = Forecast.cardActivityForDisplay(base.data);
+    const cur = observation('19', options);
+    return { ...cur.data, liveOverlay: { ...cur.data.liveOverlay, lastKnownCardActivity: { start: act.start, end: act.end,
+      cards: act.cards.map(card => ({ ...card, asOf: day, observedAt: base.checkedAt })) } } };
+  };
+  const conflictGap = handedOf({ payerSyncFailed: true, payerEdit: tx => { tx.cardPaymentDestination = 'cashback'; } });
+  const c1 = read(conflictGap, engine(read2)), m1 = read(conflictGap, engine(file => (file === 'public/forecast-card-period.js' ? noUnattributed : read2(file))));
+  ok(noUnattributed !== cardSrc && !c1.line.activityObservedAt && m1.line.activityObservedAt && m1.s.creditBreakdown.stillToPayBack.amount === 92,
+    'MUTANT: without the unattributed-row veto a destination conflict under the gap carries the held 92 (the reviewed defect)');
+  const noMinimum = fsNow.replace('      && heldCents(line && line.minimum) === heldCents(held.minimum);', ';');
+  const gapMin = { payerSyncFailed: true, minimum: 50 };
+  const minReal = read(handedOf(gapMin), engine(read2)), minMut = read(handedOf(gapMin), engine(file => (file === 'public/forecast.js' ? noMinimum : read2(file))));
+  ok(noMinimum !== fsNow && !minReal.line.activityObservedAt && minMut.line.activityObservedAt && minMut.line.minimum.amount === 25,
+    'MUTANT: without the minimum check the held 25 minimum (and its tick) is shown beside a current 50');
+  const noContradiction = fsNow.replace("    if (reasons.some(reason => PAYING_SIDE_CONTRADICTIONS.has(reason))\n      || (unconfirmedPayments || []).some(payment => payment && (payment.amount < 0 || payment.reason === 'card-payment-destination-conflict'))) return false;\n", '');
+  const thinRev = handedOf({ cardSync: false, unassignedReversal: true });
+  const revReal = read(thinRev, engine(read2)), revMut = read(thinRev, engine(file => (file === 'public/forecast.js' ? noContradiction : read2(file))));
+  ok(noContradiction !== fsNow && !revReal.line.activityObservedAt && revMut.line.activityObservedAt
+    && revMut.s.credit.totals.paidBack.amount === null && revMut.line.paidBack.amount === 25,
+    'MUTANT: without the contradiction check a thin feed with an unassigned reversal shows the held 25 under a withheld head (the reviewed defect)');
+  const noTrust = fsNow.replace("rows.map(row => row.trust).concat(trust, lines.map(line => (line.target && line.target.trust) || 'unavailable'))",
+    'rows.map(row => row.trust).concat(trust)');
+  const qMut = engine(file => (file === 'public/forecast.js' ? noTrust : read2(file))).recommend(qd.plan, quiet.asOf,
+    { debts: qd.debts, currentPeriodActuals: qd.liveOverlay.currentPeriodActuals }).payPeriodViews.find(v => v.start === '2026-09-18');
+  ok(noTrust !== fsNow && qMut.stackSummary.creditBreakdown.stillToPayBack.trust === 'calculated',
+    'MUTANT: without the targets\' trust the completed zero is promoted to calculated (the reviewed defect)');
 
   console.log(`\nPASS The Credit line follows the last known lines shown (${checks})`);
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -13712,22 +13712,45 @@
   // builder (income, bills and surplus here; the cards key of the same build
   // adds its builder beside them). The plan, as-of and options are passed for
   // a builder that needs them.
-  // OD-045 for the Credit rows (BUILD 7 amendment, #1611 7176284777; lead disposition on #1671): a held card line from an
-  // earlier reading of the same household, context and period stands in for the current one only when the current line's
-  // Paid back is withheld for incomplete payer coverage alone (no reversal, conflict or other reason), its charges and target
-  // are unchanged from the held line, and the held line's target, Paid back and Still to pay back are all known. The memory
-  // keeps such a held line instead of letting the gap reading evict it, and publishStackSummary shows it, estimated. Any
-  // other newer reading replaces it.
+  // OD-045 for the Credit rows (BUILD 7 amendment, #1611 7176284777; lead dispositions and review on #1671). A held card line
+  // from an earlier reading of the same household, context and period stands in for the current one only when the two are
+  // the same reading in every figure the current one still knows:
+  //   * the held line's target, Paid back and Still to pay back are all known;
+  //   * the current minimum equals the held one (a changed minimum never shows a stale minimum or minimum tick);
+  //   * nothing current contradicts the paying side: no unidentified return or destination conflict among the unconfirmed
+  //     payments, and no reversal, conflict, unreadable, duplicate or uninspected row in the card's Paid back or Still to pay
+  //     back reasons (these withhold the current figures and must not be papered over by an older reading);
+  //   * the charges side: withheld now (#1669's thin card feed, where a known current Paid back keeps #1669's rule of one
+  //     coherent dated reading, and a withheld one must be the payer gap alone), or unchanged in charges and target while
+  //     the paid side is withheld for the payer gap alone.
+  // heldCardLineCoversPayerGap is the payer-gap case the memory uses to keep the held line instead of letting the gap
+  // reading evict it; heldCardLineStandsIn is the whole rule publishStackSummary applies before showing it, estimated.
   const PAYER_COVERAGE_GAPS = new Set(['paying-side-coverage-incomplete', 'paying-account-not-observed']);
-  function heldCardLineCoversPayerGap(line, held) {
-    const paid = line && line.paidBack;
-    const centsOf = figure => (figure && Number.isFinite(figure.amount) ? Math.round(figure.amount * 100) : null);
-    const gapOnly = !!paid && paid.amount === null && Array.isArray(paid.reasons)
+  const heldCents = figure => (figure && Number.isFinite(figure.amount) ? Math.round(figure.amount * 100) : null);
+  function payerGapOnly(paid) {
+    return !!paid && paid.amount === null && Array.isArray(paid.reasons)
       && paid.reasons.some(reason => PAYER_COVERAGE_GAPS.has(reason))
       && paid.reasons.every(reason => reason === 'paid-unavailable' || PAYER_COVERAGE_GAPS.has(reason));
-    return !!held && gapOnly && centsOf(line.spent) !== null && centsOf(line.spent) === centsOf(held.spent)
-      && centsOf(line.target) !== null && centsOf(line.target) === centsOf(held.target)
-      && [held.target, held.stillToPayBack, held.paidBack].every(figure => centsOf(figure) !== null);
+  }
+  function heldLineComplete(line, held) {
+    return !!held && [held.target, held.stillToPayBack, held.paidBack].every(figure => heldCents(figure) !== null)
+      && heldCents(line && line.minimum) === heldCents(held.minimum);
+  }
+  function heldCardLineCoversPayerGap(line, held) {
+    return heldLineComplete(line, held) && payerGapOnly(line && line.paidBack)
+      && heldCents(line.spent) !== null && heldCents(line.spent) === heldCents(held.spent)
+      && heldCents(line.target) !== null && heldCents(line.target) === heldCents(held.target);
+  }
+  const PAYING_SIDE_CONTRADICTIONS = new Set(['payment-direction-unresolved', 'card-payment-destination-conflict',
+    'paying-side-evidence-unconfirmed', 'duplicate-identity', 'transaction-date-unqualified', 'transaction-amount-unqualified',
+    'paying-side-rows-uninspected']);
+  function heldCardLineStandsIn(line, held, unconfirmedPayments) {
+    if (!heldLineComplete(line, held)) return false;
+    const reasons = [].concat((line.paidBack && line.paidBack.reasons) || [], (line.stillToPayBack && line.stillToPayBack.reasons) || []);
+    if (reasons.some(reason => PAYING_SIDE_CONTRADICTIONS.has(reason))
+      || (unconfirmedPayments || []).some(payment => payment && (payment.amount < 0 || payment.reason === 'card-payment-destination-conflict'))) return false;
+    if (line.spent.amount !== null) return heldCardLineCoversPayerGap(line, held);
+    return heldCents(line.paidBack) !== null || payerGapOnly(line.paidBack);
   }
   function estimateStackCredit(node) {
     if (Array.isArray(node)) return node.map(estimateStackCredit);
@@ -13768,9 +13791,9 @@
       if (creditBreakdown && creditBreakdown.basis === 'targets' && activity?.start === view.start && activity.end === view.end) {
         credit = { ...credit, lines: credit.lines.map(line => {
           const candidate = activity.cards.find(card => card.id === line.id);
-          // #1669: charges withheld; BUILD 7 (OD-045): Paid back withheld for payer coverage alone, charges unchanged.
-          const held = candidate && (line.spent.amount === null || heldCardLineCoversPayerGap(line, candidate)) ? candidate : null;
-          if (!held || ![held.target, held.stillToPayBack, held.paidBack].every(figure => Number.isFinite(figure.amount))) return line;
+          // #1669's thin card feed and BUILD 7's payer gap, under one rule (heldCardLineStandsIn above).
+          const held = candidate && heldCardLineStandsIn(line, candidate, credit.unconfirmedPayments) ? candidate : null;
+          if (!held) return line;
           const { observedAt, asOf: _asOf, ...datedLine } = held;
           return { ...estimateStackCredit(datedLine), deduction: line.deduction, activityObservedAt: observedAt };
         }) };
@@ -14105,12 +14128,17 @@
       rows.push({ debtId: card.debtId, amount: card.amount, trust: bills.trust || 'calculated' });
     }
     const RANK = { calculated: 0, estimated: 1, unavailable: 2 };
-    const worst = words => words.reduce((w, t) => (RANK[t] ?? 2) > (RANK[w] ?? 2) ? t : w, 'calculated');
+    // An unrecognised trust word is the weakest there is ('unavailable'), never published as itself.
+    const worst = words => words.map(t => (Object.hasOwn(RANK, t) ? t : 'unavailable'))
+      .reduce((w, t) => (RANK[t] > RANK[w] ? t : w), 'calculated');
     const trust = worst([(bills && bills.trust) || 'calculated', basis === 'targets' ? entry.trust || 'calculated' : 'calculated']);
     const heldRow = rows.some(row => !isStackFigure(row.amount));
-    // Its trust is its rows' weakest; with no rows (nothing to pay back), the publication's own, never more certain.
+    // Its trust follows the evidence: no more certain than its rows, the Credit term's own, or any shown line's target (a line
+    // left out at a $0 target contributes that zero, so an estimated zero from unobserved charges stays estimated, on a
+    // completed or saved view as on a current one).
+    const evidence = rows.map(row => row.trust).concat(trust, lines.map(line => (line.target && line.target.trust) || 'unavailable'));
     const stillToPayBack = heldRow ? { amount: null, trust: 'unavailable' }
-      : { amount: rows.reduce((sum, row) => sum + stackCents(row.amount), 0) / 100, trust: worst(rows.map(row => row.trust).concat(trust)) };
+      : { amount: rows.reduce((sum, row) => sum + stackCents(row.amount), 0) / 100, trust: worst(evidence) };
     return { basis, rows, stillToPayBack, total: totalCents / 100, trust };
   }
   const STACK_SURPLUS_UNAVAILABLE = 'Surplus after deductions is unavailable: a term it sums (income, a bills part or the Household budget) is withheld for this period.';

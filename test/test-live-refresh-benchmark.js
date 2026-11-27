@@ -43,9 +43,9 @@ const snapshots = {
     // ledger rows); stripping stackSummary.billsAccount reproduces main 5f8d00aa byte for byte, and data is unchanged.
     // Re-pinned for BUILD 7 (OD-052, OD-057): each Credit publication's totals add paidBack, target and targetCovered, each
     // creditBreakdown adds basis and stillToPayBack, and completed views now publish a creditBreakdown (basis minimums) where
-    // main published null. Stripping exactly those from the output reproduces the pre-BUILD 7 digest (#1669's 7b8d702c over main
-    // 482e760) byte for byte; data is unchanged.
-    forecast: 'c9ce821a7a35ef7afbdd9bbc73c6e89fa3de3d0a9768b676c047a927698e27e3',
+    // main published null. Stripping exactly those from the output reproduces the pre-BUILD 7 digest (main 55512aea)
+    // byte for byte; data is unchanged.
+    forecast: 'b6064900fe40be99c1c424f1b47dcda7bf9f4cfdf1ee78bcb5c11f583d7d4190',
   },
   cards: {
     data: 'a94fdc3c78fb627a805f6dd90c23cbb578d5dddc26d0badc09057ec449185e4a',
@@ -68,8 +68,8 @@ const snapshots = {
     // reproduces main 5f8d00aa byte for byte, and data is unchanged.
     // Re-pinned for BUILD 7 (OD-052, OD-057): each Credit publication's totals add paidBack, target and targetCovered, each
     // creditBreakdown adds basis and stillToPayBack, and completed views now publish a creditBreakdown (basis minimums) where
-    // main published null. Stripping exactly those from the output reproduces the pre-BUILD 7 digest (#1669's 7b8d702c over main
-    // 482e760) byte for byte; data is unchanged.
+    // main published null. Stripping exactly those from the output reproduces the pre-BUILD 7 digest (main 55512aea)
+    // byte for byte; data is unchanged.
     forecast: '02bafe2d1428a0f591e04ec9fa3da300e93a3b79ba1a5f371c4dbf3729fb7869',
   },
   history: {
@@ -93,8 +93,8 @@ const snapshots = {
     // reproduces main 5f8d00aa byte for byte, and data is unchanged.
     // Re-pinned for BUILD 7 (OD-052, OD-057): each Credit publication's totals add paidBack, target and targetCovered, each
     // creditBreakdown adds basis and stillToPayBack, and completed views now publish a creditBreakdown (basis minimums) where
-    // main published null. Stripping exactly those from the output reproduces the pre-BUILD 7 digest (#1669's 7b8d702c over main
-    // 482e760) byte for byte; data is unchanged.
+    // main published null. Stripping exactly those from the output reproduces the pre-BUILD 7 digest (main 55512aea)
+    // byte for byte; data is unchanged.
     forecast: 'b49c21085bfc0d587cedd7e76a1e1a5c011898854c872df04552ff2082ebeb99',
   },
 };

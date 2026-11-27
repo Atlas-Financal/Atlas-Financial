@@ -227,4 +227,30 @@ console.log('5. Mutants: each must fail a check above');
   ok(twice !== wsrc && tw.line === '− Credit $6 / $6', 'MUTANT: a Credit line reading the deduction twice is caught', tw.line);
 }
 
+console.log('6. Review observations on 8125066b: a withheld deduction, and a reversal with nothing to pay back');
+{
+  // A Credit line whose Surplus (and so its deduction) is withheld prints a dash after the slash, never a dangling slash.
+  const c = { console, URLSearchParams, Intl, Map, WeakMap, Number, String, Object, Array, JSON, Math, Date,
+    location: { search: '?view=classic' }, document: { addEventListener: () => {}, getElementById: () => null } };
+  c.window = c;
+  vm.createContext(c);
+  vm.runInContext(read('public/stack-shell.js'), c);
+  vm.runInContext(read('public/stack-waterfall.js'), c);
+  const view = { start: '2031-03-01', end: '2031-03-14', role: 'active',
+    stackSummary: { income: {}, bills: { other: 0, mortgage: 0, cardMinimums: [], trust: 'calculated' },
+      surplus: { amount: null, terms: null, trust: 'unavailable', projected: false, reason: 'invented' },
+      creditBreakdown: { basis: 'targets', rows: [{ debtId: 'travelvisa', amount: 92, trust: 'estimated' }],
+        stillToPayBack: { amount: 92, trust: 'estimated' }, total: 0, trust: 'estimated' } } };
+  const html = c.StackWaterfall.html({ data: { debts: [] }, recommendation: { payPeriodViews: [view] }, selectedPeriodKey: view.start }, { creditOpen: true });
+  const line = (/<li class="wf-line wf-credit[\s\S]*?<\/button>/.exec(html) || [''])[0].replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  ok(line === '− Credit $92 / —', 'a withheld deduction reads $92 / —, not a dangling slash', line);
+  // An unidentified return withholds the head's paid side even when no line has anything to pay back, as minimumsPaid does.
+  const cp =(() => { const c2 = { console }; c2.window = c2; vm.createContext(c2); vm.runInContext(read('public/forecast-card-period.js'), c2); return c2.ForecastCardPeriod; })();
+  const zero = { amount: 0, trust: 'calculated', reasons: [] };
+  const quietLine = { id: 'travelvisa', target: zero, paidBack: zero, targetCovered: { value: false, trust: 'calculated', reasons: [] } };
+  const t = cp.creditHeadTotals([quietLine], [{ date: '2031-03-05', amount: -25 }]);
+  ok(t.paidBack.amount === null && t.paidBack.reasons.includes('payment-direction-unresolved') && t.target.amount === 0,
+    'an unidentified return with nothing to pay back: the head\'s paid side is withheld (a dash), the target 0', JSON.stringify(t.paidBack));
+}
+
 console.log(`\nPASS Credit stack matches the Credit dropdown (${checks})`);

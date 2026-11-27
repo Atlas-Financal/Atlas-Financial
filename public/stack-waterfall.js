@@ -226,7 +226,9 @@
     const stillCell = isAmount(still)
       ? `<span class="n${est(view, 'stackSummary.creditBreakdown.stillToPayBack.trust')}" data-source="${STILL_SOURCE}">${escape(money(still))}</span>`
       : `<span class="n" data-source="${STILL_SOURCE}" data-unpublished="true"></span>${DASH}`;
-    return `<span class="wf-of">${stillCell}<i aria-hidden="true"> / </i>${amountCell(view, 'credit')}</span>`;
+    // A withheld deduction (the Surplus unavailable) is a dash after the slash, never a dangling slash.
+    const deduction = isAmount(readPath(view, LINE_SOURCES.credit)) ? '' : DASH;
+    return `<span class="wf-of">${stillCell}<i aria-hidden="true"> / </i>${amountCell(view, 'credit')}${deduction}</span>`;
   }
 
   // The waterfall's Mortgage line opens the mortgage sheet (owner, Dale, 2026-11-20: no Mortgage card; the line stays
