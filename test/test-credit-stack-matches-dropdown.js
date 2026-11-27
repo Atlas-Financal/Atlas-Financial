@@ -26,6 +26,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+// Invented data only: the household history file that the live overlay's operating answer would load is replaced with an
+// empty one before any module reads it.
+const periodsPath = path.resolve(__dirname, '../public/periods.json');
+const readFileOriginal = fs.readFileSync;
+fs.readFileSync = (file, ...args) => (file === periodsPath ? JSON.stringify({ monthly: [] }) : readFileOriginal(file, ...args));
 const Live = require('../scripts/live-plan');
 const agg = require('./fixtures/card-coverage-aggregate-world');
 const week = require('./fixtures/stack-card-week');
