@@ -459,6 +459,16 @@ The in-window statement suppresses the carry. The later due date keeps the carry
 - **Owner follow-up:** if issuer evidence cannot establish whether the statement includes the prior shortfall, confirm that household fact with Dale. Promoting an estimate to verified remains owner-reserved.
 - **Not a duplicate of:** Gemini hunt 4 findings 2 and 11 (statement-moved once dates replayed, and the overlap guard), the satisfied-minimum future-close item above, or the owner card-payment `movementIdentity` item.
 
+<a id="estimated-card-payment-destination"></a>
+
+**Evaluate an estimated card-payment destination from one matching posted-balance decrease** · **ADDED TO BACKLOG — OPEN** · owner proposal, 2026-11-27
+
+For a posted Bills `TFR-TO C/C` debit that has neither a destination note nor an identified card-side receipt, consider showing an estimated destination when exactly one card's posted balance falls by the same amount between two qualified readings. With multiple plausible cards, incomplete readings, or conflicting evidence, keep the destination unresolved. An explicit destination note takes precedence.
+
+Today's aggregate coverage path in `public/forecast.js` can keep a qualifying unplaced Bills debit in To confirm without crediting a card. A balance change alone may include other activity. Before implementation, bring the evidence and the intended use of an estimated destination to the rule-17 and trust review. An estimate should not be accepted as posted proof, satisfy a card minimum, or release reserves without a separately approved proof rule.
+
+Closure would need invented replays of one candidate, competing candidates, a coincidental decrease, missing or stale coverage, a destination note, a later receipt and re-observation. Confirm the estimate cannot count the payment twice. This entry records the proposal and changes no runtime behavior.
+
 <a id="linked-posted-bill-payment"></a>
 
 **A pending copy of a linked, posted bill payment blocks Stack's Paid check. Expected: the bill stays Paid.** · **ADDED TO BACKLOG — OPEN** (C1 Check 6.19)
