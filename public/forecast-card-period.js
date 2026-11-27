@@ -365,10 +365,17 @@
         // not proof of its transaction type: prefer explicit native identity,
         // and leave a standalone credit unconfirmed even with a refund hint.
         const hint = typeof tx.kindHint === 'string' ? tx.kindHint.trim().toLowerCase() : '';
+        const positiveNonCharge = id !== 'heloc' && value > 0 && (tx.isIncome === true
+          || ['transfer', 'internal-transfer', 'refund', 'income'].includes(hint)
+          || ['transfer', 'refund', 'income'].includes(classification?.kind));
         const kind = ['payment', 'card-payment', 'bill-payment'].includes(hint) || tx.cardPaymentIdentity === true ? 'payment'
+          : positiveNonCharge ? 'movement-unconfirmed'
           : id === 'heloc' && hint === 'interest' || classification?.kind === 'interest' ? 'interest'
           : value != null && value < 0 ? 'credit-unconfirmed'
           : ['spend', 'bill', 'savings-item'].includes(classification?.kind) ? 'charge' : 'movement-unconfirmed';
+        // Stack can recognize a charge to repay without assigning it to a household budget row.
+        const chargeCategoryUnconfirmed = id !== 'heloc' && kind === 'movement-unconfirmed' && value > 0
+          && !positiveNonCharge && ['unclassified', 'unmapped', 'business', 'external'].includes(classification?.kind);
         const published = { id: tx.id == null ? null : String(tx.id), date: tx.date,
           // The ledger's payee, else its merchant (never the generic fallback where the ledger has a name).
           payee: typeof tx.displayedPayee === 'string' && tx.displayedPayee.trim() ? tx.displayedPayee
@@ -380,7 +387,9 @@
           ...(DisplayName && DisplayName.itemName(tx) ? { displayName: DisplayName.itemName(tx) } : {}),
           amount: value == null ? null : value / 100, magnitude: value == null ? null : Math.abs(value) / 100,
           direction: value == null ? null : value > 0 ? 'up' : value < 0 ? 'down' : 'flat',
-          kind, pending: tx.pending === true, ...(replaced ? { replacedByPosted: true } : {}) };
+          kind, pending: tx.pending === true, ...(replaced ? { replacedByPosted: true } : {}),
+          ...(chargeCategoryUnconfirmed ? { chargeCategoryUnconfirmed,
+            otherChargeCounted: primitives.otherChargeCounted?.(tx) === true } : {}) };
         const allocation = paymentAllocations?.get(tx.coverageRef);
         if (id !== 'heloc' && (allocation || kind === 'payment' || kind === 'credit-unconfirmed')) {
           // Diagnostic proof is local to these exact legs. Unknown legacy
@@ -506,8 +515,8 @@
   // replaced by a posted twin (Dale, 2026-11-22), the same kinds publish()
   // assigns, no amount or date heuristic. A figure that cannot be stated is
   // null with a reason, never 0. Each figure carries a trust word:
-  // 'calculated', 'estimated' (a payment whose source the card ledger has not
-  // reconciled, or any figure a pending row adds to), or 'unavailable'.
+  // 'calculated', 'estimated' (an unreconciled payment, a charge with an
+  // unconfirmed category, or a figure a pending row adds to), or 'unavailable'.
   const STACK_TRUST_ORDER = ['calculated', 'estimated', 'unavailable'];
   // An unrecognised trust word is the weakest there is ('unavailable'), never silently dropped from the comparison.
   const weakest = (...words) => STACK_TRUST_ORDER[Math.max(...words.map(w => (STACK_TRUST_ORDER.includes(w) ? STACK_TRUST_ORDER.indexOf(w) : STACK_TRUST_ORDER.length - 1)))];
@@ -569,6 +578,12 @@
             if (!row.pending) { postedPaidTrust = 'estimated'; postedPaidReasons.push('card-payment-unconfirmed'); }
           }
           if (!row.pending) postedPaidCents += -value;
+        } else if (row.chargeCategoryUnconfirmed) {
+          spentCents += value;
+          if (row.otherChargeCounted) chargeCents += value;
+          spentTrust = 'estimated';
+          spentReasons.push('charge-category-unconfirmed');
+          if (row.pending) spentReasons.push('includes-pending');
         } else if (row.kind === 'charge' || row.kind === 'interest' || row.kind === 'refund') {
           spentCents += value;
           // A charge is a household purchase, a card-paid bill or a savings item (the classifier's spend / bill / savings-item):
@@ -580,7 +595,8 @@
           if (!row.pending) postedPaidReasons.push('card-credit-purpose-unconfirmed');
         } else spentReasons.push('card-movement-unconfirmed');
       }
-      const blocked = reasons => gaps.length || reasons.some(r => r !== 'card-payment-unconfirmed' && r !== 'includes-pending');
+      const blocked = reasons => gaps.length || reasons.some(r =>
+        !['card-payment-unconfirmed', 'includes-pending', 'charge-category-unconfirmed'].includes(r));
       const paid = blocked(paidReasons) ? figure(null, null, gaps.concat(paidReasons))
         : figure(paidCents / 100, paidTrust, paidReasons);
       // Paid from posted payments only (lead ruling, ATLAS LEAD 12, 2026-11-22): a pending payment can fail or reverse, so
@@ -766,6 +782,7 @@
       const over = overLimitOf(card.id, card);
       const reasons = over.reasons.slice();
       if (charges === null) reasons.push('new-charges-unavailable');
+      else if (card.spent.reasons.includes('charge-category-unconfirmed')) reasons.push('charge-category-unconfirmed');
       // What must be repaid this period, counted once (Neon 7113251603 item 2; desk ruling, Plan #6): the minimum, the
       // period's new charges and the amount over the limit come from one balance, so the target is the largest of them,
       // never their sum. Repaying a charge that pushed the card over its limit is the same dollar as bringing it back
@@ -783,8 +800,8 @@
     // already counted above, each deducted from that sum only once." Per card:
     //   due = max(0, target − charges already counted above)
     //   deduction = due − the part of the cash already paid beyond its minimum that covers due above the minimum
-    // The charges already counted above are the card's charges inside Spent (its purchases, card-paid bills and savings items,
-    // each deducted above by the Household budget hold, the bills or the item term). Cash paid beyond the minimum
+    // The charges already counted above are the card's charges inside Spent that the Household budget hold, the bills or
+    // the item term already deduct, including unassigned purchases admitted to the Other spending hold. Cash paid beyond the minimum
     // (manualCardPaymentBeyondMinimum, its own named term) is deducted there in full; only the part of it that pays the
     // target above the minimum would be counted twice, so only that part is netted: a payment beyond the target stays the
     // cash it is. Floored at 0 (due): a refund never hands cash back through Credit. A withheld target withholds the deduction; withheld counted charges deduct none of them (the
@@ -843,12 +860,18 @@
         ? { amount: null, trust: 'unavailable', reasons: [...new Set(paidBack.reasons.concat('payment-direction-unresolved'))] }
         : paidBack;
       const towardCents = cents(progress.amount);
-      const shortOf = targetCents === null || towardCents === null;
-      const stillToPayBack = shortOf
-        ? { amount: null, trust: 'unavailable', reasons: [...new Set((targetCents === null ? target.reasons : []).concat(towardCents === null ? progress.reasons : []))] }
-        : { amount: Math.max(0, targetCents - towardCents) / 100, trust: weakest(target.trust, progress.trust), reasons: [] };
-      const targetCovered = shortOf
-        ? { value: 'unknown', trust: 'unavailable', reasons: stillToPayBack.reasons.slice() }
+      // A lower-bound target cannot establish full repayment. With unknown charges, withhold a remainder
+      // below half a dollar because the Stack displays whole dollars and would print it as $0.
+      const chargesUnavailable = target.reasons.includes('new-charges-unavailable');
+      const remainderCents = targetCents === null || towardCents === null ? null : Math.max(0, targetCents - towardCents);
+      const remainderUnavailable = remainderCents === null || (chargesUnavailable && remainderCents < 50);
+      const coverageReasons = [...new Set((targetCents === null ? target.reasons : [])
+        .concat(towardCents === null ? progress.reasons : [], chargesUnavailable ? ['new-charges-unavailable'] : []))];
+      const stillToPayBack = remainderUnavailable
+        ? { amount: null, trust: 'unavailable', reasons: coverageReasons }
+        : { amount: remainderCents / 100, trust: weakest(target.trust, progress.trust), reasons: [] };
+      const targetCovered = remainderUnavailable || chargesUnavailable
+        ? { value: 'unknown', trust: 'unavailable', reasons: coverageReasons.slice() }
         : { value: targetCents > 0 && towardCents >= targetCents, trust: weakest(target.trust, progress.trust), reasons: [] };
       // Covered reads posted payments only: a pending payment never by itself makes a minimum covered (lead ruling, 2026-11-22).
       const paidForMinimum = progress;
@@ -947,9 +970,15 @@
       : { amount: lines.reduce((sum, line) => sum + cents(line.deduction.amount), 0) / 100,
         trust: weakest(...lines.map(line => line.deduction.trust)),
         reasons: [...new Set(lines.flatMap(line => line.deduction.reasons))] };
-    // The Credit head (OD-052, Dale, 2026-11-25: "it should be [total paid back]/[sum of the card targets]"), over the
-    // lines with something to pay back (a target above $0, or a withheld one), the HELOC included: the sum of their printed
-    // Paid back over the sum of their targets, so the head adds up against those rows. A line with a published $0 target
+    Object.assign(totals, creditHeadTotals(lines, unconfirmedPayments));
+    return { lines, totals, unconfirmedPayments };
+  }
+  function creditHeadTotals(lines, unconfirmedPayments) {
+    const out = {};
+    // The Credit head (OD-052, Dale, 2026-11-25: "it should be [total paid back]/[sum of the card targets]"), over the lines
+    // the page shows (stackCreditLines's own, or a current view's retained display lines, #1669). Over those with something
+    // to pay back (a target above $0, or a withheld one), the HELOC included: the sum of their printed Paid back over the
+    // sum of their targets, so the head adds up against those rows. A line with a published $0 target
     // adds nothing to either side (as a card with no minimum due added nothing to the old head), so a quiet card with no
     // payment evidence never withholds the head. Each side is withheld (amount null) when any of its lines' figures is,
     // never a partial sum. An unidentified return withholds the paid side, as it withholds each such line's progress.
@@ -957,25 +986,25 @@
     // shortfall as covered.
     const openLines = lines.filter(line => cents(line.target.amount) === null || cents(line.target.amount) > 0);
     const unseenPaid = openLines.filter(line => line.paidBack.amount === null);
-    const reversalHeld = hasUnassignedReversal && openLines.length > 0;
-    totals.paidBack = unseenPaid.length || reversalHeld
+    const reversalHeld = (unconfirmedPayments || []).some(payment => payment.amount < 0) && openLines.length > 0;
+    out.paidBack = unseenPaid.length || reversalHeld
       ? { amount: null, trust: 'unavailable',
         reasons: [...new Set(unseenPaid.flatMap(line => line.paidBack.reasons).concat(reversalHeld ? ['payment-direction-unresolved'] : []))] }
       : { amount: openLines.reduce((sum, line) => sum + cents(line.paidBack.amount), 0) / 100,
         trust: openLines.length ? weakest(...openLines.map(line => line.paidBack.trust)) : weakest(...lines.map(line => line.target.trust)),
         reasons: [...new Set(openLines.flatMap(line => line.paidBack.reasons))] };
     const unseenTarget = lines.filter(line => line.target.amount === null);
-    totals.target = unseenTarget.length
+    out.target = unseenTarget.length
       ? { amount: null, trust: 'unavailable', reasons: [...new Set(unseenTarget.flatMap(line => line.target.reasons))] }
       : { amount: lines.reduce((sum, line) => sum + cents(line.target.amount), 0) / 100,
         trust: weakest(...lines.map(line => line.target.trust)), reasons: [] };
     const coverUnknown = !openLines.length || openLines.some(line => line.targetCovered.value === 'unknown');
-    totals.targetCovered = coverUnknown
+    out.targetCovered = coverUnknown
       ? { value: openLines.length ? 'unknown' : false, trust: openLines.length ? 'unavailable' : weakest(...lines.map(line => line.target.trust)),
         reasons: openLines.length ? [...new Set(openLines.flatMap(line => line.targetCovered.reasons))] : [] }
       : { value: openLines.every(line => line.targetCovered.value === true),
         trust: weakest(...openLines.map(line => line.targetCovered.trust)), reasons: [] };
-    return { lines, totals, unconfirmedPayments };
+    return out;
   }
-  return { publish, stackCards, stackCreditLines };
+  return { publish, stackCards, stackCreditLines, creditHeadTotals };
 });

@@ -114,11 +114,11 @@ function inputFor(canonical, payload, env, options = {}) {
 // The worker's whole job, as a function so it can be exercised in-process.
 // Resolves to the one message the worker posts: fixed codes, plus the
 // connection owner's sanitized diagnostic when the store refused. Never throws.
-async function runWorker({ canonical, payload, env, open, buildInput = inputFor, now } = {}) {
+async function runWorker({ canonical, payload, priorPostedBillReceipts, env, open, buildInput = inputFor, now } = {}) {
   let store = null;
   try {
     let input;
-    try { input = buildInput(canonical, payload, env); }
+    try { input = { ...buildInput(canonical, payload, env), priorPostedBillReceipts }; }
     catch (_) { return { closing: 'history-capture-input-invalid', opening: 'history-capture-input-invalid' }; }
     const openStore = open || (() => require('./private-period-history-postgres').openPeriodHistoryPostgres({ env }));
     try { store = await openStore(); }
@@ -135,7 +135,8 @@ async function runWorker({ canonical, payload, env, open, buildInput = inputFor,
 }
 
 if (!isMainThread && workerData && workerData.periodHistoryCapture === true) {
-  runWorker({ canonical: workerData.canonical, payload: workerData.payload, env: process.env })
+  runWorker({ canonical: workerData.canonical, payload: workerData.payload,
+    priorPostedBillReceipts: workerData.priorPostedBillReceipts, env: process.env })
     .then(message => parentPort.postMessage(message));
 }
 
@@ -178,7 +179,8 @@ function create({ log = line => console.log(line), clock = () => Date.now(), spa
           if (outcome && outcome.closing === 'history-capture-timeout' && worker) worker.terminate().catch(() => {});
         };
         try {
-          worker = start({ periodHistoryCapture: true, canonical, payload: evidence.payload }, env);
+          worker = start({ periodHistoryCapture: true, canonical, payload: evidence.payload,
+            priorPostedBillReceipts: evidence.postedBillReceipts }, env);
           timer = setTimeout(() => finish({ closing: 'history-capture-timeout', opening: 'history-capture-timeout' }), WORKER_TIMEOUT_MS);
           if (timer.unref) timer.unref();
           worker.once('message', finish);

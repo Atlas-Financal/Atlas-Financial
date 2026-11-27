@@ -113,15 +113,30 @@ if (!isMainThread) {
       .then(acquisition => parentPort.postMessage({ acquisition, check }))
       .catch(() => parentPort.postMessage({ error: 'live-refresh-unavailable' }));
   } else {
-    StageTiming.run(() => Live.applyForServer(workerData.canonical, process.env, { signal: controller.signal,
-      evidence: workerData.evidence, onObservation: value => { check = value; },
-      onCoverageDiagnostic: counts => CoverageDiagnostics.merge(check.coverageDiagnostics ||= {}, counts),
-      onHouseholdIdentity: value => parentPort.postMessage({ type: 'household-identity', accountId: value }) }),
+    StageTiming.run(async () => {
+      const data = await Live.applyForServer(workerData.canonical, process.env, { signal: controller.signal,
+        priorPostedBillReceipts: workerData.priorPostedBillReceipts,
+        evidence: workerData.evidence,
+        ...(workerData.provedPayerReceipts ? { provedPayerReceipts: workerData.provedPayerReceipts } : {}),
+        onObservation: value => { check = value; },
+        onCoverageDiagnostic: counts => CoverageDiagnostics.merge(check.coverageDiagnostics ||= {}, counts),
+        onHouseholdIdentity: value => parentPort.postMessage({ type: 'household-identity', accountId: value }) });
+      let cardActivity = null;
+      if (check.qualified && check.evidence && check.credentialSource === 'env' && check.householdAccountId) {
+        const Memory = require('./server-observation-memory');
+        if (Memory.completeTransactionCohort(data) && !Memory.planWithheld(data)) {
+          try {
+            cardActivity = StageTiming.sync('forecastMs', () => require('../public/forecast').cardActivityForDisplay(data));
+          } catch (_) { /* A display projection cannot refuse current source evidence. */ }
+        }
+      }
+      return { data, cardActivity };
+    },
     stages => parentPort.postMessage({ type: StageTiming.MESSAGE, stages }))
-      .then(data => {
+      .then(result => {
         let reads = null;
         try { reads = replayReads ? replayReads() : null; } catch (_) { reads = null; }
-        parentPort.postMessage({ data, check, ...(replayReads ? { reads } : {}) });
+        parentPort.postMessage({ ...result, check, ...(replayReads ? { reads } : {}) });
       })
       .catch(() => parentPort.postMessage({ error: 'live-refresh-unavailable' }));
   }
@@ -232,10 +247,11 @@ if (!isMainThread) {
       env[Observer.MAP_PATH_ENV] && path.resolve(env[Observer.MAP_PATH_ENV]),
       !Credentials.envToken(env) && process.platform === 'win32'
         ? Credentials.defaultCredentialPath(env) : null].filter(Boolean).map(file => fileRevision(file, metadata));
-    const day = financialDay();
-    return crypto.createHmac('sha256', keySalt)
+    // Receipt continuity uses the same compatibility inputs across day boundaries.
+    metadata.billContext = crypto.createHmac('sha256', keySalt)
       .update(JSON.stringify(contextValue([canonical, Object.entries(env).sort(([a], [b]) => a.localeCompare(b)),
-        day, process.execArgv, runtime, files, generation]))).digest('hex');
+        process.execArgv, runtime, files, generation]))).digest('hex');
+    return crypto.createHmac('sha256', keySalt).update(metadata.billContext + financialDay()).digest('hex');
   }
   // DISPLAY identity only. No day, runtime version, browser auth or write
   // generation is included. Household identity is separately attested by /me.
@@ -269,7 +285,8 @@ if (!isMainThread) {
       if (attempt && persist) observations.noteAttempt(context, attempt);
       const receipt = attempt || retained.attempt || { source: null, qualified: false,
         checkedAt: null, attemptedAt: null, reason: 'current-observation-unavailable' };
-      const data = require('./live-plan').withLatestCompleteRefresh(retained, receipt);
+      const display = require('./live-plan').withLatestCompleteRefresh(retained, receipt);
+      const data = observations.withLastKnownCardActivity(context, retained.householdAccountId, retained.checkedAt, display);
       return { data, check: data.liveOverlay.retainedRefresh.attempt,
         checkedAt: retained.checkedAt, cashEvidenceAt: retained.cashEvidenceAt || null };
     } catch (_) { return null; }
@@ -571,7 +588,10 @@ if (!isMainThread) {
       return;
     }
     try {
-      const worker = job.worker = new Worker(__filename, { workerData: { canonical, evidence: job.evidence, acquire: job.acquire === true }, env });
+      const worker = job.worker = new Worker(__filename, { workerData: { canonical, evidence: job.evidence,
+        priorPostedBillReceipts: job.priorPostedBillReceipts,
+        ...(job.provedPayerReceipts ? { provedPayerReceipts: job.provedPayerReceipts } : {}),
+        acquire: job.acquire === true }, env });
       active.add(worker);
       worker.once('online', () => { if (!job.settled) job.online = performance.now(); });
       worker.on('message', result => {
@@ -650,7 +670,9 @@ if (!isMainThread) {
                 context: displayKey(canonical, env), householdAccountId: accountId, lastBudgetAccountId: accountId, credentialSource: 'env',
                 checkedAt: result.check.checkedAt, data: result.data,
                 ...(typeof result.check.cashEvidenceAt === 'string' ? { cashEvidenceAt: result.check.cashEvidenceAt } : {}),
-              } : undefined);
+              } : undefined, completeDisplay && accountId ? {
+                context: metadata.billContext, householdAccountId: accountId,
+              } : undefined, result.cardActivity);
               published = true;
             } catch (_) { /* Live path only. */ }
           }
@@ -732,6 +754,16 @@ if (!isMainThread) {
             return finishJob(job, null, clear.data);
           }
         }
+        const cardHousehold = completeDisplay && (job.evidence
+          ? observations.replayHousehold(job.context, result.check.checkedAt)
+          : result.check.credentialSource === 'env' && result.check.householdAccountId);
+        if (cardHousehold) {
+          try {
+            const data = observations.withLastKnownCardActivity(displayKey(canonical, env), cardHousehold,
+              result.check.checkedAt, result.data);
+            return finishJob(job, null, data);
+          } catch (_) { /* Incompatible or unreadable display context. */ }
+        }
         return result?.data ? finishJob(job, null, result.data) : finishJob(job, unavailable('live-refresh-unavailable'));
         } finally { job.publicationMs = Math.max(0, performance.now() - publicationStarted); }
   }
@@ -767,7 +799,7 @@ if (!isMainThread) {
     const requested = options.timeoutMs;
     const budget = Number.isFinite(requested) && requested > 0
       ? Math.min(requested, LIVE_REFRESH_TIMEOUT_MS) : LIVE_REFRESH_TIMEOUT_MS;
-    let key, context, evidence = null, input, workerEnv;
+    let key, context, evidence = null, priorProofs = null, input, workerEnv;
     const metadata = { readable: true };
     try {
       input = structuredClone(canonical);
@@ -777,6 +809,14 @@ if (!isMainThread) {
       if (metadata.readable && !replayHeld && !jobs.has(key) && options.preferObservation === true && !options.forceRefresh) {
         evidence = observations.read(context);
         if (evidence) key = context + ':replay';
+      }
+      // A fresh provider fetch does not load the replay evidence, but the last
+      // observation's proved receipts still have to reach that fetch. peek does
+      // not clear the slot when the context misses.
+      if (!evidence && metadata.readable) {
+        const held = observations.peek(context);
+        const list = held && held.payload && held.payload.provedPayerReceipts;
+        if (Array.isArray(list) && list.length) priorProofs = list;
       }
     } catch (_) { return unavailableDisplay('live-refresh-unavailable'); }
     let job = jobs.get(key);
@@ -795,7 +835,8 @@ if (!isMainThread) {
       // new qualified publish, a dated unqualified answer, or a hard
       // invalidator.
       if (!evidence) observationEpoch++;
-      job = { key, context, evidence, contextInput: input, contextEnv: workerEnv, reuseKey, reused,
+      job = { key, context, evidence, provedPayerReceipts: priorProofs, contextInput: input, contextEnv: workerEnv, reuseKey, reused,
+        priorPostedBillReceipts: !evidence && metadata.readable ? observations.readPostedBills(metadata.billContext) : null,
         cacheable: metadata.readable, day: financialDay(), generation, observationEpoch,
         started: performance.now(), waiters: new Set(), waiterCount: 0,
         peakWaiters: 0, cancelledWaiters: 0, timedOutWaiters: 0, settled: false, hadForcedWaiter: false };

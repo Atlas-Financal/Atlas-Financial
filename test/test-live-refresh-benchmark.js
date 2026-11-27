@@ -12,6 +12,9 @@ const { CASE_NAMES, runCase } = require('../scripts/live-refresh-benchmark');
 // and restoring the prior reasons on paidToward, paidBack, stillToPayBack, targetCovered and minimumCovered
 // reproduces the d70784b1 Forecast digests. The budget case also requires the previous totals.minimumsPaid.reasons
 // and totals.minimumsCoveredTrust (now unavailable where payer evidence is missing). No amount or data digest changed.
+// Re-pinned for #1664: all three Forecast digests differ from c8f6cd5c. Restoring the zero remainders, the reasons on
+// already-withheld remainders, and the corresponding dropdown cells reproduces that head's digests exactly.
+// All three refresh-publication digests are unchanged.
 const snapshots = {
   budget: {
     data: '05b6f393c7b83e81d8bba130f9d6d7834b7c850e9b0dc942093834e60a8cf8bd',
@@ -40,8 +43,9 @@ const snapshots = {
     // ledger rows); stripping stackSummary.billsAccount reproduces main 5f8d00aa byte for byte, and data is unchanged.
     // Re-pinned for BUILD 7 (OD-052, OD-057): each Credit publication's totals add paidBack, target and targetCovered, each
     // creditBreakdown adds basis and stillToPayBack, and completed views now publish a creditBreakdown (basis minimums) where
-    // main published null. Stripping exactly those from the output reproduces main baad05d8's digest; data is unchanged.
-    forecast: 'a7d4356ed83b27fafbea909f987048c6e8fc832e873c9d2efd5dcccc1b89e918',
+    // main published null. Stripping exactly those from the output reproduces the pre-BUILD 7 digest (#1669's 7b8d702c over main
+    // 482e760) byte for byte; data is unchanged.
+    forecast: 'c9ce821a7a35ef7afbdd9bbc73c6e89fa3de3d0a9768b676c047a927698e27e3',
   },
   cards: {
     data: 'a94fdc3c78fb627a805f6dd90c23cbb578d5dddc26d0badc09057ec449185e4a',
@@ -64,8 +68,9 @@ const snapshots = {
     // reproduces main 5f8d00aa byte for byte, and data is unchanged.
     // Re-pinned for BUILD 7 (OD-052, OD-057): each Credit publication's totals add paidBack, target and targetCovered, each
     // creditBreakdown adds basis and stillToPayBack, and completed views now publish a creditBreakdown (basis minimums) where
-    // main published null. Stripping exactly those from the output reproduces main baad05d8's digest; data is unchanged.
-    forecast: 'b74189bb7b8fe50a204c886efcd42c749a4d1c0990e0772a1905416514c67123',
+    // main published null. Stripping exactly those from the output reproduces the pre-BUILD 7 digest (#1669's 7b8d702c over main
+    // 482e760) byte for byte; data is unchanged.
+    forecast: '02bafe2d1428a0f591e04ec9fa3da300e93a3b79ba1a5f371c4dbf3729fb7869',
   },
   history: {
     data: 'c04e408eb8bcd7566e10fc0dbe71f3f09330a7d587070cd008a9829db93b3ba7',
@@ -88,8 +93,9 @@ const snapshots = {
     // reproduces main 5f8d00aa byte for byte, and data is unchanged.
     // Re-pinned for BUILD 7 (OD-052, OD-057): each Credit publication's totals add paidBack, target and targetCovered, each
     // creditBreakdown adds basis and stillToPayBack, and completed views now publish a creditBreakdown (basis minimums) where
-    // main published null. Stripping exactly those from the output reproduces main baad05d8's digest; data is unchanged.
-    forecast: '113f570a830f4ddeecf1648813ef7a907d15de9675863ae8be3a95138e02891e',
+    // main published null. Stripping exactly those from the output reproduces the pre-BUILD 7 digest (#1669's 7b8d702c over main
+    // 482e760) byte for byte; data is unchanged.
+    forecast: 'b49c21085bfc0d587cedd7e76a1e1a5c011898854c872df04552ff2082ebeb99',
   },
 };
 const digest = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');

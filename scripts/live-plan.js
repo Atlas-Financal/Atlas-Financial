@@ -1625,11 +1625,13 @@ function observeInput(opts) {
     data: opts.data,
     identity,
     fetchedAt: opts.payload && opts.payload.fetchedAt,
+    priorPostedBillReceipts: opts.priorPostedBillReceipts,
   };
 }
 
 function fromObservation(opts) {
-  const report = O.observe(observeInput(opts));
+  const report = O.observe({ ...observeInput(opts),
+    ...(opts && Object.hasOwn(opts, 'provedPayerReceipts') ? { provedPayerReceipts: opts.provedPayerReceipts } : {}) });
   const overlaid = overlayLiveState({ data: opts.data, report, closingDay: opts.closingDay });
   return Object.assign({ report }, overlaid);
 }
@@ -1735,22 +1737,27 @@ function fixturePathsFromEnv(env) {
   return { fixture, mapPath };
 }
 
-function observeForOverlay(canonical, payload, accountMap, onCoverageDiagnostic) {
+function observeForOverlay(canonical, payload, accountMap, onCoverageDiagnostic, priorPostedBillReceipts, provedPayerReceipts) {
   return O.observe({ ...observeInput({
     data: canonical,
     payload,
     accountMap,
     identity: loadIdentity(),
-  }), onCoverageDiagnostic });
+    priorPostedBillReceipts,
+  }), onCoverageDiagnostic,
+    // Explicit server list only. A field on the provider payload is not proof.
+    ...(provedPayerReceipts !== undefined ? { provedPayerReceipts } : {}) });
 }
 
-function observeForSettlementAcquisition(canonical, payload, accountMap) {
-  return O.observeWithSettlementCrosswalk(observeInput({
+function observeForSettlementAcquisition(canonical, payload, accountMap, priorPostedBillReceipts) {
+  return O.observeWithSettlementCrosswalk({ ...observeInput({
     data: canonical,
     payload,
     accountMap,
     identity: loadIdentity(),
-  }));
+    priorPostedBillReceipts,
+  }), ...(payload && Object.hasOwn(payload, 'provedPayerReceipts')
+    ? { provedPayerReceipts: payload.provedPayerReceipts } : {}) });
 }
 
 function applyObservedOverlay(canonical, report, operatingEvaluation) {
@@ -1924,7 +1931,7 @@ function cashEvidenceInstant(canonical, report, payload, accountMap) {
   return evidence && evidence.day < liveAsOfFrom(report, null) ? evidence : null;
 }
 
-function evidenceDayView(canonical, payload, accountMap, report) {
+function evidenceDayView(canonical, payload, accountMap, report, provedPayerReceipts) {
   const evidence = cashEvidenceInstant(canonical, report, payload, accountMap);
   if (!evidence) return null;
   const dated = { ...payload, fetchedAt: evidence.instant,
@@ -1932,7 +1939,7 @@ function evidenceDayView(canonical, payload, accountMap, report) {
     transactions: (Array.isArray(payload.transactions) ? payload.transactions : [])
       .filter(tx => !(tx && typeof tx.date === 'string' && tx.date.slice(0, 10) > evidence.day)),
     transactionWindow: { ...payload.transactionWindow, endDate: evidence.day } };
-  const datedReport = observeForOverlay(canonical, dated, accountMap);
+  const datedReport = observeForOverlay(canonical, dated, accountMap, undefined, undefined, provedPayerReceipts);
   const data = applyObservedOverlay(canonical, datedReport, OA.createRefreshEvaluation());
   if (data.liveOverlay?.applied !== true || datedReport.observationReceipt?.readyForReconciliation !== true
     || data.meta?.asOf !== evidence.day) return null;
@@ -1970,7 +1977,15 @@ async function applyForServer(canonical, env, options) {
           options?.onHouseholdIdentity?.(value);
         },
       }));
-    const report = StageTiming.sync('normalizeMs', () => observeForOverlay(canonical, payload, accountMap, noteCoverage));
+    const fromEvidence = options?.evidence?.schema === ObservationMemory.SCHEMA;
+    const priorProofs = fromEvidence
+      ? (Object.hasOwn(payload, 'provedPayerReceipts') ? payload.provedPayerReceipts : undefined)
+      : (options && Object.hasOwn(options, 'provedPayerReceipts') ? options.provedPayerReceipts : undefined);
+    const prior = options?.priorPostedBillReceipts;
+    const receipts = options?.evidence?.postedBillReceipts
+      || (householdAccountId && prior?.householdAccountId === householdAccountId ? prior.receipts : undefined);
+    const report = StageTiming.sync('normalizeMs', () => observeForOverlay(
+      canonical, payload, accountMap, noteCoverage, receipts, priorProofs));
     const operatingEvaluation = OA.createRefreshEvaluation();
     const data = StageTiming.sync('overlayMs', () => applyObservedOverlay(canonical, report, operatingEvaluation));
     if (data.liveOverlay?.applied !== true) noteCoverage(CoverageDiagnostics.overlayFailure(data.liveOverlay?.reason));
@@ -1979,7 +1994,7 @@ async function applyForServer(canonical, env, options) {
     // OD-2: display only. `qualified` stays false and no replay evidence is kept.
     let datedView = null;
     if (data.liveOverlay?.applied !== true && data.liveOverlay?.reason === 'stale-live-cash-evidence') {
-      try { datedView = StageTiming.sync('overlayMs', () => evidenceDayView(canonical, payload, accountMap, report)); }
+      try { datedView = StageTiming.sync('overlayMs', () => evidenceDayView(canonical, payload, accountMap, report, priorProofs)); }
       catch (_) { datedView = null; }
     }
     // Display-precedence metadata only: the retained cohort's balance instant.
@@ -1995,14 +2010,24 @@ async function applyForServer(canonical, env, options) {
           // The fixed-amount derivation replays as its outcome record only (#1355):
           // the 200-day history rows are never kept.
           // So does the bill sheet's payment history: its clean per-row series only.
-          const inputs = ObservationMemory.sourceInputs({ ...payload,
+          const nextProofs = Forecast.nextProvedPayerReceipts(
+            report.currentPeriodActuals && report.currentPeriodActuals.transactions, priorProofs);
+          const body = { ...payload,
             ...(report.derivedAmountFixed ? { amountFixedDerivation: report.derivedAmountFixed } : {}),
-            ...(report.billPaymentHistory ? { billPaymentHistory: report.billPaymentHistory } : {}) });
+            ...(report.billPaymentHistory ? { billPaymentHistory: report.billPaymentHistory } : {}) };
+          // Replace any provider-supplied list. An empty result stores nothing.
+          if (nextProofs.length) body.provedPayerReceipts = nextProofs;
+          else delete body.provedPayerReceipts;
+          const inputs = ObservationMemory.sourceInputs(body);
           // A field projection cannot change qualification or a single figure.
           // Future observer inputs therefore cause a cache miss until supported.
-          const replayReport = StageTiming.sync('normalizeMs', () => observeForOverlay(canonical, inputs, accountMap));
+          const postedBillReceipts = report.postedBillReceipts;
+          const replayReport = StageTiming.sync('normalizeMs', () => observeForOverlay(
+            canonical, inputs, accountMap, undefined, postedBillReceipts,
+            nextProofs.length ? nextProofs : undefined));
           const replayed = StageTiming.sync('overlayMs', () => applyObservedOverlay(canonical, replayReport, operatingEvaluation));
-          if (isDeepStrictEqual(data, replayed)) evidence = { schema: ObservationMemory.SCHEMA, payload: inputs };
+          if (isDeepStrictEqual(data, replayed)) evidence = { schema: ObservationMemory.SCHEMA, payload: inputs,
+            ...(postedBillReceipts ? { postedBillReceipts } : {}) };
         });
       } catch (error) {
         // Capacity refusal is a cache miss, not a failed provider observation.
@@ -2050,7 +2075,7 @@ async function acquireSettlementForServer(canonical, env, options) {
     const payload = StageTiming.sync('sourceReplayMs',
       () => ObservationMemory.sourceInputs(options.evidence.payload));
     const paired = StageTiming.sync('normalizeMs',
-      () => observeForSettlementAcquisition(canonical, payload, accountMap));
+      () => observeForSettlementAcquisition(canonical, payload, accountMap, options.evidence.postedBillReceipts));
     if (!paired || !paired.report) {
       notify({ qualified: false, checkedAt: null, evidence: null });
       return null;

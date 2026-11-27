@@ -232,6 +232,7 @@ const expectedDeltas = [
   'burrards-logan-team-fee-nov@2026-11-01|null->-202.87',
   'burrards-logan-team-fee-oct@2026-10-16|null->-202.88',
   'burrards-team-fees@2026-09-15|-700->null',
+  'christmas-2026@2026-12-25|-3500->-4300',
   'fusion-west-spring-2027@2027-04-06|null->-3600',
   'linden-birthday@2026-12-09|null->-500',
   'san-diego@2027-01-09|null->-3000',
