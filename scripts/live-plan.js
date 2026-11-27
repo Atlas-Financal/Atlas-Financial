@@ -285,17 +285,36 @@ function pendingFreshForLiveAsOf(row, report, liveAsOf) {
   return true;
 }
 
-// A pending row dated the live day that says its exposure is unknown only
-// because a pending row may already be a posted row the provider does not link
-// is not stale evidence: the card is marked pending-unknown by
-// markUnknownPending, so the advance keeps its fresh posted figures and
-// Forecast holds everything that depends on the pending exposure. An unusable
-// pending row (invalid-pending-row) stays refused as before.
-function unresolvedReplacementUnknownForLiveAsOf(row, report, liveAsOf) {
-  if (!row || row.fact !== 'pending' || row.unknown !== true || row.status === 'CONFLICT' || !liveAsOf
+// An advancing live day normally needs a known, fresh pending figure for each
+// mapped card. The one exception: the card's single pending observation says
+// its exposure is unknown for exactly one reason, that a pending row may
+// already be a posted row the provider does not link (no unusable, conflicting
+// or second pending evidence for the card), on the live day, under complete
+// pending coverage. Every part is checked on the exact card, fact, date and
+// observation reference; anything else stays refused. The card is then marked
+// pending-unknown by markUnknownPending, so the advance keeps the fresh posted
+// facts and Forecast holds what depends on the pending exposure.
+function unresolvedReplacementUnknownForDebt(debt, pendingRows, report, liveAsOf) {
+  if (!debt || !debt.id || !liveAsOf || !Array.isArray(pendingRows) || pendingRows.length !== 1) return false;
+  const row = pendingRows[0];
+  const locator = `debts:${debt.id}#pending`;
+  if (!row || row.fact !== 'pending' || row.cardId !== debt.id || row.canonicalTarget !== locator
+    || typeof row.observationId !== 'string' || row.observationId === ''
+    || row.unknown !== true || row.status !== 'MISSING' || row.evidenceValue != null
     || liveEvidenceDate(row) !== liveAsOf) return false;
-  const obs = ((report && report.observations) || []).find(o => o && o.observationId === row.observationId);
-  return !!(obs && obs.unknown === true && obs.unknownReason === 'pending-replacement-unresolved');
+  if (!pendingCoverageComplete(report)) return false;
+  const observations = ((report && report.observations) || []).filter(o => o && typeof o === 'object');
+  const forCard = observations.filter(o => o.fact === 'pending' && (o.cardId === debt.id
+    || (o.canonical && o.canonical.collection === 'debts' && o.canonical.id === debt.id)));
+  const byReference = observations.filter(o => o.observationId === row.observationId);
+  if (forCard.length !== 1 || byReference.length !== 1 || forCard[0] !== byReference[0]) return false;
+  const obs = forCard[0];
+  return obs.cardId === debt.id
+    && !!obs.canonical && obs.canonical.collection === 'debts' && obs.canonical.id === debt.id
+    && obs.canonical.field === 'pending'
+    && obs.unknown === true && obs.unknownReason === 'pending-replacement-unresolved'
+    && obs.evidenceValue == null && obs.invalidPendingCount == null
+    && liveEvidenceDate(obs) === liveAsOf;
 }
 
 function rowFreshForLiveAsOf(row, report, liveAsOf) {
@@ -342,8 +361,8 @@ function assertFreshLivePacket(data, report, liveAsOf) {
     const pendingRows = pendingRowsForDebt(report, debt.id);
     if (!mappedDebts.has(debt.id) && !pendingRows.length) continue;
     const locator = `debts:${debt.id}#pending`;
-    const fresh = pendingRows.find(row => pendingFreshForLiveAsOf(row, report, liveAsOf)
-      || unresolvedReplacementUnknownForLiveAsOf(row, report, liveAsOf));
+    const fresh = pendingRows.find(row => pendingFreshForLiveAsOf(row, report, liveAsOf))
+      || unresolvedReplacementUnknownForDebt(debt, pendingRows, report, liveAsOf);
     if (!fresh) fail(`pending-freshness-unproven: ${locator}`);
   }
 }

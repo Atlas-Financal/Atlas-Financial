@@ -333,6 +333,79 @@ for (const [label, rows] of [
     eq([!!two.card.pendingUnknown, two.debts.find(d => d.id === 'mbna').pendingUnknown], [false, true], 'advance, twin on a second card: only that card unknown');
   }
 
+  // The advancing-day exception qualifies the exact card, fact, date and
+  // observation reference. Each counterexample below is a crafted copy of a
+  // real observer report on an advancing live day; every one must still be
+  // refused as stale pending evidence, as on the base.
+  {
+    const REFUSED = /pending-freshness-unproven: debts:/;
+    function advance(rows, mutate, opts = {}) {
+      const x = aggregate.world(rows, { twoCards: opts.twoCards, edit: xx => {
+        for (const [index, accountId] of [[3, 3004], [4, 3005]]) {
+          if (!xx.payload.accounts[index]) continue;
+          xx.payload.accounts[index].balance -= xx.payload.transactions
+            .filter(t => t.account_id === accountId && t.is_pending).reduce((s, t) => s + t.amount, 0);
+        }
+        xx.data.debts[0].limit = LIMIT;
+      } });
+      const report = JSON.parse(JSON.stringify(O.observe({ provider: 'lunchmoney', ...x })));
+      const view = {
+        row: id => report.reconciliation.rows.find(r => r.fact === 'pending' && r.cardId === id),
+        obs: id => report.observations.find(o => o.fact === 'pending' && o.cardId === id),
+        report,
+      };
+      if (mutate) mutate(view);
+      try { return { out: Live.overlayLiveState({ data: x.data, report }) }; } catch (error) { return { error: String(error.message) }; }
+    }
+    const twin = [postedOf(60), pendingOf(60, 'tx-pend')];
+    const accepted = advance(twin);
+    yes(accepted.out && accepted.out.data.debts.find(d => d.id === 'travelvisa').pendingUnknown === true,
+      'advance exception: the exact unresolved replacement is accepted and the card is pending-unknown');
+    for (const [label, mutate] of [
+      ['no observation reference on the row or the observation', v => { delete v.row('travelvisa').observationId; delete v.obs('travelvisa').observationId; }],
+      ['empty observation reference', v => { v.row('travelvisa').observationId = ''; v.obs('travelvisa').observationId = ''; }],
+      ['row dated before the live day', v => { v.row('travelvisa').evidenceDate = '2026-09-19'; }],
+      ['observation dated before the live day', v => { v.obs('travelvisa').evidenceDate = '2026-09-19'; v.obs('travelvisa').observedAsOf = '2026-09-19'; }],
+      ['observation without a date', v => { delete v.obs('travelvisa').evidenceDate; delete v.obs('travelvisa').observedAsOf; }],
+      ['row status other than MISSING', v => { v.row('travelvisa').status = 'CHANGE'; }],
+      ['row carrying a value', v => { v.row('travelvisa').evidenceValue = 5; }],
+      ['observation carrying a value', v => { v.obs('travelvisa').evidenceValue = 5; }],
+      ['another reason', v => { v.obs('travelvisa').unknownReason = 'invalid-pending-row'; }],
+      ['no reason', v => { delete v.obs('travelvisa').unknownReason; }],
+      ['observation for another fact', v => { v.obs('travelvisa').fact = 'posted-balance'; }],
+      ['observation for another card', v => { v.obs('travelvisa').cardId = 'mbna'; }],
+      ['observation targeting another debt', v => { v.obs('travelvisa').canonical = { collection: 'debts', id: 'mbna', field: 'pending' }; }],
+      ['a second observation for the card carrying an unusable row', v => {
+        v.report.observations.push({ ...v.obs('travelvisa'), unknownReason: 'invalid-pending-row', invalidPendingCount: 1 }); }],
+      ['a second same-day pending row for the card', v => {
+        v.report.reconciliation.rows.push({ ...v.row('travelvisa'), observationId: 'lm-other-pending' }); }],
+      ['incomplete pending coverage', v => {
+        v.report.pendingCoverage = { complete: false, hasMore: true, truncated: true, basis: null };
+        v.report.observations.forEach(o => { if (o.fact === 'pending') o.pendingCoverage = 'incomplete'; }); }],
+    ]) {
+      const r = advance(twin, mutate);
+      yes(r.error && REFUSED.test(r.error), 'advance exception refused: ' + label + (r.error ? '' : ' (was accepted)'));
+    }
+    // Another card's pending row cannot borrow the first card's observation.
+    const borrowed = advance([postedOf(60), pendingOf(60, 'tx-pend'), ['card2', 40, null, 'purchase']], v => {
+      Object.assign(v.row('mbna'), { unknown: true, status: 'MISSING', evidenceValue: null, observationId: v.obs('travelvisa').observationId });
+    }, { twoCards: true });
+    yes(borrowed.error && REFUSED.test(borrowed.error) && /mbna/.test(borrowed.error), 'advance exception refused: a second card borrowing the first card\'s observation');
+    // Base controls: an unusable pending row and a zero-net unresolved set under
+    // incomplete coverage were refused on an advance before this change too.
+    const unusable = advance([postedOf(60), ['card', 'bad', null, 'purchase', { is_pending: true, status: 'pending' }]]);
+    yes(unusable.error && REFUSED.test(unusable.error), 'base control: an unusable pending row stays refused on an advance');
+    // The valid advance and the unaffected lanes are kept: the twin card is
+    // pending-unknown while the other card keeps its known pending and both
+    // keep the fresh observed posted balances.
+    const mixed = advance([postedOf(60), pendingOf(60, 'tx-pend'), ['card2', 40, null, 'purchase'],
+      pendingOf(35, 'tx-two', { payee: 'Invented cafe' }, 'card2')], null, { twoCards: true });
+    yes(mixed.out, 'advance, twin on one card and known pending on another: the live day applies');
+    const cards = Object.fromEntries(mixed.out.data.debts.map(d => [d.id, d]));
+    eq([cards.travelvisa.pendingUnknown === true, cards.travelvisa.balance], [true, 460], 'advance: the twin card is pending-unknown with its fresh posted balance');
+    eq([cards.mbna.pendingUnknown === true, cards.mbna.pending, cards.mbna.balance], [false, 35, 40], 'advance: the other card keeps its known pending and fresh posted balance');
+  }
+
   // The unknown is the affected card only.
   {
     const r = ledger([postedOf(60), ['card2', 40, null, 'purchase'], pendingOf(40, 'tx-two', {}, 'card2')], { twoCards: true });
