@@ -80,6 +80,15 @@ function assertKeepsPayment(page) {
   assert.match(page.row, /\$25/);
   assert.ok(page.drop, 'the waterfall lists the card');
   assert.match(page.drop, /data-source="stackSummary\.creditBreakdown\.rows\.\d+\.amount">\$92<\/span>/);
+  // BUILD 7 (OD-052, OD-057): the carried receipt counts once in the head and in the Credit line too (by hand: $25 paid
+  // back of the $117 target; $92 still to pay back), and the Surplus still takes the deduction.
+  const s = page.view.stackSummary;
+  assert.equal(s.credit.totals.paidBack.amount, 25);
+  assert.equal(s.credit.totals.target.amount, 117);
+  assert.match(page.tile, /data-stack-credit-total><span class="stack-credit-x">\$25<\/span><i> \/ \$117<\/i>/);
+  assert.equal(s.creditBreakdown.stillToPayBack.amount, 92);
+  assert.match(page.water, /data-source="stackSummary\.creditBreakdown\.stillToPayBack\.amount">\$92</);
+  assert.equal(s.surplus.terms.credit, s.creditBreakdown.total);
 }
 
 test('a proved $25 payment keeps Paid back, the minimum tick and $92 still owed after the category changes', async () => {
@@ -151,6 +160,11 @@ test('a reversal still removes the proved payment', async () => {
   assert.ok(page.line.paidBack.reasons.includes('payment-direction-unresolved'));
   assert.equal(page.line.stillToPayBack.amount, null);
   assert.equal(page.line.minimumCovered.value, 'unknown');
+  // BUILD 7: the reversal withholds the head's paid side and the Credit line's remainder (dashes), never $0.
+  assert.equal(page.view.stackSummary.credit.totals.paidBack.amount, null);
+  assert.equal(page.view.stackSummary.creditBreakdown.stillToPayBack.amount, null);
+  assert.match(page.tile, /data-stack-credit-total><span class="stack-credit-dash"/);
+  assert.match(page.water, /data-source="stackSummary\.creditBreakdown\.stillToPayBack\.amount" data-unpublished="true">/);
 });
 
 test('restoring the category return ahead of the proved receipt drops Paid back', async () => {

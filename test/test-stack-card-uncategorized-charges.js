@@ -79,7 +79,14 @@ function assertPaidMinimum({ summary, line, sheet, tile, credit, waterfall }, pa
   assert.match(sheet, /<dt>Minimum<\/dt><dd[^>]*><span[^>]*>\$25<\/span> <span[^>]*>✓<\/span>/);
   assert.equal(summary.credit.totals.minimumsDueCount, 1);
   assert.equal(summary.credit.totals.minimumsCoveredCount, 1);
-  assert.match(credit, /stack-credit-bar"[^>]*><i style="width:100\.0%">/);
+  // OD-052 (BUILD 7): the head and its bar are total paid back over total target, here this card's (the only one with
+  // something to pay back): full only when the target is paid back, not when the minimum is.
+  const { paidBack, target: total } = summary.credit.totals;
+  assert.equal(Math.round(paidBack.amount), paid);
+  assert.equal(Math.round(total.amount), target);
+  assert.equal(total.amount, line.target.amount, 'the head target is this card\'s target');
+  assert.match(credit, new RegExp(`data-stack-credit-total><span class="stack-credit-x[^"]*">\\$${paid}</span><i> / \\$${target}</i>`));
+  assert.match(credit, new RegExp(`stack-credit-bar"[^>]*><i style="width:${(Math.min(1, paidBack.amount / total.amount) * 100).toFixed(1)}%">`));
   assert.match(waterfall, /aria-label="Minimum paid">✓<\/span>/);
 }
 
@@ -220,7 +227,9 @@ function withOldChargeWithhold() {
   assertPublishedRemainder(belowMinimum, 13, 13);
   assert.equal(belowMinimum.line.minimumCovered.value, false);
   assert.doesNotMatch(belowMinimum.tile, /stack-credit-tick is-on/);
-  assert.match(belowMinimum.credit, /stack-credit-bar"[^>]*><i style="width:0\.0%">/);
+  // OD-052 (BUILD 7): the head bar is paid back over target, 12 / 25 by hand, not covered minimums over due ones.
+  assert.match(belowMinimum.credit, /data-stack-credit-total><span class="stack-credit-x">\$12<\/span><i> \/ \$25<\/i>/);
+  assert.match(belowMinimum.credit, /stack-credit-bar"[^>]*><i style="width:48\.0%">/);
   assert.doesNotMatch(belowMinimum.waterfall, /Minimum paid|\$0\b/);
 
   const roundsToZero = await render([candidate('Transfer')], { paymentAmount: 24.51 });
