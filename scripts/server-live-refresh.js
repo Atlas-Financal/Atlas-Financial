@@ -113,18 +113,30 @@ if (!isMainThread) {
       .then(acquisition => parentPort.postMessage({ acquisition, check }))
       .catch(() => parentPort.postMessage({ error: 'live-refresh-unavailable' }));
   } else {
-    StageTiming.run(() => Live.applyForServer(workerData.canonical, process.env, { signal: controller.signal,
-      priorPostedBillReceipts: workerData.priorPostedBillReceipts,
-      evidence: workerData.evidence,
-      ...(workerData.provedPayerReceipts ? { provedPayerReceipts: workerData.provedPayerReceipts } : {}),
-      onObservation: value => { check = value; },
-      onCoverageDiagnostic: counts => CoverageDiagnostics.merge(check.coverageDiagnostics ||= {}, counts),
-      onHouseholdIdentity: value => parentPort.postMessage({ type: 'household-identity', accountId: value }) }),
+    StageTiming.run(async () => {
+      const data = await Live.applyForServer(workerData.canonical, process.env, { signal: controller.signal,
+        priorPostedBillReceipts: workerData.priorPostedBillReceipts,
+        evidence: workerData.evidence,
+        ...(workerData.provedPayerReceipts ? { provedPayerReceipts: workerData.provedPayerReceipts } : {}),
+        onObservation: value => { check = value; },
+        onCoverageDiagnostic: counts => CoverageDiagnostics.merge(check.coverageDiagnostics ||= {}, counts),
+        onHouseholdIdentity: value => parentPort.postMessage({ type: 'household-identity', accountId: value }) });
+      let cardActivity = null;
+      if (check.qualified && check.evidence && check.credentialSource === 'env' && check.householdAccountId) {
+        const Memory = require('./server-observation-memory');
+        if (Memory.completeTransactionCohort(data) && !Memory.planWithheld(data)) {
+          try {
+            cardActivity = StageTiming.sync('forecastMs', () => require('../public/forecast').cardActivityForDisplay(data));
+          } catch (_) { /* A display projection cannot refuse current source evidence. */ }
+        }
+      }
+      return { data, cardActivity };
+    },
     stages => parentPort.postMessage({ type: StageTiming.MESSAGE, stages }))
-      .then(data => {
+      .then(result => {
         let reads = null;
         try { reads = replayReads ? replayReads() : null; } catch (_) { reads = null; }
-        parentPort.postMessage({ data, check, ...(replayReads ? { reads } : {}) });
+        parentPort.postMessage({ ...result, check, ...(replayReads ? { reads } : {}) });
       })
       .catch(() => parentPort.postMessage({ error: 'live-refresh-unavailable' }));
   }
@@ -273,7 +285,8 @@ if (!isMainThread) {
       if (attempt && persist) observations.noteAttempt(context, attempt);
       const receipt = attempt || retained.attempt || { source: null, qualified: false,
         checkedAt: null, attemptedAt: null, reason: 'current-observation-unavailable' };
-      const data = require('./live-plan').withLatestCompleteRefresh(retained, receipt);
+      const display = require('./live-plan').withLatestCompleteRefresh(retained, receipt);
+      const data = observations.withLastKnownCardActivity(context, retained.householdAccountId, retained.checkedAt, display);
       return { data, check: data.liveOverlay.retainedRefresh.attempt,
         checkedAt: retained.checkedAt, cashEvidenceAt: retained.cashEvidenceAt || null };
     } catch (_) { return null; }
@@ -659,7 +672,7 @@ if (!isMainThread) {
                 ...(typeof result.check.cashEvidenceAt === 'string' ? { cashEvidenceAt: result.check.cashEvidenceAt } : {}),
               } : undefined, completeDisplay && accountId ? {
                 context: metadata.billContext, householdAccountId: accountId,
-              } : undefined);
+              } : undefined, result.cardActivity);
               published = true;
             } catch (_) { /* Live path only. */ }
           }
@@ -740,6 +753,16 @@ if (!isMainThread) {
             job.servedRetained = true;
             return finishJob(job, null, clear.data);
           }
+        }
+        const cardHousehold = completeDisplay && (job.evidence
+          ? observations.replayHousehold(job.context, result.check.checkedAt)
+          : result.check.credentialSource === 'env' && result.check.householdAccountId);
+        if (cardHousehold) {
+          try {
+            const data = observations.withLastKnownCardActivity(displayKey(canonical, env), cardHousehold,
+              result.check.checkedAt, result.data);
+            return finishJob(job, null, data);
+          } catch (_) { /* Incompatible or unreadable display context. */ }
         }
         return result?.data ? finishJob(job, null, result.data) : finishJob(job, unavailable('live-refresh-unavailable'));
         } finally { job.publicationMs = Math.max(0, performance.now() - publicationStarted); }
