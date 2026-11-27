@@ -433,6 +433,32 @@ Design conditions from the ruling, for any later attempt:
 
 Proof would be invented split-send, pre-debit-seed and carry-forward controls that get no relief, beside one fully proven case whose close moves by exactly one minimum.
 
+<a id="statement-supersession-carry"></a>
+
+**A confirmed card statement can drop a genuine unpaid carry, because its issuer due date moves the planned minimum out of the window** · **ADDED TO BACKLOG — OPEN** · *found while checking the aggregate card-coverage rule; invented repro only, read-only, no implementation*
+
+Invented repro on `06759b5c1` (`test/fixtures/card-coverage-aggregate-world.js`): a card minimum of 25 due 09-25 is paid 20 on 09-26. As-of is Oct 5. The next planned row is 35, dated Oct 15 (the current pay-window end).
+
+| Case | Carry | Planned |
+|---|---|---|
+| No statement | 5 | 35 |
+| Confirmed statement replacing the planned occurrence, same date | 0 | 35 |
+| Confirmed statement with issuer due date Oct 20, outside the window | 5 survives | 35 moves to the next period |
+
+The two paths that decide this on current main:
+
+- `resolveOccurrences` (`public/forecast.js`, about line 204): a confirmed statement replaces the occurrence on its scheduled date and places it on the statement's due date. A moved occurrence is admitted only when that due date lies in the window.
+- `reconcileCardPurchases` (`public/forecast.js`, about line 17012): the current-window statement gate scans minimums due inside that window, so a statement inside the window can remove the carry, while one outside it leaves it.
+
+The issue is the authority, not the arithmetic. A due date is not evidence that a statement absorbed the earlier shortfall, so the planner cannot tell whether the 5 is still owed. The same-date case drops it to 0 without that evidence.
+
+- **Why:** a card obligation can be understated in a figure a household acts on. Under the classification in `CLAUDE.md`, this is an authority defect: the issuer statement and the scheduled date both decide the same minimum. Its figure-moving change takes the full lane.
+- **Scope when built:** separate authoritative successor-statement evidence from an issuer due date alone. Preserve genuine unpaid carry and scheduled payment dates. Do not guess whether a statement absorbed arrears: unknown, conflicting and absent evidence stay visible rather than being silently zeroed or kept. Keep the historical record. Exercise the actual bills path and the Credit/Surplus path.
+- **Closure:** invented proof for the three cases above, plus unknown and conflicting evidence cases. A non-superseding statement must leave the Planned row unchanged.
+- **Non-goals:** no runtime, data, policy, provider or household-evidence change in this item.
+- **Owner follow-up (not asked here):** approval of the eventual rule, and which ledger facts count as an absorbed shortfall. A change that presents an estimate as verified is owner-reserved stop 2.
+- **Not a duplicate of:** Gemini hunt 4 findings 2 and 11 (statement-moved once dates replayed, and the overlap guard), the satisfied-minimum future-close item above, or the owner card-payment `movementIdentity` item.
+
 <a id="linked-posted-bill-payment"></a>
 
 **A pending copy of a linked, posted bill payment blocks Stack's Paid check. Expected: the bill stays Paid.** · **ADDED TO BACKLOG — OPEN** (C1 Check 6.19)
