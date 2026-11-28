@@ -7740,6 +7740,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     asOf, version: linkBlock.version, anchorRevision: linkBlock.anchorRevision,
     links: privateLinks.map(link => ({ ref: link.ref, type: Object.hasOwn(link, 'categoryId') ? 'category' : 'tag',
       ...link.target, occurrenceDate: link.occurrenceDate, effectiveFrom: link.effectiveFrom,
+      ...(!link.target.goalRef && Object.hasOwn(link, 'tagId') ? { tagGoalRef: { ...link.goalRef } } : {}),
       effectiveThrough: link.effectiveThrough })), evidence: [] } : null;
   const linkHits = new Map();
   const localByProvider = new Map();
@@ -8288,30 +8289,33 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     // household's own pendingPostedDuplicate pairing) is not evidence; the
     // successor counts once. Ambiguous pairs and childless groups stay
     // unresolved, so their item stays Unknown.
-    const splitParent = row.isGroup === true && txs.some(child => child && child !== row && child.parentId === row.id);
-    const replacedPending = row.pending === true && row.pendingPostedDuplicate === true && row.pendingPostedAmbiguous !== true;
-    if (hits.length && !splitParent && !replacedPending) {
+    if (hits.length && !isSplitParent(row) && !isReplacedPending(row)) {
       // One resolution authority; category and tag agreeing is one link.
       const resolution = Forecast.savingsLinkTarget.resolve(hits.map(link => ({
         type: Object.hasOwn(link, 'categoryId') ? 'category' : 'tag', ...link.target })));
-      let reason = resolution.status === 'linked' ? null : 'conflicting-links';
       // Signed: a classified refund nets against its item. Income, transfers
       // and other credits stay nonconsumption; zero is never evidence. A
       // debit in an income category is unconfirmed spending, never item
       // evidence: it stays nonconsumption here too.
       const refund = row.amount < 0 && cls.kind === 'refund' && cls.reason === 'refund' && !row.kindHint;
-      if (!reason && (!(row.amount > 0 || refund) || row.isIncome === true || row.currency !== 'cad' || row.excludeFromTotals
+      let postingReason = null;
+      if (!(row.amount > 0 || refund) || row.isIncome === true || row.currency !== 'cad' || row.excludeFromTotals
           || row.excludeFromBudget || row.isGroup || txs.some(child => child.parentId === row.id)
-          || row.representedBill || !(cls.householdSpending || cls.kind === 'savings-paid' || refund) || ['unmapped', 'external'].includes(cls.kind)))
-        reason = 'nonconsumption';
-      if (!reason && (row.pendingPostedAmbiguous || row.pendingPostedDuplicate && row.pending === true)) reason = 'replacement-unresolved';
-      if (!reason && !['posted', 'pending'].includes(row.savingsPostingEvidence)) reason = 'posting-unconfirmed';
+          || row.representedBill || !(cls.householdSpending || cls.kind === 'savings-paid' || refund) || ['unmapped', 'external'].includes(cls.kind))
+        postingReason = 'nonconsumption';
+      else if (row.pendingPostedAmbiguous || row.pendingPostedDuplicate && row.pending === true) postingReason = 'replacement-unresolved';
+      else if (!['posted', 'pending'].includes(row.savingsPostingEvidence)) postingReason = 'posting-unconfirmed';
+      const reason = resolution.status === 'linked' ? postingReason : 'conflicting-links';
       // No creation-date or anchor cutoff: a pre-item purchase in the
       // covered history is evidence (blueprint section 3).
       savingsLinks.evidence.push({ transactionRef: row.id, date: row.date,
         linkRefs: hits.map(link => link.ref), direction: row.amount < 0 ? 'refund' : 'charge',
         state: reason ? 'unresolved' : row.savingsPostingEvidence,
-        reason, occurrenceKey: reason ? null : resolution.occurrenceKey });
+        reason, occurrenceKey: reason ? null : resolution.occurrenceKey,
+        // Reuse the same posting and replacement judgment for the exact-tag
+        // readout when the legacy target cannot establish settlement.
+        ...(reason === 'conflicting-links' && !postingReason && hits.some(link => Object.hasOwn(link, 'tagId'))
+          ? { tagPostingState: row.savingsPostingEvidence } : {}) });
     }
     // A Savings-paid purchase is still listed on the Budget (Savings audit PR 1),
     // and so is a held outflow under To confirm (rank 18; it was listed as

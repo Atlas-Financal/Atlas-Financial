@@ -47,6 +47,11 @@ const rolled = x => {
   x.payload.transactionWindow = { startDate: '2026-10-30', endDate: '2026-11-05', complete: true, hasMore: false };
 };
 const ownerPaid = x => { x.plan.commitments.find(c => c.id === 'near').ownerPaid = { amount: 5, confirmedOn: '2026-10-04' }; };
+const ownerConfirmed = x => {
+  const goal = x.plan.commitments.find(row => row.id === 'near');
+  delete goal.group;
+  goal.settledOn = '2026-10-03';
+};
 // A known Paid beside the withheld tally. The real ledger also withholds Paid
 // on a rolled window, so the known amount is injected on the printed stamps and
 // text of the real withheld source row (the shape the reviewer described).
@@ -56,8 +61,23 @@ const withKnownPaid = html => html
   .replace(/(data-budget-goal-paid>)[\s\S]*?(<\/span>)/, '$1$5.00$2');
 
 const SCENARIOS = [
-  { key: 'known zero', html: sourceHtml(null, []), withheld: false },
-  { key: 'normal tagged', html: sourceHtml(null, [raw()]), withheld: false },
+  { key: 'known zero', html: sourceHtml(null, []), withheld: false, pair: /Saved \$95\.00.*Needed \$230\.00/, width: '0.4130', rows: [] },
+  { key: 'normal tagged', html: sourceHtml(null, [raw()]), withheld: false,
+    pair: /Spent \$12\.34.*Saved \$95\.00/, width: '0.1299', rows: [/Invented merchant.*\$12\.34/] },
+  { key: 'over funds and posted twin', html: sourceHtml(null, [
+    raw({ id: 'made-up-twin', amount: '135.00', is_pending: true }), raw({ amount: '135.00' }),
+  ]), withheld: false, pair: /Spent \$135\.00.*Saved \$95\.00/, width: '1.0000', rows: [/Invented merchant.*\$135\.00/] },
+  { key: 'posted refund', html: sourceHtml(null, [
+    raw({ amount: '80.00' }), raw({ id: 'made-up-refund', amount: '-5.00', date: '2026-10-04' }),
+  ]), withheld: false, pair: /Spent \$75\.00.*Saved \$95\.00/, width: '0.7895',
+  rows: [/Invented merchant.*\$80\.00/, /−\$5\.00/] },
+  { key: 'pending with unconfirmed funds', html: sourceHtml(null, [raw({ is_pending: true })]),
+    withheld: false, pair: /Spent \$12\.34.*Saved Unavailable/, width: '', rows: [/Invented merchant.*Pending.*\$12\.34/] },
+  { key: 'owner-confirmed with tagged purchase', goal: 'commitment:near', html: sourceHtml(ownerConfirmed, [raw()]),
+    withheld: false, pair: /Paid by owner.*Planned \$60\.00/, width: '0.2057',
+  rows: [/Invented merchant.*\$12\.34/] },
+  { key: 'owner-confirmed with unused tag', goal: 'commitment:near', html: sourceHtml(ownerConfirmed, []),
+    withheld: false, pair: /Paid\. Planned \$60\.00/, standalonePaid: true, rows: [] },
   { key: 'withheld', html: sourceHtml(x => { rolled(x); }), withheld: true },
   { key: 'withheld + owner Paid (real ledger)', html: sourceHtml(x => { rolled(x); ownerPaid(x); }), withheld: true },
   { key: 'withheld + known Paid (injected stamp)', html: withKnownPaid(sourceHtml(x => { rolled(x); })), withheld: true, knownPaid: true },
@@ -80,12 +100,20 @@ const page_html = body => `<!doctype html><html lang="en"><head><meta charset="u
         const page = await context.newPage();
         page.on('pageerror', error => errors.push(error.message));
         await page.setContent(page_html(s.html), { waitUntil: 'domcontentloaded' });
-        for (const css of ['budget-surface.css', 'budget-blend.css', 'budget-gface.css']) await page.addStyleTag({ content: fs.readFileSync(pub(css), 'utf8') });
+        for (const css of ['styles.css', 'budget-surface.css', 'budget-blend.css', 'budget-gface.css']) await page.addStyleTag({ content: fs.readFileSync(pub(css), 'utf8') });
         await page.addScriptTag({ content: fs.readFileSync(pub('budget-blend.js'), 'utf8') });
-        const row = page.locator('button.blend-goal-row[data-blend-goal="group:club"]');
+        const row = page.locator(`button.blend-goal-row[data-blend-goal="${s.goal || 'group:club'}"]`);
         await row.waitFor({ timeout: 5000 });
         const label = `${s.key} @${width}`;
         const aria = await row.getAttribute('aria-label');
+        if (s.pair) assert.match(aria, s.pair, label + ': row displays the published pair');
+        if (s.goal) assert.doesNotMatch(aria, /Spent|Saved/, label + ': the closed item keeps owner confirmation on the row');
+        if (s.standalonePaid) {
+          const visible = await row.innerText();
+          assert.match(visible, /(?:^|\n)Paid\s*(?:\n|$)/, label + ': Paid stands alone without tagged purchases');
+          assert.match(visible, /Planned\s*\$60\.00/, label + ': the planned cost stays visible');
+          assert.doesNotMatch(visible, /Paid by owner|\//, label + ': the incumbent row has no purchase treatment');
+        }
         const note = row.locator('[data-blend-goal-tag-withheld]');
         assert.equal(await row.getAttribute('title'), null, label + ': no title text to disagree with the accessible name');
         if (s.withheld) {
@@ -109,6 +137,7 @@ const page_html = body => `<!doctype html><html lang="en"><head><meta charset="u
         // known zero on the same Saved / required inputs (no tagged amount used).
         const bar = await row.locator('.blend-g-bar').evaluate(el => ({ cls: el.className, w: el.style.getPropertyValue('--w') }));
         if (s.withheld) assert.ok(!/is-paid/.test(bar.cls), label + ': no full-paid band while withheld');
+        if (s.width != null) assert.equal(bar.w, s.width, label + ': the bar follows that pair');
         // The opened detail window.
         await row.click();
         const dialog = page.locator('dialog[data-blend-explain]');
@@ -125,13 +154,17 @@ const page_html = body => `<!doctype html><html lang="en"><head><meta charset="u
           assert.equal(await fact.count(), 0, label + ': the opened detail never says Withheld');
           assert.doesNotMatch(await dialog.innerText(), /Withheld/);
         }
-        // Paid and Still to fund facts keep their own wording in the window.
-        assert.ok(await dialog.locator('[data-blend-explain-fact="still-to-fund"]').count() >= 0);
+        const rows = await dialog.locator('.household-budget-txs > li').allTextContents();
+        assert.equal(rows.length, s.rows?.length || 0, label + ': tap opens only the tally rows');
+        s.rows?.forEach((pattern, index) => assert.match(rows[index].replace(/\s+/g, ' '), pattern, label));
+        assert.ok(await dialog.locator('[data-blend-explain-fact="still-to-fund"]').isVisible());
         await page.keyboard.press('Escape');
+        await dialog.waitFor({ state: 'hidden' });
+        assert.ok(await row.evaluate(el => document.activeElement === el), label + ': focus returns to the item');
         await context.close();
       }
     }
     assert.deepEqual(errors, [], 'no page errors');
   } finally { await browser.close(); }
-  console.log('Savings tagged-spend withheld display (real Chromium): visible row, accessible name and opened detail disclose Withheld; known zero and normal tagged items never do, at 1280 and 320 widths.');
+  console.log('Savings tagged-spend display (real Chromium): saved/goal, spent/funds, overflow, refunds, pending, withheld, tap-through rows and focus at 1280 and 320 widths.');
 })().catch(error => { console.error(error); process.exit(1); });

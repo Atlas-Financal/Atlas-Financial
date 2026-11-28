@@ -1,7 +1,7 @@
 {
  "mode": "module",
  "reason": "registers callbacks the capture never invokes, not modelled by the state matrix",
- "sha256": "094ef55584e21da6c68bdd739043b26adf15066cfe81199b3049720049547efc",
+ "sha256": "4b43b346397dd1a073dec5285fa324021ba06341debf733d16c0407b198fb3c2",
  "deferred": [
   "listener:budget-before-remount",
   "media-listener",

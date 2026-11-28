@@ -30,8 +30,7 @@ const ledgerOf = x => {
   return { packet, ledger: F.savingsItemLedger(x.plan, x.asOf, { ...x.opts, currentPeriodActuals: packet }) };
 };
 const item = ledger => ledger.items.find(row => row.occurrenceKey === NEAR);
-const costOf = x => {
-  const packet = observe(x);
+const costOf = (x, packet = observe(x)) => {
   const advice = F.recommend(x.plan, x.asOf, { ...x.opts, currentPeriodActuals: packet, debts: [] });
   const pub = F.savingsFundingPublication(advice.savingsFunding, { asOf: x.asOf, advice });
   const items = [...(advice.savingsFunding.backing.items || []), ...(advice.savingsFunding.unresolved || [])];
@@ -87,11 +86,92 @@ const bothLinked = txs => tagged(txs, [link('tag'), { ...link('tag', 'far', '202
   assert.equal(held.spent.pendingCents, 1234, 'and labels it pending');
   const { item: costItem } = costOf(pending);
   assert.equal(costItem.commitmentCost.confirmedLinkedPaid.status, 'unavailable', 'Paid fact stays withheld on the row');
-  assert.deepEqual(costItem.commitmentCost.taggedSpend, { status: 'known', amount: 12.34, range: null, pendingAmount: 12.34 });
+  const { recon, ...fact } = costItem.commitmentCost.taggedSpend;
+  assert.deepEqual(fact, { status: 'known', amount: 12.34, range: null, pendingAmount: 12.34, hasPurchases: true });
+  assert.deepEqual(recon.map(row => [row.date, row.amount, row.pending]), [['2026-10-03', 12.34, true]]);
+}
+{ // Unusable tagged amounts in the packet cannot publish a subtotal or a zero row.
+  for (const [amount, pending] of [[-5.001, false], [-5.001, true], [null, false], ['-5.00', true]]) {
+    const x = tagged([raw({ amount: '20.00' }),
+      raw({ id: 'invented-invalid-refund', date: '2026-10-04', amount: '-5.00', is_pending: pending })]);
+    const packet = observe(x);
+    const refund = packet.savingsLinks.evidence.find(row => row.direction === 'refund');
+    packet.transactions.find(row => row.id === refund.transactionRef).amount = amount;
+    const { pub, item: costItem } = costOf(x, packet);
+    assert.equal(F.savingsLinkTarget.taggedEvidence(x.plan, x.asOf, packet), null);
+    assert.equal(costItem.commitmentCost.taggedSpend, undefined);
+    assert.equal(pub.rows.find(row => row.key === 'group:club').commitmentCost.taggedSpend, undefined);
+  }
+}
+{ // The same tag can qualify display while the legacy anchor/pool gate holds.
+  const x = tagged([raw({ id: 'made-up-twin', amount: '105.00', is_pending: true }),
+    raw({ amount: '105.00' }),
+    raw({ id: 'made-up-resolved-refund', date: '2026-10-04', amount: '-25.00' }),
+    raw({ id: 'made-up-pending-refund', date: '2026-10-04', amount: '-5.00', is_pending: true }),
+    raw({ id: 'made-up-unmatched', date: '2026-10-04', amount: '10.00', tag_ids: ['invented-tag-other'] })]);
+  x.map.savingsLinks.anchorRevision = 99;
+  x.plan.savingsEarmarks.history = [];
+  x.plan.savingsEarmarks.pools[0].goalRefs = [];
+  const { packet, item: costItem, pub } = costOf(x);
+  const shared = F.savingsLinkTarget.taggedEvidence(x.plan, x.asOf, packet);
+  assert.equal(F.savingsLinkTarget.taggedEvidence(x.plan, undefined, packet), null);
+  assert.deepEqual(shared.links.map(link => [link.occurrenceKey, link.status, link.history]), [[NEAR, 'linked', 'complete']]);
+  assert.deepEqual(shared.evidence.map(row => [row.occurrenceKey, row.direction, row.state]), [
+    [NEAR, 'charge', 'posted'], [NEAR, 'refund', 'posted'], [NEAR, 'refund', 'pending'],
+  ]);
+  assert.ok(packet.savingsLinks.evidence.every(row => row.state === 'unresolved'));
+  assert.ok(packet.transactions.every(tx => F.classifyCurrentPeriodTransaction(tx, x.plan, { packet }).kind !== 'savings-item'));
+  const spend = costItem.commitmentCost.taggedSpend;
+  assert.deepEqual([spend.amount, spend.pendingAmount, spend.pendingRefundAmount], [80, undefined, 5]);
+  assert.deepEqual(spend.recon.map(tx => [tx.amount, tx.pending]), [[105, false], [-25, false], [-5, true]]);
+  assert.doesNotMatch(JSON.stringify(spend.recon), /invented-tag|made-up-(?:twin|resolved-refund|pending-refund)|providerTransactionId/);
+  assert.equal(costItem.commitmentCost.confirmedLinkedPaid.status, 'unconfigured');
+  assert.equal(costItem.commitmentCost.unpaidCost.status, 'unconfigured');
+  assert.equal(pub.rows.find(row => row.key === 'group:club').commitmentCost.taggedSpend.amount, 80,
+    'a visible group includes the member with a tag');
+  const oldPacket = structuredClone(packet);
+  for (const row of oldPacket.savingsLinks.evidence) delete row.tagPostingState;
+  const oldAdvice = F.recommend(x.plan, x.asOf, { ...x.opts, currentPeriodActuals: oldPacket, debts: [] });
+  const old = oldAdvice.savingsFunding.rows.find(row => row.key === 'group:club');
+  const newRow = pub.rows.find(row => row.key === 'group:club');
+  for (const field of ['saved', 'needed', 'stillToFund', 'thisPeriod']) assert.deepEqual(newRow[field], old[field], field);
+}
+{ // A tagged unresolved transfer is scoped to its own exact item.
+  const x = bothLinked([raw(), raw({ id: 'made-up-transfer', kind: 'transfer', tag_ids: ['invented-tag-far'] })]);
+  const { ledger } = ledgerOf(x);
+  assert.deepEqual(item(ledger).spent.recon.map(row => row.amount), [12.34]);
+  assert.equal(ledger.items.find(row => row.occurrenceKey === 'far@2026-10-28').spent.withheld, true);
+}
+{ // The Savings list carries only the allowed display fields from Budget's projection.
+  const read = notes => costOf(tagged([raw({ notes }),
+    raw({ id: 'invented-unmarked-note', date: '2026-10-04', amount: '2.00', notes: 'Invented unmarked text' })]))
+    .item.commitmentCost.taggedSpend;
+  const withNote = read('item: Invented exhibit\nInvented second line');
+  const withoutNote = read(undefined);
+  const [marked, unmarked] = withNote.recon;
+  const keys = ['amount', 'date', 'displayedPayee', 'id', 'originalMerchant', 'pending'];
+  assert.deepEqual(Object.keys(marked).sort(), [...keys, 'displayedNote'].sort());
+  assert.deepEqual(Object.keys(unmarked).sort(), keys);
+  assert.equal(marked.displayedNote, 'Invented exhibit');
+  const { displayedNote, ...markedWithoutNote } = marked;
+  assert.deepEqual({ ...withNote, recon: [markedWithoutNote, unmarked] }, withoutNote);
+}
+{ // A configured group tag selects its unique native occurrence by date.
+  const x = tagged([raw()], [{ ...link('tag'), goalRef: { kind: 'group', id: 'club' } }]);
+  const { packet, pub } = costOf(x);
+  assert.equal(F.savingsLinkTarget.taggedEvidence(x.plan, x.asOf, packet).links[0].occurrenceKey, NEAR);
+  assert.equal(pub.rows.find(row => row.key === 'group:club').commitmentCost.taggedSpend.amount, 12.34);
+  x.plan.commitments.find(row => row.id === 'far').date = '2026-10-21';
+  const ambiguous = observe(x);
+  assert.equal(F.savingsLinkTarget.taggedEvidence(x.plan, x.asOf, ambiguous).evidence[0].state, 'unresolved');
 }
 { // (d) tagged refunds: a posted refund nets; a pending refund does not yet.
   const posted = tagged([raw({ id: 'c1', amount: '100.00' }), raw({ id: 'r1', amount: '-30.00', date: '2026-10-04' })]);
   assert.deepEqual([cents(item(ledgerOf(posted).ledger).paid), cents(item(ledgerOf(posted).ledger).spent)], [7000, 7000]);
+  const returned = tagged([raw(), raw({ id: 'made-up-full-refund', amount: '-12.34', date: '2026-10-04' })]);
+  const returnedSpend = costOf(returned).item.commitmentCost.taggedSpend;
+  assert.deepEqual([returnedSpend.amount, returnedSpend.hasPurchases, returnedSpend.recon.length],
+    [0, true, 2], 'a returned purchase still opens the signed rows at a net of zero');
   const pendingRefund = tagged([raw({ id: 'c1', amount: '100.00' }), raw({ id: 'r1', amount: '-30.00', date: '2026-10-04', is_pending: true })]);
   const held = item(ledgerOf(pendingRefund).ledger);
   assert.deepEqual([cents(held.paid), cents(held.spent)], [null, 10000], 'pending refund withheld from Paid and not yet netted');
@@ -108,8 +188,77 @@ const bothLinked = txs => tagged(txs, [link('tag'), { ...link('tag', 'far', '202
   beyond.asOf = beyond.data.meta.asOf = '2026-11-05'; beyond.payload.fetchedAt = '2026-11-05T12:00:00.000Z';
   beyond.payload.transactionWindow = { startDate: '2026-10-02', endDate: '2026-11-05', complete: true, hasMore: false };
   assert.equal(cents(item(ledgerOf(beyond).ledger).spent), 0, '2026-11-05 is past the two-week tally window');
+  beyond.payload.transactions.push(raw({ id: 'made-up-cutoff', date: '2026-11-04', amount: '9.00' }),
+    raw({ id: 'made-up-late-transfer', date: '2026-11-05', kind: 'transfer' }));
+  const boundary = item(ledgerOf(beyond).ledger).spent;
+  assert.deepEqual([boundary.cents, boundary.recon.map(row => row.date)], [900, ['2026-11-04']],
+    'the cutoff is inclusive and later unresolved rows stay outside it');
   const unresolved = tagged([raw({ kind: 'transfer' })]);
   assert.equal(cents(item(ledgerOf(unresolved).ledger).spent), null, 'unresolved evidence never earns a tally');
+}
+{ // Two configured tags for one occurrence make the exact target ambiguous.
+  const x = tagged([raw()], [link('tag'), { ...link('tag'), tagId: 'invented-second-tag' }]);
+  const { packet, ledger } = ledgerOf(x);
+  assert.equal(item(ledger).spent.withheld, true);
+  assert.equal(F.savingsLinkTarget.taggedEvidence(x.plan, x.asOf, packet).evidence[0].state, 'unresolved');
+}
+{ // A tag's display cutoff cannot resolve a conflict between two exact tag hits.
+  const x = tagged([
+    raw(),
+    raw({ id: 'invented-two-tags', date: '2026-11-06', amount: '19.00', tag_ids: ['invented-tag', 'invented-far-tag'] }),
+  ], [
+    { ...link('tag'), effectiveThrough: '2026-12-31' },
+    { ...link('tag', 'far', '2026-11-10'), tagId: 'invented-far-tag', effectiveThrough: '2026-12-31' },
+  ]);
+  x.plan.commitments.find(row => row.id === 'far').date = '2026-11-10';
+  x.asOf = x.data.meta.asOf = '2026-11-06';
+  x.payload.fetchedAt = '2026-11-06T12:00:00.000Z';
+  x.payload.transactionWindow = { startDate: '2026-10-02', endDate: x.asOf, complete: true, hasMore: false };
+  const { packet, advice } = costOf(x);
+  const shared = F.savingsLinkTarget.taggedEvidence(x.plan, x.asOf, packet);
+  const conflict = shared.evidence.find(row => row.date === x.asOf);
+  assert.deepEqual([conflict.state, conflict.reason, conflict.occurrenceKey, conflict.linkRefs],
+    ['unresolved', 'conflicting-links', null, ['link-1', 'link-2']]);
+  const items = [...advice.savingsFunding.backing.items, ...advice.savingsFunding.unresolved];
+  assert.equal(items.find(row => row.key === NEAR).commitmentCost.taggedSpend.amount, 12.34,
+    'a later conflict cannot remove a finished tally');
+  assert.equal(items.find(row => row.key === 'far@2026-11-10').commitmentCost.taggedSpend.status, 'withheld');
+  x.payload.transactions[1].tag_ids = ['invented-far-tag'];
+  const single = observe(x);
+  const qualified = F.savingsLinkTarget.taggedEvidence(x.plan, x.asOf, single).evidence.find(row => row.date === x.asOf);
+  assert.deepEqual([qualified.state, qualified.occurrenceKey], ['posted', 'far@2026-11-10']);
+}
+{ // OD-061/062 explicitly close this one native occurrence on Jan 10.
+  const seasonal = (id, through = '2027-01-10') => {
+    const x = tagged([
+      raw({ date: '2026-12-26', amount: '20.00' }),
+      raw({ id: 'invented-jan-10-refund', date: '2027-01-10', amount: '-5.00' }),
+      raw({ id: 'invented-jan-11-charge', date: '2027-01-11', amount: '9.00' }),
+    ], [{ ...link('tag', id, '2026-12-25'), effectiveFrom: '2026-12-20', effectiveThrough: through }]);
+    x.asOf = x.data.meta.asOf = '2027-01-11';
+    x.payload.fetchedAt = '2027-01-11T12:00:00.000Z';
+    x.payload.transactionWindow = { startDate: '2026-12-20', endDate: x.asOf, complete: true, hasMore: false };
+    Object.assign(x.plan.commitments[0], { id, date: '2026-12-25', label: 'Invented winter item' });
+    x.plan.savingsEarmarks.pools[0].goalRefs[0].id = id;
+    x.plan.savingsEarmarks.history[0].pools[0].allocations[0].goalRef.id = id;
+    const { packet, advice } = costOf(x);
+    const row = [...advice.savingsFunding.backing.items, ...advice.savingsFunding.unresolved]
+      .find(item => item.key === id + '@2026-12-25');
+    const evidence = F.savingsLinkTarget.taggedEvidence(x.plan, x.asOf, packet);
+    return { row, evidence, packet };
+  };
+  const special = seasonal('christmas-2026');
+  const spend = special.row.commitmentCost.taggedSpend;
+  assert.equal(special.evidence.links[0].effectiveThrough, '2027-01-10');
+  assert.deepEqual([spend.amount, spend.recon.map(row => row.date)], [15, ['2026-12-26', '2027-01-10']]);
+  assert.equal(special.row.commitmentCost.confirmedLinkedPaid.amount, 15, 'the incumbent still reads its own link interval');
+  const ordinary = seasonal('near');
+  assert.equal(ordinary.evidence.links[0].effectiveThrough, '2027-01-08');
+  assert.deepEqual([ordinary.row.commitmentCost.taggedSpend.amount, ordinary.row.commitmentCost.confirmedLinkedPaid.amount], [20, 15]);
+  const shorter = seasonal('christmas-2026', '2027-01-06');
+  assert.equal(shorter.evidence.links[0].effectiveThrough, '2027-01-06');
+  const broader = seasonal('christmas-2026', '2027-01-11');
+  assert.equal(broader.evidence.links[0].effectiveThrough, '2027-01-08', 'the exception requires the explicit Jan 10 end');
 }
 { // Tagged rows leave Household Budget and Other Spending in every state.
   for (const txs of [[raw()], [raw({ is_pending: true })],
@@ -140,16 +289,18 @@ const bothLinked = txs => tagged(txs, [link('tag'), { ...link('tag', 'far', '202
     matchMedia: () => ({ matches: false, addEventListener() {} }), localStorage: { getItem() { return null; }, setItem() {} } };
   vm.runInContext(script('budget-blend'), vm.createContext(Object.assign(blend, { window: blend })));
   const { goalBarTaggedAmount, goalBarBand, goalTagWithheldText } = blend.module.exports;
-  const render = costItem => {
-    context.row = { ...costItem, saved: 0, savedTrust: 'calculated' };
+  const renderRow = row => {
+    context.row = row;
     const html = vm.runInContext('budgetGoalPaidProgressHtml(row)', context);
     const attrs = Object.fromEntries([...html.slice(0, html.indexOf('>')).matchAll(/ (data-[a-z-]+)="([^"]*)"/g)].map(m => [m[1], m[2]]));
     const block = { getAttribute: name => attrs[name] ?? null };
     // final: the band class and width the visible Blend bar renders for this
-    // goal (the same function the DOM code applies), with Saved 0 of 60 needed.
-    return { html, attrs, tag: goalTagWithheldText(block), band: goalBarTaggedAmount(block), final: goalBarBand(block, 0, 60),
+    // goal (the same function the DOM code applies).
+    return { html, attrs, tag: goalTagWithheldText(block), band: goalBarTaggedAmount(block), final: goalBarBand(block, row.saved, row.needed),
       segment: (html.match(/data-budget-goal-bar-paid style="--goal-paid:([0-9.]+)"/) || [])[1] ?? null };
   };
+  const render = costItem => renderRow({ ...costItem, needed: 60, savedTrust: 'calculated',
+    saved: costItem.commitmentCost.taggedSpend?.hasPurchases ? 40 : 0 });
   const dated = (txs, links, through) => {
     const x = tagged(txs, links);
     x.asOf = x.data.meta.asOf = through; x.payload.fetchedAt = through + 'T12:00:00.000Z';
@@ -157,19 +308,19 @@ const bothLinked = txs => tagged(txs, [link('tag'), { ...link('tag', 'far', '202
     return x;
   };
 
-  { // Pending-only tally with Paid withheld: Spent over the goal, labelled pending.
+  { // Pending-only tally with Paid withheld: Spent over funds, labelled pending.
     const { item: costItem } = costOf(tagged([raw({ is_pending: true })]));
     const out = render(costItem);
     assert.match(out.html, /data-budget-goal-paid-progress="funding"/);
     assert.match(out.html, /data-budget-goal-spent-amount="12\.34"/);
-    assert.match(out.html, /<small>Spent<\/small>[\s\S]*?\$12\.34 \/ \$60\.00/);
+    assert.match(out.html, /<small>Spent<\/small>[\s\S]*?\$12\.34 \/ \$40\.00/);
     assert.match(out.html, /data-budget-goal-spent-pending="12\.34">incl\. \$12\.34 pending</, 'a pending purchase is labelled pending');
     assert.match(out.html, /data-budget-goal-paid><span class="budget-v3-unknown">Unknown<\/span>/, 'Paid stays Unknown');
-    assert.deepEqual([out.segment, out.band], ['0.2057', 12.34]);
+    assert.deepEqual([out.segment, out.band, out.final.width], ['0.3085', 12.34, '0.3085']);
     // A posted twin of a pending row is counted once and carries no pending label.
     const twin = render(costOf(tagged([raw({ id: 'invented-pending', is_pending: true }), raw()])).item);
     assert.doesNotMatch(twin.html, /pending/);
-    assert.equal(twin.segment, '0.2057');
+    assert.equal(twin.segment, '0.3085');
     // A pending refund is not netted and says so.
     const refund = render(costOf(tagged([raw({ id: 'c1', amount: '100.00' }),
       raw({ id: 'r1', amount: '-30.00', date: '2026-10-04', is_pending: true })])).item);
@@ -277,9 +428,17 @@ const bothLinked = txs => tagged(txs, [link('tag'), { ...link('tag', 'far', '202
     assert.doesNotMatch(zero.html, /data-budget-goal-bar-paid/, 'known zero tally: no full segment');
     assert.deepEqual([zero.band, zero.final.band, zero.final.width], [0, 'is-red', '0.0000'],
       'the rendered Blend band is the tally (0 of 60), not the full-paid shortcut');
-    const part = render(full(costOf(tagged([raw()])).item));
+    const x = tagged([raw()]);
+    const settled = x.plan.commitments.find(c => c.id === 'near');
+    delete settled.group;
+    settled.settledOn = '2026-10-03';
+    const paidDisplay = costOf(x).pub.rows.find(row => row.key === 'commitment:near');
+    assert.deepEqual([paidDisplay.paymentSource, paidDisplay.saved, paidDisplay.savedTrust], ['owner-confirmed', 0, 'calculated']);
+    const part = renderRow(paidDisplay);
     assert.match(part.html, /data-budget-goal-paid-progress="paid"/);
-    assert.equal(part.segment, '0.2057', 'plan.js segment follows the 12.34 tally, not full');
+    assert.doesNotMatch(part.html, /data-budget-goal-spent-readout/);
+    assert.match(part.html, /data-budget-goal-spent>\$12\.34 \/ \$60\.00/);
+    assert.equal(part.segment, '0.2057', 'owner-confirmed item plots the tagged tally over planned cost');
     assert.deepEqual([part.band, part.final.band, part.final.width], [12.34, 'is-red', '0.2057']);
     assert.equal(part.tag, null, 'a known tally never says Withheld');
     // The same through the real ledger (no synthetic fact): charges that cover the plan make
