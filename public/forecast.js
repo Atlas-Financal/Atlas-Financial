@@ -2094,7 +2094,8 @@
   function savingsTaggedEvidence(plan, asOf, packet, publication = savingsLinkPublication(plan, asOf, packet)) {
     if (!savingsDate(asOf) || publication?.status !== 'available') return null;
     const raw = packet.savingsLinks;
-    const links = publication.links.filter(link => link.type === 'tag').map(link => {
+    const configuredTags = publication.links.filter(link => link.type === 'tag');
+    const links = configuredTags.map(link => {
       const input = raw.links.find(row => row.ref === link.ref);
       const ref = input.goalRef ?? input.tagGoalRef;
       const date = link.occurrenceDate;
@@ -2115,7 +2116,10 @@
         }
       }
       const occurrenceKey = ids.length === 1 ? ids[0] + '@' + date : null;
-      const cutoff = addDays(date, 14);
+      // OD-061/062 name this native occurrence and its Jan 10 return window.
+      const approvedReturnWindow = occurrenceKey === 'christmas-2026@2026-12-25'
+        && ref.kind === 'commitment' && link.effectiveThrough === '2027-01-10';
+      const cutoff = approvedReturnWindow ? link.effectiveThrough : addDays(date, 14);
       const effectiveThrough = link.effectiveThrough < cutoff ? link.effectiveThrough : cutoff;
       const through = effectiveThrough < raw.asOf ? effectiveThrough : raw.asOf;
       const window = packet.transactionWindow;
@@ -2134,13 +2138,17 @@
       link.status = 'unresolved';
       link.reason = 'conflicting-links';
     }
+    const configuredTagByRef = new Map(configuredTags.map(link => [link.ref, link]));
     const tagByRef = new Map(links.map(link => [link.ref, link]));
     const rawByRef = new Map(raw.evidence.map(row => [row.transactionRef, row]));
     const txByRef = new Map((packet.transactions || []).map(tx => [tx?.id, tx]));
     const evidence = [];
     for (const row of publication.evidence) {
-      const hits = row.linkRefs.map(ref => tagByRef.get(ref))
+      const configuredHits = row.linkRefs.map(ref => configuredTagByRef.get(ref))
         .filter(link => link && row.date >= link.effectiveFrom && row.date <= link.effectiveThrough);
+      const tagConflict = configuredHits.length > 1 && row.reason !== 'refund-unlinked';
+      const hits = configuredHits.map(link => tagByRef.get(link.ref))
+        .filter(link => tagConflict || row.date <= link.effectiveThrough);
       if (!hits.length) continue;
       const input = rawByRef.get(row.transactionRef), tx = txByRef.get(row.transactionRef);
       const extraState = input.reason === 'conflicting-links' && row.direction === (tx.amount > 0 ? 'charge' : 'refund')
@@ -2148,11 +2156,11 @@
         ? input.tagPostingState : null;
       const state = extraState || row.state;
       const key = hits[0].occurrenceKey;
-      const qualified = hits.length === 1 && hits[0].status === 'linked' && state !== 'unresolved'
+      const qualified = !tagConflict && hits.length === 1 && hits[0].status === 'linked' && state !== 'unresolved'
         && (extraState || row.occurrenceKey === key);
       evidence.push({ transactionRef: row.transactionRef, date: row.date, direction: row.direction,
         linkRefs: hits.map(link => link.ref), occurrenceKey: qualified ? key : null, state: qualified ? state : 'unresolved',
-        reason: qualified ? null : row.reason || 'conflicting-links' });
+        reason: qualified ? null : tagConflict ? 'conflicting-links' : row.reason || 'conflicting-links' });
     }
     return { links, evidence };
   }
@@ -2179,7 +2187,7 @@
       const key = link.occurrenceKey;
       if (!key) continue;
       if (link.status !== 'linked' || link.history !== 'complete') { tallies.set(key, withheld); continue; }
-      const rows = tagged.evidence.filter(row => row.linkRefs.includes(link.ref));
+      const rows = tagged.evidence.filter(row => row.linkRefs.includes(link.ref) && row.date <= link.effectiveThrough);
       let charges = 0, refunds = 0, pendingCharges = 0, pendingRefunds = 0;
       const recon = [];
       for (const row of rows) {

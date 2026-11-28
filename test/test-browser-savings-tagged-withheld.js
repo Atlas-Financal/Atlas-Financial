@@ -68,6 +68,12 @@ const SCENARIOS = [
   rows: [/Invented merchant.*\$80\.00/, /−\$5\.00/] },
   { key: 'pending with unconfirmed funds', html: sourceHtml(null, [raw({ is_pending: true })]),
     withheld: false, pair: /Spent \$12\.34.*Saved Unavailable/, width: '', rows: [/Invented merchant.*Pending.*\$12\.34/] },
+  { key: 'owner-confirmed with tagged purchase', goal: 'commitment:near', html: sourceHtml(x => {
+    const goal = x.plan.commitments.find(row => row.id === 'near');
+    delete goal.group;
+    goal.settledOn = '2026-10-03';
+  }, [raw()]), withheld: false, pair: /Paid by owner.*Planned \$60\.00/, width: '0.2057',
+  rows: [/Invented merchant.*\$12\.34/] },
   { key: 'withheld', html: sourceHtml(x => { rolled(x); }), withheld: true },
   { key: 'withheld + owner Paid (real ledger)', html: sourceHtml(x => { rolled(x); ownerPaid(x); }), withheld: true },
   { key: 'withheld + known Paid (injected stamp)', html: withKnownPaid(sourceHtml(x => { rolled(x); })), withheld: true, knownPaid: true },
@@ -92,11 +98,12 @@ const page_html = body => `<!doctype html><html lang="en"><head><meta charset="u
         await page.setContent(page_html(s.html), { waitUntil: 'domcontentloaded' });
         for (const css of ['styles.css', 'budget-surface.css', 'budget-blend.css', 'budget-gface.css']) await page.addStyleTag({ content: fs.readFileSync(pub(css), 'utf8') });
         await page.addScriptTag({ content: fs.readFileSync(pub('budget-blend.js'), 'utf8') });
-        const row = page.locator('button.blend-goal-row[data-blend-goal="group:club"]');
+        const row = page.locator(`button.blend-goal-row[data-blend-goal="${s.goal || 'group:club'}"]`);
         await row.waitFor({ timeout: 5000 });
         const label = `${s.key} @${width}`;
         const aria = await row.getAttribute('aria-label');
         if (s.pair) assert.match(aria, s.pair, label + ': row displays the published pair');
+        if (s.goal) assert.doesNotMatch(aria, /Spent|Saved/, label + ': the closed item keeps owner confirmation on the row');
         const note = row.locator('[data-blend-goal-tag-withheld]');
         assert.equal(await row.getAttribute('title'), null, label + ': no title text to disagree with the accessible name');
         if (s.withheld) {

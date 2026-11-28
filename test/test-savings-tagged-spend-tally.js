@@ -202,6 +202,64 @@ const bothLinked = txs => tagged(txs, [link('tag'), { ...link('tag', 'far', '202
   assert.equal(item(ledger).spent.withheld, true);
   assert.equal(F.savingsLinkTarget.taggedEvidence(x.plan, x.asOf, packet).evidence[0].state, 'unresolved');
 }
+{ // A tag's display cutoff cannot resolve a conflict between two exact tag hits.
+  const x = tagged([
+    raw(),
+    raw({ id: 'invented-two-tags', date: '2026-11-06', amount: '19.00', tag_ids: ['invented-tag', 'invented-far-tag'] }),
+  ], [
+    { ...link('tag'), effectiveThrough: '2026-12-31' },
+    { ...link('tag', 'far', '2026-11-10'), tagId: 'invented-far-tag', effectiveThrough: '2026-12-31' },
+  ]);
+  x.plan.commitments.find(row => row.id === 'far').date = '2026-11-10';
+  x.asOf = x.data.meta.asOf = '2026-11-06';
+  x.payload.fetchedAt = '2026-11-06T12:00:00.000Z';
+  x.payload.transactionWindow = { startDate: '2026-10-02', endDate: x.asOf, complete: true, hasMore: false };
+  const { packet, advice } = costOf(x);
+  const shared = F.savingsLinkTarget.taggedEvidence(x.plan, x.asOf, packet);
+  const conflict = shared.evidence.find(row => row.date === x.asOf);
+  assert.deepEqual([conflict.state, conflict.reason, conflict.occurrenceKey, conflict.linkRefs],
+    ['unresolved', 'conflicting-links', null, ['link-1', 'link-2']]);
+  const items = [...advice.savingsFunding.backing.items, ...advice.savingsFunding.unresolved];
+  assert.equal(items.find(row => row.key === NEAR).commitmentCost.taggedSpend.amount, 12.34,
+    'a later conflict cannot remove a finished tally');
+  assert.equal(items.find(row => row.key === 'far@2026-11-10').commitmentCost.taggedSpend.status, 'withheld');
+  x.payload.transactions[1].tag_ids = ['invented-far-tag'];
+  const single = observe(x);
+  const qualified = F.savingsLinkTarget.taggedEvidence(x.plan, x.asOf, single).evidence.find(row => row.date === x.asOf);
+  assert.deepEqual([qualified.state, qualified.occurrenceKey], ['posted', 'far@2026-11-10']);
+}
+{ // OD-061/062 explicitly close this one native occurrence on Jan 10.
+  const seasonal = (id, through = '2027-01-10') => {
+    const x = tagged([
+      raw({ date: '2026-12-26', amount: '20.00' }),
+      raw({ id: 'invented-jan-10-refund', date: '2027-01-10', amount: '-5.00' }),
+      raw({ id: 'invented-jan-11-charge', date: '2027-01-11', amount: '9.00' }),
+    ], [{ ...link('tag', id, '2026-12-25'), effectiveFrom: '2026-12-20', effectiveThrough: through }]);
+    x.asOf = x.data.meta.asOf = '2027-01-11';
+    x.payload.fetchedAt = '2027-01-11T12:00:00.000Z';
+    x.payload.transactionWindow = { startDate: '2026-12-20', endDate: x.asOf, complete: true, hasMore: false };
+    Object.assign(x.plan.commitments[0], { id, date: '2026-12-25', label: 'Invented winter item' });
+    x.plan.savingsEarmarks.pools[0].goalRefs[0].id = id;
+    x.plan.savingsEarmarks.history[0].pools[0].allocations[0].goalRef.id = id;
+    const { packet, advice } = costOf(x);
+    const row = [...advice.savingsFunding.backing.items, ...advice.savingsFunding.unresolved]
+      .find(item => item.key === id + '@2026-12-25');
+    const evidence = F.savingsLinkTarget.taggedEvidence(x.plan, x.asOf, packet);
+    return { row, evidence, packet };
+  };
+  const special = seasonal('christmas-2026');
+  const spend = special.row.commitmentCost.taggedSpend;
+  assert.equal(special.evidence.links[0].effectiveThrough, '2027-01-10');
+  assert.deepEqual([spend.amount, spend.recon.map(row => row.date)], [15, ['2026-12-26', '2027-01-10']]);
+  assert.equal(special.row.commitmentCost.confirmedLinkedPaid.amount, 15, 'the incumbent still reads its own link interval');
+  const ordinary = seasonal('near');
+  assert.equal(ordinary.evidence.links[0].effectiveThrough, '2027-01-08');
+  assert.deepEqual([ordinary.row.commitmentCost.taggedSpend.amount, ordinary.row.commitmentCost.confirmedLinkedPaid.amount], [20, 15]);
+  const shorter = seasonal('christmas-2026', '2027-01-06');
+  assert.equal(shorter.evidence.links[0].effectiveThrough, '2027-01-06');
+  const broader = seasonal('christmas-2026', '2027-01-11');
+  assert.equal(broader.evidence.links[0].effectiveThrough, '2027-01-08', 'the exception requires the explicit Jan 10 end');
+}
 { // Tagged rows leave Household Budget and Other Spending in every state.
   for (const txs of [[raw()], [raw({ is_pending: true })],
     [raw({ id: 'c1', amount: '100.00' }), raw({ id: 'r1', amount: '-30.00', date: '2026-10-04' })]]) {
@@ -231,17 +289,18 @@ const bothLinked = txs => tagged(txs, [link('tag'), { ...link('tag', 'far', '202
     matchMedia: () => ({ matches: false, addEventListener() {} }), localStorage: { getItem() { return null; }, setItem() {} } };
   vm.runInContext(script('budget-blend'), vm.createContext(Object.assign(blend, { window: blend })));
   const { goalBarTaggedAmount, goalBarBand, goalTagWithheldText } = blend.module.exports;
-  const render = costItem => {
-    const saved = costItem.commitmentCost.taggedSpend?.hasPurchases ? 40 : 0;
-    context.row = { ...costItem, saved, savedTrust: 'calculated' };
+  const renderRow = row => {
+    context.row = row;
     const html = vm.runInContext('budgetGoalPaidProgressHtml(row)', context);
     const attrs = Object.fromEntries([...html.slice(0, html.indexOf('>')).matchAll(/ (data-[a-z-]+)="([^"]*)"/g)].map(m => [m[1], m[2]]));
     const block = { getAttribute: name => attrs[name] ?? null };
     // final: the band class and width the visible Blend bar renders for this
-    // goal (the same function the DOM code applies), with Saved 0 of 60 needed.
-    return { html, attrs, tag: goalTagWithheldText(block), band: goalBarTaggedAmount(block), final: goalBarBand(block, saved, 60),
+    // goal (the same function the DOM code applies).
+    return { html, attrs, tag: goalTagWithheldText(block), band: goalBarTaggedAmount(block), final: goalBarBand(block, row.saved, row.needed),
       segment: (html.match(/data-budget-goal-bar-paid style="--goal-paid:([0-9.]+)"/) || [])[1] ?? null };
   };
+  const render = costItem => renderRow({ ...costItem, needed: 60, savedTrust: 'calculated',
+    saved: costItem.commitmentCost.taggedSpend?.hasPurchases ? 40 : 0 });
   const dated = (txs, links, through) => {
     const x = tagged(txs, links);
     x.asOf = x.data.meta.asOf = through; x.payload.fetchedAt = through + 'T12:00:00.000Z';
@@ -369,10 +428,18 @@ const bothLinked = txs => tagged(txs, [link('tag'), { ...link('tag', 'far', '202
     assert.doesNotMatch(zero.html, /data-budget-goal-bar-paid/, 'known zero tally: no full segment');
     assert.deepEqual([zero.band, zero.final.band, zero.final.width], [0, 'is-red', '0.0000'],
       'the rendered Blend band is the tally (0 of 60), not the full-paid shortcut');
-    const part = render(full(costOf(tagged([raw()])).item));
+    const x = tagged([raw()]);
+    const settled = x.plan.commitments.find(c => c.id === 'near');
+    delete settled.group;
+    settled.settledOn = '2026-10-03';
+    const paidDisplay = costOf(x).pub.rows.find(row => row.key === 'commitment:near');
+    assert.deepEqual([paidDisplay.paymentSource, paidDisplay.saved, paidDisplay.savedTrust], ['owner-confirmed', 0, 'calculated']);
+    const part = renderRow(paidDisplay);
     assert.match(part.html, /data-budget-goal-paid-progress="paid"/);
-    assert.equal(part.segment, '0.3085', 'plan.js plots 12.34 over 40 in funds');
-    assert.deepEqual([part.band, part.final.band, part.final.width], [12.34, 'is-amber', '0.3085']);
+    assert.doesNotMatch(part.html, /data-budget-goal-spent-readout/);
+    assert.match(part.html, /data-budget-goal-spent>\$12\.34 \/ \$60\.00/);
+    assert.equal(part.segment, '0.2057', 'owner-confirmed item plots the tagged tally over planned cost');
+    assert.deepEqual([part.band, part.final.band, part.final.width], [12.34, 'is-red', '0.2057']);
     assert.equal(part.tag, null, 'a known tally never says Withheld');
     // The same through the real ledger (no synthetic fact): charges that cover the plan make
     // Paid full (60.00 of 60.00) while the whole charge falls after the tally cutoff.

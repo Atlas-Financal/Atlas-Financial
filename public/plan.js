@@ -4183,7 +4183,8 @@ function budgetGoalPaidProgressHtml(row) {
   const tagKnown = spent?.amount != null;
   const tagWithheld = !tagKnown && cost.taggedSpend?.status === 'withheld';
   const tagState = tagKnown ? 'known' : tagWithheld ? 'withheld' : null;
-  const spentReadout = tagKnown && cost.taggedSpend.hasPurchases === true;
+  const ownerSettled = budgetGoalOwnerSettled(row);
+  const spentReadout = !ownerSettled && tagKnown && cost.taggedSpend.hasPurchases === true;
   const barFact = tagState ? (tagKnown ? spent : null) : paid;
   const paidGeometry = paid?.amount != null && original?.amount > 0;
   const barGeometry = barFact?.amount != null && original?.amount > 0;
@@ -4215,7 +4216,8 @@ function budgetGoalPaidProgressHtml(row) {
       ? `<span><small>Spent</small> <span class="budget-goal-paid-amount" data-budget-goal-spent>${budgetGoalCostText(spent)}${spentReadout ? ' / ' + budgetV3Money(row.saved, row.savedTrust) : original?.amount > 0 ? ' / ' + money2(original.amount) : ''}</span>${pendingNote}</span>` : '';
   const tagStamp = tagState ? ` data-budget-goal-tag-state="${tagState}"` : '';
   const readoutStamp = spentReadout ? ' data-budget-goal-spent-readout="true"' : '';
-  return `<div class="budget-goal-paid is-${state}" data-budget-goal-paid-progress="${state}"${tagStamp}${readoutStamp}${stamp('paid', paid)}${stamp('spent', spent)}${stamp('original', original)}${gapStamp}>
+  const ownerStamp = ownerSettled ? ' data-budget-goal-owner-settled="true"' : '';
+  return `<div class="budget-goal-paid is-${state}" data-budget-goal-paid-progress="${state}"${tagStamp}${readoutStamp}${ownerStamp}${stamp('paid', paid)}${stamp('spent', spent)}${stamp('original', original)}${gapStamp}>
         <span class="budget-goal-bar" data-budget-goal-bar aria-hidden="true">${fill}</span>
         <span class="budget-goal-paid-figures" data-budget-goal-paid-figures><span><small>Paid</small> <span class="budget-goal-paid-amount" data-budget-goal-paid>${paidText}</span>${budgetGoalOwnerConfirmationHtml(owner, cost.observedLinked, paid, original, cost.overspend)}</span>${spentHtml}<span><small>Still to fund</small> <span class="budget-goal-paid-amount" data-budget-goal-still-to-fund>${stillToFund.html}</span></span></span>
       </div>`;
@@ -6330,7 +6332,7 @@ function budgetSavingsGoalsHtml(ctx, period, schedule) {
       const target = settled ? budgetGoalCostText(budgetGoalCostFact(row.commitmentCost.originalCost))
         : budgetDailyNeededHtml(row);
       const spend = row.commitmentCost?.taggedSpend;
-      const spentReadout = spend?.status === 'known' && spend.hasPurchases === true;
+      const spentReadout = !settled && spend?.status === 'known' && spend.hasPurchases === true;
       const saved = value(row.saved, row.savedTrust);
       const first = spentReadout ? `<span class="budget-goal-amount">${money2(spend.amount)}</span><small>Spent</small>`
         : settled ? `<span class="budget-goal-amount">${BUDGET_GOAL_OWNER_PAID_WORD}</span><small>${BUDGET_GOAL_OWNER_PAID_NOTE}</small>`
