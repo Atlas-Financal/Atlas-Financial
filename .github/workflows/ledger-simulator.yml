@@ -19,10 +19,17 @@ jobs:
       - name: Install runtime dependencies
         run: bash scripts/ci-test.sh install-runtime
       - name: Replay the fixed synthetic sample
-        run: node test/ledger-simulator/run.js --advisory --output "$RUNNER_TEMP/ledger-simulator.json"
-      - name: Save the invented findings
-        uses: actions/upload-artifact@v4
-        with:
-          name: invented-ledger-sample
-          path: ${{ runner.temp }}/ledger-simulator.json
-          retention-days: 7
+        run: |
+          set -euo pipefail
+          umask 077
+          report="$RUNNER_TEMP/ledger-simulator.json"
+          if ! node test/ledger-simulator/run.js --advisory --output "$report" > "$RUNNER_TEMP/ledger-simulator.log" 2>&1; then
+            echo "Simulator execution or coverage failed."
+            exit 1
+          fi
+          node -e '
+            const fs = require("node:fs");
+            const crypto = require("node:crypto");
+            const bytes = fs.readFileSync(process.argv[1]);
+            console.log("Synthetic sample SHA-256 " + crypto.createHash("sha256").update(bytes).digest("hex"));
+          ' "$report"
