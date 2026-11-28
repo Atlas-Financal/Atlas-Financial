@@ -1,0 +1,28 @@
+name: invented ledger simulator
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  sample:
+    name: Ledger simulator (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+      - name: Install runtime dependencies
+        run: bash scripts/ci-test.sh install-runtime
+      - name: Replay the fixed synthetic sample
+        run: node test/ledger-simulator/run.js --advisory --output "$RUNNER_TEMP/ledger-simulator.json"
+      - name: Save the invented findings
+        uses: actions/upload-artifact@v4
+        with:
+          name: invented-ledger-sample
+          path: ${{ runner.temp }}/ledger-simulator.json
+          retention-days: 7
