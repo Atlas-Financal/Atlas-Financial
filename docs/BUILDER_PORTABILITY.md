@@ -2,10 +2,10 @@
 
 ## Purpose
 
-Atlas Financial work is implemented by the **approved active implementation
-agent**, on whichever owner-approved surface it runs. Changing surface or model
-must not create a second workflow, a second roadmap, a weaker financial safety
-standard, or a re-onboarding project.
+Atlas Financial work is implemented by the **active implementation agent** on
+an owner-approved surface. The lead chooses the model for each build under the
+[builder rules](../CLAUDE.md#the-active-implementation-agent). All builders
+follow the same workflow, roadmap, and financial safety rules.
 
 This document is a compatibility and handoff contract. It does not select work,
 move a financial authority, change a trust label, or create merge authority.
@@ -17,9 +17,8 @@ findings.
 
 ## One role, any approved surface
 
-The approved active implementation agent has the same responsibilities and
-standing authority on Claude Code, Codex, Cursor, or another surface Dale
-approves:
+The active implementation agent has the same responsibilities and standing
+authority on every owner-approved surface.
 
 - run the Current-State Verification Gate before editing;
 - start from current `main`;
@@ -29,7 +28,7 @@ approves:
 - declare builder surface and model without guessing;
 - obtain the Atlas Contract / Systems Review when a high-risk trigger fires;
 - address real in-scope findings without widening the outcome; and
-- merge only when the exact-head gates and owner-reserved boundaries permit it.
+- hand the reviewed head to an eligible independent merger under the Merge gate.
 
 Surface identity and model identity never change financial correctness,
 security, privacy, raw-data, schema, production-write, destructive-operation,
@@ -41,9 +40,9 @@ Atlas Contract / Systems Review.
 `CLAUDE.md` keeps its historical filename and remains the canonical detailed
 brief. The filename does not make Claude the owner of the workflow.
 
-- **“Claude” used historically as the builder/merge operator** means **the
-  approved active implementation agent** when the surrounding rule is still
-  active.
+- **“Claude” used historically as the builder or merger** means the active
+  implementation agent or the eligible independent merger for that role under
+  `CLAUDE.md`.
 - **“Codex review/comments are advisory”** means **independent agent review is
   advisory**. Any agent that is not the active builder may fill that role.
 - Existing **`claude/*` branches** are historical and remain valid records.
