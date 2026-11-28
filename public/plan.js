@@ -4184,7 +4184,8 @@ function budgetGoalPaidProgressHtml(row) {
   const tagWithheld = !tagKnown && cost.taggedSpend?.status === 'withheld';
   const tagState = tagKnown ? 'known' : tagWithheld ? 'withheld' : null;
   const ownerSettled = budgetGoalOwnerSettled(row);
-  const spentReadout = !ownerSettled && tagKnown && cost.taggedSpend.hasPurchases === true;
+  const hasTaggedPurchases = tagKnown && cost.taggedSpend.hasPurchases === true;
+  const spentReadout = !ownerSettled && hasTaggedPurchases;
   const barFact = tagState ? (tagKnown ? spent : null) : paid;
   const paidGeometry = paid?.amount != null && original?.amount > 0;
   const barGeometry = barFact?.amount != null && original?.amount > 0;
@@ -4216,7 +4217,7 @@ function budgetGoalPaidProgressHtml(row) {
       ? `<span><small>Spent</small> <span class="budget-goal-paid-amount" data-budget-goal-spent>${budgetGoalCostText(spent)}${spentReadout ? ' / ' + budgetV3Money(row.saved, row.savedTrust) : original?.amount > 0 ? ' / ' + money2(original.amount) : ''}</span>${pendingNote}</span>` : '';
   const tagStamp = tagState ? ` data-budget-goal-tag-state="${tagState}"` : '';
   const readoutStamp = spentReadout ? ' data-budget-goal-spent-readout="true"' : '';
-  const ownerStamp = ownerSettled ? ' data-budget-goal-owner-settled="true"' : '';
+  const ownerStamp = ownerSettled && hasTaggedPurchases ? ' data-budget-goal-owner-tagged-purchase="true"' : '';
   return `<div class="budget-goal-paid is-${state}" data-budget-goal-paid-progress="${state}"${tagStamp}${readoutStamp}${ownerStamp}${stamp('paid', paid)}${stamp('spent', spent)}${stamp('original', original)}${gapStamp}>
         <span class="budget-goal-bar" data-budget-goal-bar aria-hidden="true">${fill}</span>
         <span class="budget-goal-paid-figures" data-budget-goal-paid-figures><span><small>Paid</small> <span class="budget-goal-paid-amount" data-budget-goal-paid>${paidText}</span>${budgetGoalOwnerConfirmationHtml(owner, cost.observedLinked, paid, original, cost.overspend)}</span>${spentHtml}<span><small>Still to fund</small> <span class="budget-goal-paid-amount" data-budget-goal-still-to-fund>${stillToFund.html}</span></span></span>

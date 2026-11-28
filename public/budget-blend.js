@@ -2413,13 +2413,13 @@
       const totalWord = planned ? 'Planned' : 'Needed';
       const progressBlock = row.querySelector('[data-budget-goal-paid-progress]');
       const paidState = progressBlock?.getAttribute('data-budget-goal-paid-progress') === 'paid';
-      const ownerSettled = progressBlock?.getAttribute('data-budget-goal-owner-settled') === 'true';
+      const ownerTaggedPurchase = progressBlock?.getAttribute('data-budget-goal-owner-tagged-purchase') === 'true';
       const figures = document.createElement('span');
       figures.className = 'blend-goal-status';
       figures.setAttribute('data-blend-goal-figures', '');
       // Build the accessible name from the labelled amounts in reading order.
       const spoken = [name.textContent];
-      if (spent && !ownerSettled) {
+      if (spent && !ownerTaggedPurchase) {
         figures.appendChild(printed('blend-goal-saved', 'Spent', spent.node, false));
         spoken.push('Spent ' + text(spent.node));
         if (saved) {
@@ -2435,16 +2435,16 @@
         // visible label, so it is never read as an amount paid.
         const paid = document.createElement('b');
         paid.className = 'blend-goal-paid-word';
-        paid.textContent = ownerSettled ? text(sides[0]?.node) : 'Paid';
+        paid.textContent = ownerTaggedPurchase ? text(sides[0]?.node) : 'Paid';
         figures.appendChild(paid);
         const paidNode = row.querySelector('[data-budget-goal-paid]');
-        if (!ownerSettled && printedMoney(paidNode)) {
+        if (!ownerTaggedPurchase && printedMoney(paidNode)) {
           figures.appendChild(printed('blend-goal-paid-amount', '', paidNode, false));
           spoken.push('Paid ' + text(paidNode));
         } else {
           spoken.push(paid.textContent);
-          if (planned && (ownerSettled || printedMoney(planned.node))) {
-            if (ownerSettled) figures.appendChild(slash());
+          if (planned && (ownerTaggedPurchase || printedMoney(planned.node))) {
+            if (ownerTaggedPurchase) figures.appendChild(slash());
             figures.appendChild(printedMoney(planned.node)
               ? printed('blend-goal-needed', 'Planned', planned.node, true) : unprinted(planned.node));
             spoken.push('Planned ' + text(planned.node));

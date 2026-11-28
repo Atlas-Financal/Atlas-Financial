@@ -47,6 +47,11 @@ const rolled = x => {
   x.payload.transactionWindow = { startDate: '2026-10-30', endDate: '2026-11-05', complete: true, hasMore: false };
 };
 const ownerPaid = x => { x.plan.commitments.find(c => c.id === 'near').ownerPaid = { amount: 5, confirmedOn: '2026-10-04' }; };
+const ownerConfirmed = x => {
+  const goal = x.plan.commitments.find(row => row.id === 'near');
+  delete goal.group;
+  goal.settledOn = '2026-10-03';
+};
 // A known Paid beside the withheld tally. The real ledger also withholds Paid
 // on a rolled window, so the known amount is injected on the printed stamps and
 // text of the real withheld source row (the shape the reviewer described).
@@ -68,12 +73,11 @@ const SCENARIOS = [
   rows: [/Invented merchant.*\$80\.00/, /−\$5\.00/] },
   { key: 'pending with unconfirmed funds', html: sourceHtml(null, [raw({ is_pending: true })]),
     withheld: false, pair: /Spent \$12\.34.*Saved Unavailable/, width: '', rows: [/Invented merchant.*Pending.*\$12\.34/] },
-  { key: 'owner-confirmed with tagged purchase', goal: 'commitment:near', html: sourceHtml(x => {
-    const goal = x.plan.commitments.find(row => row.id === 'near');
-    delete goal.group;
-    goal.settledOn = '2026-10-03';
-  }, [raw()]), withheld: false, pair: /Paid by owner.*Planned \$60\.00/, width: '0.2057',
+  { key: 'owner-confirmed with tagged purchase', goal: 'commitment:near', html: sourceHtml(ownerConfirmed, [raw()]),
+    withheld: false, pair: /Paid by owner.*Planned \$60\.00/, width: '0.2057',
   rows: [/Invented merchant.*\$12\.34/] },
+  { key: 'owner-confirmed with unused tag', goal: 'commitment:near', html: sourceHtml(ownerConfirmed, []),
+    withheld: false, pair: /Paid\. Planned \$60\.00/, standalonePaid: true, rows: [] },
   { key: 'withheld', html: sourceHtml(x => { rolled(x); }), withheld: true },
   { key: 'withheld + owner Paid (real ledger)', html: sourceHtml(x => { rolled(x); ownerPaid(x); }), withheld: true },
   { key: 'withheld + known Paid (injected stamp)', html: withKnownPaid(sourceHtml(x => { rolled(x); })), withheld: true, knownPaid: true },
@@ -104,6 +108,12 @@ const page_html = body => `<!doctype html><html lang="en"><head><meta charset="u
         const aria = await row.getAttribute('aria-label');
         if (s.pair) assert.match(aria, s.pair, label + ': row displays the published pair');
         if (s.goal) assert.doesNotMatch(aria, /Spent|Saved/, label + ': the closed item keeps owner confirmation on the row');
+        if (s.standalonePaid) {
+          const visible = await row.innerText();
+          assert.match(visible, /(?:^|\n)Paid\s*(?:\n|$)/, label + ': Paid stands alone without tagged purchases');
+          assert.match(visible, /Planned\s*\$60\.00/, label + ': the planned cost stays visible');
+          assert.doesNotMatch(visible, /Paid by owner|\//, label + ': the incumbent row has no purchase treatment');
+        }
         const note = row.locator('[data-blend-goal-tag-withheld]');
         assert.equal(await row.getAttribute('title'), null, label + ': no title text to disagree with the accessible name');
         if (s.withheld) {
