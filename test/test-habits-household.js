@@ -39,6 +39,26 @@ try {
     { date: '2026-10-18', start: '2026-10-16', spent: 31, posted: 600 },
   ];
 
+  function observeHeloc(amount, notes, { receipt = false, minimum = true } = {}) {
+    const day = '2026-09-20';
+    const debit = ['bills', amount, day, 'cash', { id: 81008, payee: 'EF789 TFR-TO 7654321',
+      original_name: 'EF789 TFR-TO 7654321', category_name: 'Payment, Transfer', notes }];
+    return observe(day, [debit], input => {
+      input.data.debts.push({ id: 'heloc', label: 'Invented HELOC', structure: 'Revolving',
+        secured: true, balance: 6000, pending: 0, rate: 0, limit: 9000 });
+      if (minimum) input.data.plan.obligations.push({ id: 'heloc-minimum', debtId: 'heloc',
+        label: 'Invented HELOC interest', effect: 'capitalise', nonCash: true, amount: 20,
+        frequency: 'monthly', day: 31, cashDay: 20, cashFirstDue: day, cashPayment: 70,
+        cashLabel: 'Invented HELOC minimum', payingAccount: 'chequing-a', confidence: 'confirmed' });
+      input.accountMap.mappings.push({ providerAccountId: '3007',
+        canonical: { collection: 'debts', id: 'heloc' }, atlasRole: 'heloc' });
+      input.payload.accounts.push({ ...input.payload.accounts[3], id: 3007, name: 'Invented HELOC',
+        type: 'loan', subtype: 'line_of_credit', balance: 6000 - (receipt ? amount : 0) });
+      if (receipt) input.payload.transactions.push({ ...input.payload.transactions[0], id: 81009, account_id: 3007,
+        payee: 'EF789 TFR-FR 1111111', original_name: 'EF789 TFR-FR 1111111', amount: -amount, notes: null });
+    });
+  }
+
   function observe(day, rows, change = () => {}, memory) {
     const input = world(rows, {
       asOf: day,
@@ -123,6 +143,41 @@ try {
   assert.equal(spent(repaired), 128, 'a repaired refresh supersedes the held amount');
   assert.equal(creditLine(repaired).activityObservedAt, undefined);
 
+  const noted = observeHeloc(70, 'card payment: HELOC', { receipt: true });
+  const { period } = noted;
+  // Bank ledger: $500 opening less one $70 debit. The receiving credit
+  // reduces HELOC principal by $70 and creates no second Bills movement.
+  assert.equal(period.liveCurrentBalance, 430);
+  assert.equal(noted.observed.debts.find(debt => debt.id === 'heloc').balance, 5930);
+  assert.equal(period.postedBillsAccountMovements.complete, true);
+  assert.deepEqual(period.postedBillsAccountMovements.movements.map(row => row.amount), [-70]);
+  const paidBack = period.stackSummary.credit.lines.find(line => line.id === 'heloc').paidBack;
+  assert.deepEqual([paidBack.amount, paidBack.trust], [70, 'calculated']);
+  const bill = noted.advice.currentPeriodAction.bills.filter(row => row.id === 'heloc-minimum');
+  assert.equal(bill.length, 1);
+  assert.deepEqual([bill[0].actual, bill[0].remaining, bill[0].settlement], [70, 0, 'represented']);
+  // Plan ledger: $1,000 payroll minus the $25 card minimum, $70 HELOC
+  // minimum and $150 groceries hold. Add $500 for the planned close.
+  assert.equal(period.predictedEndingBalance, 755, 'the HELOC payment adds no duplicate transfer deduction');
+  assert.equal(period.plannedPeriodClose, 1255);
+  assert.equal(period.predictedEndingBalanceTerms.heldOutflowSpending, undefined);
+  assert.equal(period.plannedPeriodCloseTerms.heldOutflowSpending, undefined);
+  assert.equal(period.heldOutflowsToConfirm, undefined);
+
+  const partial = observeHeloc(50, 'card payment: HELOC (by amount)');
+  const partialBill = partial.advice.currentPeriodAction.bills.find(row => row.id === 'heloc-minimum');
+  assert.deepEqual([partialBill.actual, partialBill.remaining, partialBill.minimumCoverage.trust], [50, 20, 'estimated']);
+  assert.equal(partial.period.predictedEndingBalanceTerms.heldOutflowSpending, undefined);
+
+  const unmatched = observeHeloc(43, null);
+  assert.equal(unmatched.advice.currentPeriodAction.bills.find(row => row.id === 'heloc-minimum').remaining, 70);
+  assert.equal(unmatched.period.predictedEndingBalanceTerms.heldOutflowSpending, 43);
+  assert.deepEqual(unmatched.period.heldOutflowsToConfirm.recon.map(row => row.amount), [43]);
+  const conflicting = observeHeloc(43, 'card payment: HELOC\ncard payment: Travel Visa');
+  assert.equal(conflicting.period.predictedEndingBalanceTerms.heldOutflowSpending, 43);
+  const noMinimum = observeHeloc(70, 'card payment: HELOC', { minimum: false });
+  assert.equal(noMinimum.period.predictedEndingBalanceTerms.heldOutflowSpending, 70);
+
   // The Bills shortfall split follows #1676. A clean card ledger can currently
   // be withheld by a known negative Bills balance. When that fix lands, turn
   // this characterization into the positive independent-publication assertion.
@@ -136,6 +191,7 @@ try {
     'Known gap: split a known Bills shortfall from unreadable backing evidence');
 
   console.log('Habits household: four dates, warm and cold issuer-sync recovery, and the known Bills shortfall gap passed.');
+  console.log('Habits household: qualified and unresolved HELOC debits reconcile through Forecast.');
 } finally {
   fs.readFileSync = read;
 }

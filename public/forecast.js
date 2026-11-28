@@ -66,7 +66,7 @@
     }
     return out;
   }
-  function cardPeriodMovements(plan, debts, asOf, window, opts) {
+  function cardPeriodMovements(plan, debts, asOf, window, opts, captureHelocPayerDebits) {
     opts = opts || {};
     const cycle = savingsDate(window?.start) ? spendingCycle(plan, window.start) : null;
     const packet = currentPeriodActualsPacket(opts);
@@ -84,6 +84,7 @@
       balanceEvidence: opts.cardPeriodBalanceEvidence || null, overlay: opts.liveOverlay || null }, {
       date: savingsDate, cents: savingsCents, money: cardMoneyCents, addDays, skipParent: skipSplitParent,
       payingSidePayment,
+      captureHelocPayerDebits,
       // The one qualified TD "PAYMENT - THANK YOU" receipt identity (Grok Bot ruling, rule 17, 2026-11-17): a signed credit on a
       // mapped TD card. The card publication reads it for a posted card-side credit only; it never decides the payer's side.
       tdCardPaymentCredit: tx => isTdCardPaymentCredit(tx),
@@ -8512,7 +8513,7 @@
       || normalizeCategoryLabel(tx.kindHint) === 'card-payment') return true;
     return !!definiteNotedCard(tx);
   }
-  function unprovenTransferDebit(tx, cls, plan, classifyOpts, pairedToCard) {
+  function unprovenTransferDebit(tx, cls, plan, classifyOpts, pairedToCard, countedByHelocMinimum) {
     if (!tx || !cls || transactionPendingState(tx) !== 'posted') return null;
     if (tx.accountRole !== 'household-cash'
       || HOUSEHOLD_CHEQUING_IDS.indexOf(householdCashLocationId(tx)) === -1) return null;
@@ -8528,6 +8529,7 @@
     const conflicted = cardPaymentDestinationConflict(tx);
     if (!generic && !conflicted) return null;
     if (cardPaymentOtherSideEvidence(tx)) return null;
+    if (countedByHelocMinimum(tx)) return null;
     if (txMatchesRepresentedBill(tx, classifyOpts)) return null;
     if (tx.cardMinimumOwned === true) return null;
     const nearDue = tx.nearDueBillCandidate;
@@ -8554,6 +8556,28 @@
   function heldOutflowReader(plan, packet, opts, asOf) {
     const classifyOpts = Object.assign({}, opts || {}, { packet, currentPeriodActuals: packet });
     let accepted = null;
+    const helocDebitsByPeriod = new Map();
+    const countedByHelocMinimum = tx => {
+      if (householdCashLocationId(tx) !== BILLS_ACCOUNT_ID || payingSidePayment(tx)?.cardId !== 'heloc') return false;
+      const observedAsOf = packet.observationAsOf;
+      if (!savingsDate(tx.date) || !savingsDate(observedAsOf) || tx.date > observedAsOf) return false;
+      const cycle = spendingCycle(plan, tx.date);
+      if (!cycle) return false;
+      if (!helocDebitsByPeriod.has(cycle.start)) {
+        const billOpts = { ...classifyOpts, periodWindows: [{ ...cycle, id: cycle.start,
+          role: cycle.end < observedAsOf ? 'lookback' : 'active' }] };
+        // Read the same settlement that owns the Bills deduction. An accepted
+        // payer debit without a single eligible minimum keeps its hold.
+        billOpts.cardCoverageReuse = cardCoverageHolderFor(plan, observedAsOf, billOpts);
+        const billParts = stackBillPartContext(plan);
+        const minima = calendarBillSections(plan, observedAsOf, billOpts).bills.filter(row =>
+          stackBillPartOf(row, billParts)?.debtId === 'heloc');
+        const covered = minima.length === 1 && minima[0].minimumCoverage?.source === 'Forecast.periodPayerPayments';
+        const payerEvidence = billOpts.cardCoverageReuse.helocPaid?.get(cycle.start);
+        helocDebitsByPeriod.set(cycle.start, new Set(covered ? payerEvidence?.debits : []));
+      }
+      return helocDebitsByPeriod.get(cycle.start).has(tx);
+    };
     const pairedToCard = tx => {
       if (!tx.coverageRef) return false;
       if (!accepted) {
@@ -8566,7 +8590,7 @@
     return (tx, cls) => {
       const base = cls || classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
       if (!base || base.kind === 'held-outflow') return base;
-      const held = unprovenTransferDebit(tx, base, plan, classifyOpts, pairedToCard);
+      const held = unprovenTransferDebit(tx, base, plan, classifyOpts, pairedToCard, countedByHelocMinimum);
       return held || base;
     };
   }
@@ -11952,15 +11976,16 @@
     if (!cycle || !savingsDate(cycle.start) || !savingsDate(cycle.end) || cycle.start > asOf) return null;
     holder.helocPaid = holder.helocPaid || new Map();
     if (!holder.helocPaid.has(cycle.start)) {
+      let debits = [];
       const publication = cardPeriodMovements(plan, opts.debts, asOf, { start: cycle.start, end: cycle.end }, {
         currentPeriodActuals: opts.currentPeriodActuals,
         cardPeriodBalanceEvidence: opts.cardPeriodBalanceEvidence || null,
         liveOverlay: opts.cardLiveOverlay || null,
-      });
+      }, rows => { debits = rows; });
       const card = publication && Array.isArray(publication.cards) ? publication.cards.filter(row => row && row.id === 'heloc') : [];
-      holder.helocPaid.set(cycle.start, card.length === 1 ? card[0].payerPaid : null);
+      holder.helocPaid.set(cycle.start, { paid: card.length === 1 ? card[0].payerPaid : null, debits });
     }
-    const paid = holder.helocPaid.get(cycle.start);
+    const { paid } = holder.helocPaid.get(cycle.start);
     if (!paid || typeof paid.amount !== 'number' || !['calculated', 'estimated'].includes(paid.trust)
       || !Array.isArray(paid.reasons) || paid.reasons.includes('paid-unavailable-counted-as-zero')) return null;
     const paidCents = savingsCents(paid.amount);
@@ -12920,7 +12945,7 @@
   const CARD_PAYMENT_NOTE_IDS = new Set(Object.values(CARD_PAYMENT_NOTE_CARDS));
   // The paying side alone also reads the HELOC (Dale, #821 7161929211: "It can be counted when it leaves the bills account";
   // Grok Bot, rule 17, Plan #6: Grok notes each HELOC payment leaving Bills with the line `card payment: HELOC`, Dale-confirmed).
-  // The card table above stays the spend cards': Budget's held-transfer rule and the card-coverage pairing are unchanged.
+  // The table above is for spend-card coverage. The HELOC hold reads the paying-side publication.
   const PAYING_SIDE_NOTE_CARDS = Object.freeze({ ...CARD_PAYMENT_NOTE_CARDS, 'heloc': 'heloc' });
   const PAYING_SIDE_NOTE_IDS = new Set(Object.values(PAYING_SIDE_NOTE_CARDS));
   // Card coverage's note path is for TD "TFR-TO C/C" transfers, which pay a TD
