@@ -65,6 +65,7 @@ const REASONS = Object.freeze([
   'publication:operating-plan-unavailable',
   'publication:card-coverage-unavailable',
   'publication:card-bills-backing-shortfall',
+  'publication:card-purchase-replacement-unresolved',
   'publication:budget-progress-unavailable',
   'publication:currency-unavailable',
   'publication:actuals-coverage-not-precise',
@@ -361,7 +362,9 @@ function sourceCompletenessFor({ period, fetchedAt, transactionWindow, pendingCo
   const pub = publication || {};
   if (pub.operatingPlanUnavailable === true) add('publication:operating-plan-unavailable');
   if (pub.cardCoverageUnavailable === true || pub.cardPurchaseCoverage?.status === 'unavailable') add('publication:card-coverage-unavailable');
-  if (pub.cardPurchaseCoverage?.estimateBasis === 'card-bills-backing-shortfall') add('publication:card-bills-backing-shortfall');
+  // A strict card estimate keeps the close provisional, under its own typed reason.
+  const cardBasis = pub.cardPurchaseCoverage?.estimateBasis;
+  if (Object.hasOwn(Forecast.CARD_STRICT_ESTIMATE_REASONS, cardBasis || '')) add('publication:' + cardBasis);
   const progress = pub.budgetProgress;
   if (!progress || typeof progress !== 'object') add('publication:budget-progress-unavailable');
   else {

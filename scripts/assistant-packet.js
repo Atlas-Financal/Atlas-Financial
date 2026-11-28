@@ -264,8 +264,8 @@ function cardCoverageEstimate(advice) {
   const coverage = advice && advice.cardPurchaseCoverage;
   const basis = Forecast.cardCoverageEstimateBasis(coverage);
   if (!basis) return null;
-  const reason = basis === Forecast.CARD_BILLS_SHORTFALL_ESTIMATE_BASIS
-    ? Forecast.CARD_BILLS_SHORTFALL_ESTIMATE_REASON : Forecast.CARD_ESTIMATE_REASONS[basis];
+  const reason = Object.hasOwn(Forecast.CARD_STRICT_ESTIMATE_REASONS, basis)
+    ? Forecast.CARD_STRICT_ESTIMATE_REASONS[basis] : Forecast.CARD_ESTIMATE_REASONS[basis];
   return { basis, reason,
     toConfirmCount: Array.isArray(coverage.toConfirm) ? coverage.toConfirm.length : 0 };
 }
@@ -283,8 +283,8 @@ function withheldForCardEstimate(source, estimate, reason) {
 function applyCardEstimate(packet, advice) {
   const estimate = cardCoverageEstimate(advice);
   if (!estimate) return packet;
-  const billsShortfall = estimate.basis === Forecast.CARD_BILLS_SHORTFALL_ESTIMATE_BASIS;
-  const projectionReason = billsShortfall ? estimate.reason : 'Projection waits until the card payment is confirmed. ' + estimate.reason;
+  const strictEstimate = Object.hasOwn(Forecast.CARD_STRICT_ESTIMATE_REASONS, estimate.basis);
+  const projectionReason = strictEstimate ? estimate.reason : 'Projection waits until the card payment is confirmed. ' + estimate.reason;
   const current = packet.current || {};
   for (const key of ['spendableHouseholdCash', 'nextSignificantObligations']) {
     if (current[key]) current[key] = tagCardEstimate(current[key], estimate);
@@ -297,11 +297,19 @@ function applyCardEstimate(packet, advice) {
     }
     if (forecast.horizon && forecast.horizon.status !== 'unavailable') {
       forecast.horizon = { ...forecast.horizon, minBalance: null, minDate: null,
-        minReason: billsShortfall ? estimate.reason : 'The projected low point waits until the card payment is confirmed.',
+        minReason: strictEstimate ? estimate.reason : 'The projected low point waits until the card payment is confirmed.',
         cardCoverageEstimate: estimate };
     }
     if (forecast.facilityCrossings) forecast.facilityCrossings = withheldForCardEstimate('Forecast.projectDebts', estimate, projectionReason);
     if (forecast.payPeriodTotals) forecast.payPeriodTotals = tagPayPeriodTotalsEstimate(forecast.payPeriodTotals, estimate);
+    // An unresolved purchase twin can sit on either side of its category's
+    // allowance: Balance After Deductions is not published from it here.
+    if (estimate.basis === Forecast.CARD_PURCHASE_TWIN_ESTIMATE_BASIS) {
+      for (const [key, source] of [['predictedEndingBalance', 'Forecast.calendarPeriodWaterfalls'],
+        ['payPeriodTotals', 'Forecast.payPeriodViews']]) {
+        if (forecast[key]) forecast[key] = withheldForCardEstimate(source, estimate, estimate.reason);
+      }
+    }
     packet.forecast = { ...forecast, trust: 'estimated', cardCoverageEstimate: estimate };
   }
   if (packet.planning) packet.planning.trajectory = withheldForCardEstimate('Forecast.baselineTrajectory', estimate, projectionReason);
