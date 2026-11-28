@@ -1172,6 +1172,195 @@ console.log('\n=== 10. Designated savings in the gap does not change spendable p
   ok(frozenResult.plan.opening.paydaySnapshot?.opening===independent,'a valid recorded payday snapshot remains usable without a new original-cash reconstruction');
 }
 
+console.log('\n=== 11. dated cash opening loses its first gap day once the 120-day read cannot reach it (pinned boundary; repair is the next consumer) ===');
+{
+  // FOUNDATION — NOT COMPLETION. This pins today's boundary; it does not
+  // fix it. All figures and dates below are invented and worked by hand,
+  // independent of the code under test:
+  //   Opening as-of 2026-08-19, so the first gap day is 2026-08-20.
+  //   2026-08-20 + 120 days: Aug 21–31 = 11, + Sep 30 = 41, + Oct 31 = 72,
+  //   + Nov 30 = 102, + Dec 18 = 120. A 120-day read fetched on
+  //   2026-12-18 starts 2026-08-20; fetched on 2026-12-19 it starts
+  //   2026-08-21 and misses the first gap day.
+  //   Biweekly payday anchor 2026-08-28: + 8 × 14 = 112 days = 2026-12-18,
+  //   so both mornings sit in the period that starts 2026-12-18 and the
+  //   gap to prove is 2026-08-20 through 2026-12-17.
+  //   Payday-morning opening = chequing A 600 + chequing B 300
+  //     + 150 credit (2026-08-20) − 75 debit (2026-08-25) = 975.
+  //   Payroll 4000 lands on the payday; Household Budget hold 200.
+  //   Planned period close = 975 + 4000 − 200 = 4775.
+  //   Balance After Deductions = 4000 − 0 bills − 200 = 3800 (no opening term).
+  const CUT_OPENING = '2026-08-19';
+  const CUT_FIRST_GAP_DAY = '2026-08-20';
+  const CUT_PAYDAY = '2026-12-18';
+  const LAST_READY = '2026-12-18';
+  const FIRST_WITHHELD = '2026-12-19';
+  const CUT_MORNING = 975;
+  const CUT_PAYROLL = 4000;
+  const CUT_HOLD = 200;
+  const CUT_CLOSE = 4775;
+  const CUT_AFTER_DEDUCTIONS = 3800;
+  const at = day => day + 'T20:00:00.000Z';
+
+  function cutCanonical() {
+    return {
+      meta: { asOf: CUT_OPENING },
+      plan: {
+        defaults: { targetBuffer: 0 },
+        startingCash: {
+          amount: 1000,
+          breakdown: [
+            { id: 'chequing-a', value: 600 },
+            { id: 'chequing-b', value: 300 },
+            { id: 'savings', value: 100 },
+          ],
+        },
+        nextDollar: { policy: 'true-surplus-highest-interest', provenance: 'owner-stated' },
+        opening: { asOf: CUT_OPENING, representedEvents: [] },
+        income: [{
+          id: 'payroll', label: 'Payroll', frequency: 'biweekly',
+          anchor: '2026-08-28', amount: CUT_PAYROLL, confidence: 'confirmed',
+        }],
+        bills: [],
+        obligations: [],
+        commitments: [],
+        budget: { categories: [{
+          id: 'groceries', label: 'Groceries', class: 'essential', plannedPayday: CUT_HOLD,
+        }] },
+      },
+      debts: [],
+    };
+  }
+  const cutLedger = [
+    { id: 701, account_id: 1001, date: '2026-08-20', amount: -150, currency: 'cad', is_pending: false, payee: 'SYNTHETIC CREDIT' },
+    { id: 702, account_id: 1001, date: '2026-08-25', amount: 75, currency: 'cad', is_pending: false, payee: 'SYNTHETIC GROCER' },
+    { id: 703, account_id: 1001, date: CUT_PAYDAY, amount: -CUT_PAYROLL, currency: 'cad', is_pending: false, payee: 'SYNTHETIC PAYROLL' },
+  ];
+  // The provider returns only rows inside the requested dates, so the
+  // fixture ledger is cut to the URL the real reader builds.
+  function cutRun(day, historyDays) {
+    const now = at(day);
+    const url = O.lunchMoneyTransactionsUrl(now, historyDays);
+    const stamp = day + 'T19:55:00.000Z';
+    const account = (id, balance) => ({
+      id, name: 'Fixture ' + id, type: 'cash', balance,
+      updated_at: stamp, balance_last_update: stamp,
+    });
+    const payload = {
+      provider: 'lunchmoney',
+      fetchedAt: now,
+      pendingCoverage: { complete: true, basis: O.PENDING_COVERAGE_BASIS, hasMore: false, truncated: false },
+      transactionWindow: {
+        startDate: url.startDate, endDate: url.endDate,
+        complete: true, hasMore: false, truncated: false,
+      },
+      accounts: [account(1001, 400), account(1002, 200), account(1003, 50)],
+      transactions: cutLedger.filter(tx => tx.date >= url.startDate && tx.date <= url.endDate),
+    };
+    const served = Live.fromObservation({ data: cutCanonical(), payload, accountMap: observeMap() });
+    const advice = F.recommend(served.data.plan, day, {
+      targetBuffer: 0,
+      debts: [],
+      operatingPlan: served.data.liveOverlay && served.data.liveOverlay.operatingPlan,
+    });
+    return {
+      url,
+      served,
+      gap: served.report.currentPeriodActuals
+        && served.report.currentPeriodActuals.paydayGapComplete,
+      snap: served.data.plan.opening && served.data.plan.opening.paydaySnapshot,
+      active: period(advice.defaultView, 'this-pay-period'),
+    };
+  }
+
+  // 11a. The calendar: the real URL builder at the reader's maximum.
+  ok(O.RECONCILE_HISTORY_DAYS === 120, 'the reader maximum is 120 days');
+  ok(O.lunchMoneyTransactionsUrl(at(LAST_READY), 120).startDate === CUT_FIRST_GAP_DAY,
+    'a 120-day read fetched on 2026-12-18 still starts on the first gap day, 2026-08-20');
+  ok(O.lunchMoneyTransactionsUrl(at(FIRST_WITHHELD), 120).startDate === '2026-08-21',
+    'a 120-day read fetched on 2026-12-19 starts 2026-08-21, one day after the first gap day');
+
+  // 11b. The adaptive live reader can never ask for more than 120 days,
+  // however old the requirement it is sizing for.
+  const oldRequirement = {
+    cardPurchaseCoverage: { opening: { confirmed: true, asOf: '2026-08-01' } },
+    opening: { asOf: CUT_OPENING },
+    income: cutCanonical().plan.income,
+  };
+  const cappedDays = O.postedHistoryDaysForCarriedSettlement({
+    now: at(FIRST_WITHHELD), plan: oldRequirement, debts: [],
+  });
+  ok(cappedDays === 120
+      && O.lunchMoneyTransactionsUrl(at(FIRST_WITHHELD), cappedDays).startDate === '2026-08-21',
+    'on 2026-12-19 the live reader caps at 120 days and cannot reach 2026-08-20', String(cappedDays));
+  // Today's reader sizes nothing for the dated cash opening: on a plan
+  // whose only old date is that opening it asks for far less than the
+  // gap. The repair is expected to change this line.
+  const cashOnlyDays = O.postedHistoryDaysForCarriedSettlement({
+    now: at(FIRST_WITHHELD), plan: cutCanonical().plan, debts: [],
+  });
+  ok(cashOnlyDays < 120
+      && O.lunchMoneyTransactionsUrl(at(FIRST_WITHHELD), cashOnlyDays).startDate > CUT_FIRST_GAP_DAY,
+    'today the live reader does not size its read for the dated cash opening (repair changes this)',
+    String(cashOnlyDays));
+
+  // 11c. Last ready day, through the real observe → overlay → Forecast path.
+  const ready = cutRun(LAST_READY, 120);
+  ok(ready.url.startDate === CUT_FIRST_GAP_DAY && ready.gap === true,
+    '2026-12-18: the observer earns the gap attestation from a read that starts 2026-08-20');
+  ok(ready.snap && ready.snap.periodStart === CUT_PAYDAY && near(ready.snap.opening, CUT_MORNING),
+    '2026-12-18: payday-morning opening is kept at the hand-worked 975');
+  ok(ready.active && ready.active.start === CUT_PAYDAY && ready.active.openingKnown === true
+      && near(ready.active.opening, CUT_MORNING)
+      && near(ready.active.incomeAdded, CUT_PAYROLL)
+      && near(ready.active.plannedPeriodClose, CUT_CLOSE)
+      && near(ready.active.balanceAfterDeductions, CUT_AFTER_DEDUCTIONS),
+    '2026-12-18: opening 975, income added 4000, planned close 4775, Balance After Deductions 3800');
+
+  // 11d. First withheld day: the same ledger, one day later.
+  const withheld = cutRun(FIRST_WITHHELD, 120);
+  ok(withheld.url.startDate === '2026-08-21' && withheld.gap !== true,
+    '2026-12-19: the observer withholds the gap attestation from a read that starts 2026-08-21');
+  ok(!withheld.snap, '2026-12-19: no payday-morning opening is kept');
+  ok(withheld.active && withheld.active.start === CUT_PAYDAY
+      && withheld.active.openingKnown === false
+      && withheld.active.opening === null
+      && withheld.active.incomeAdded === null
+      && withheld.active.plannedPeriodClose === null
+      && /Payday opening is not recorded/.test(String(withheld.active.cashNote || '')),
+    '2026-12-19: this period\'s opening, income added and planned close go unavailable, and the page says the opening is not recorded');
+  ok(withheld.active && near(withheld.active.balanceAfterDeductions, CUT_AFTER_DEDUCTIONS),
+    '2026-12-19: Balance After Deductions still publishes 3800 (it has no opening term)');
+
+  // Downstream of the observer, the overlay and Forecast each keep their
+  // own window check: the 2026-12-19 report with a forged gap attestation
+  // is still withheld, because its posted window starts 2026-08-21.
+  const forged = JSON.parse(JSON.stringify(withheld.served.report));
+  forged.currentPeriodActuals.paydayGapComplete = true;
+  const forgedServed = Live.overlayLiveState({ data: cutCanonical(), report: forged });
+  ok(forged.transactionWindow.startDate === '2026-08-21'
+      && forgedServed.data.liveOverlay && forgedServed.data.liveOverlay.applied === true
+      && !(forgedServed.data.plan.opening && forgedServed.data.plan.opening.paydaySnapshot),
+    '2026-12-19: a forged gap attestation over a window starting 2026-08-21 still keeps no opening');
+
+  // 11e. Control: same morning, same ledger, one more day of history.
+  // The refusal comes from the window alone.
+  const control = cutRun(FIRST_WITHHELD, 121);
+  ok(control.url.startDate === CUT_FIRST_GAP_DAY && control.gap === true
+      && control.snap && near(control.snap.opening, CUT_MORNING)
+      && control.active && control.active.openingKnown === true
+      && near(control.active.opening, CUT_MORNING)
+      && near(control.active.plannedPeriodClose, CUT_CLOSE),
+    'control: on 2026-12-19 a read reaching 2026-08-20 keeps the same 975 opening and 4775 close');
+
+  // 11f. It does not heal at the next payday: the gap still starts 2026-08-20.
+  const nextPayday = cutRun('2027-01-02', 120);
+  ok(nextPayday.active && nextPayday.active.start === '2027-01-01'
+      && nextPayday.gap !== true && !nextPayday.snap
+      && nextPayday.active.openingKnown === false,
+    'the next payday (2027-01-01) is still withheld: the withholding lasts until the opening is repaired');
+}
+
 if (failures) {
   console.log(`\nFAILED ${failures}`);
   process.exit(1);
