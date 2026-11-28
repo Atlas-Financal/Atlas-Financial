@@ -64,6 +64,7 @@ const REASONS = Object.freeze([
   'evidence:non-cad-transaction',
   'publication:operating-plan-unavailable',
   'publication:card-coverage-unavailable',
+  'publication:card-bills-backing-shortfall',
   'publication:budget-progress-unavailable',
   'publication:currency-unavailable',
   'publication:actuals-coverage-not-precise',
@@ -360,6 +361,7 @@ function sourceCompletenessFor({ period, fetchedAt, transactionWindow, pendingCo
   const pub = publication || {};
   if (pub.operatingPlanUnavailable === true) add('publication:operating-plan-unavailable');
   if (pub.cardCoverageUnavailable === true || pub.cardPurchaseCoverage?.status === 'unavailable') add('publication:card-coverage-unavailable');
+  if (pub.cardPurchaseCoverage?.estimateBasis === 'card-bills-backing-shortfall') add('publication:card-bills-backing-shortfall');
   const progress = pub.budgetProgress;
   if (!progress || typeof progress !== 'object') add('publication:budget-progress-unavailable');
   else {

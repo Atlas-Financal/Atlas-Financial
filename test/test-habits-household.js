@@ -123,19 +123,19 @@ try {
   assert.equal(spent(repaired), 128, 'a repaired refresh supersedes the held amount');
   assert.equal(creditLine(repaired).activityObservedAt, undefined);
 
-  // The Bills shortfall split follows #1676. A clean card ledger can currently
-  // be withheld by a known negative Bills balance. When that fix lands, turn
-  // this characterization into the positive independent-publication assertion.
+  // A dated negative Bills balance preserves independent card coverage.
   const noCharges = observe('2026-09-20', []);
   const shortfall = observe('2026-09-20', [], input => {
     input.payload.accounts[0].balance = -4;
   });
   assert.equal(noCharges.coverage.status, 'ready');
   assert.equal(shortfall.period.liveCurrentBalance, -4, 'known bank balance survives');
-  assert(shortfall.coverage.issues.some(issue => issue.code === 'coverage-bills-backing-unconfirmed'),
-    'Known gap: split a known Bills shortfall from unreadable backing evidence');
+  assert.equal(shortfall.coverage.status, 'ready');
+  assert.equal(shortfall.coverage.estimateBasis, 'card-bills-backing-shortfall');
+  assert.equal(shortfall.coverage.reservedCash, 0);
+  assert.equal(shortfall.period.fromTodayFunding.availableNow, 0);
 
-  console.log('Habits household: four dates, warm and cold issuer-sync recovery, and the known Bills shortfall gap passed.');
+  console.log('Habits household: four dates, warm and cold issuer-sync recovery, and known Bills shortfall passed.');
 } finally {
   fs.readFileSync = read;
 }

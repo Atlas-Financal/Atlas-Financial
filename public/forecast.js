@@ -2397,7 +2397,7 @@
     const charges = packet.transactions.filter(tx => tx && isRevolvingCardAccount(tx)
       && savingsItemMember(tx, plan, { packet }) && savingsCents(Number(tx.amount), true) > 0);
     if (!charges.length) return false;
-    const recon = reconcileCardPurchases(packet.transactions, { plan, asOf, packet, debts: opts && opts.debts });
+    const recon = reconcileCardPurchases(packet.transactions, { plan, asOf, packet, debts: opts && opts.debts, observedCash: opts?.observedCash });
     return charges.some(tx => {
       const remaining = tx.coverageRef ? recon?.annotations?.get(tx.coverageRef)?.remaining : null;
       return savingsCents(remaining, true) !== 0;
@@ -2416,7 +2416,7 @@
     const through = savingsDate(cycle.end) && cycle.end < asOf ? cycle.end : asOf;
     const duplicateIds = pendingPostedDuplicateIdSet(packet);
     const recon = plan?.cardPurchaseCoverage?.rule === CARD_COVERAGE_AGGREGATE_RULE
-      ? reconcileCardPurchases(packet.transactions, { plan, asOf, packet, debts: opts && opts.debts }) : null;
+      ? reconcileCardPurchases(packet.transactions, { plan, asOf, packet, debts: opts && opts.debts, observedCash: opts?.observedCash }) : null;
     // Savings audit (PR 2): a linked refund this cycle returned cash the
     // close had deducted, exactly as the item ledger nets it. Net per item,
     // floored at zero: a refund never makes an item add cash beyond its own
@@ -2727,7 +2727,7 @@
             && row.date === event.date && row.transactionId))) return events;
     const transactions = Array.isArray(packet.transactions) ? packet.transactions : [];
     const coverage = reconcileCardPurchases(transactions, {
-      plan, asOf: start, packet, debts: opts && opts.debts,
+      plan, asOf: start, packet, debts: opts?.debts, observedCash: opts?.observedCash,
     });
     if (coverage.publication.status !== 'ready'
         || cardMinimumState(plan, start, opts).status === 'unavailable') return events;
@@ -15489,7 +15489,7 @@
     // Resolve coverage against the complete ledger, before selecting a category
     // or cycle. Older/ambiguous liabilities still govern the trust of each row.
     const cardCoverage = useActuals && packet
-      ? reconcileCardPurchases(packet.transactions, { plan, asOf, packet, debts: opts.debts }) : null;
+      ? reconcileCardPurchases(packet.transactions, { plan, asOf, packet, debts: opts.debts, observedCash: opts?.observedCash }) : null;
     const reconById = new Map();
     const confirmationRecon = [];
     const otherCardCharges = new Set();
@@ -16205,7 +16205,7 @@
       plannedPeriodCloseReason: [
         cardMatchUnresolved ? 'Planned remainder: card purchase and payment matching is unresolved, so this is an estimated plan, not verified safe-to-spend cash or proof that card balances are paid.' : null,
         base === 'estimated' ? 'Planned remainder: an input to this close (or an earlier period it carries from) is estimated.' : null,
-        cardState === 'none' && Object.hasOwn(CARD_ESTIMATE_REASONS, cardDetail || '')
+        cardState === 'none' && Object.hasOwn(CARD_CLOSE_REASONS, cardDetail || '')
           ? CARD_CLOSE_REASONS[cardDetail] : null,
       ].filter(Boolean).join(' ') || null,
     };
@@ -16610,7 +16610,9 @@
     const eligibleIds = new Set(supporting.map(({ tx }) => String(tx.id)));
     const eligibleCardRefs = new Set(supporting.filter(({ tx, amount }) => amount > 0 && isRevolvingCardAccount(tx))
       .map(({ tx }) => tx.coverageRef));
-    const recon = reconcileCardPurchases(transactions, { plan, asOf: day, packet: packet || {}, debts: opts.debts });
+    const recon = reconcileCardPurchases(transactions, {
+      plan, asOf: day, packet: packet || {}, debts: opts.debts, observedCash: opts.observedCash,
+    });
     let weeklyFunding = 0, directFunding = 0, cardFunding = 0, pendingBillsHousehold = 0, categoryCardCash = 0;
     let weeklyCardOutside = 0;
     let fundingEventCount = 0;
@@ -17080,6 +17082,19 @@
     if (!listed.length) return coverage;
     return Object.assign({}, coverage, { toConfirmListedUnderHeld: listed.length,
       toConfirm: coverage.toConfirm.filter(row => !listed.includes(row)) });
+  }
+  // A current opening and a unique matching bank reading prove the Bills
+  // balance, even when that balance cannot fund the card reserve.
+  function verifiedBillsBacking(plan, asOf, observedCash, bills, cents) {
+    if (cents == null || financialDate(plan.opening?.asOf) !== asOf
+      || observedCash?.complete !== true || financialDate(observedCash.asOf) !== asOf
+      || !Array.isArray(observedCash.accounts)) return false;
+    const billsReadingQualified = row => row.unknown !== true && ![row.confidence, row.status].some(tag =>
+      tag != null && !['verified', 'confirmed', 'calculated'].includes(tag));
+    if (!billsReadingQualified(bills) || bills.evidenceDate != null && financialDate(bills.evidenceDate) !== asOf) return false;
+    const observed = observedCash.accounts.filter(row => row?.id === BILLS_ACCOUNT_ID);
+    return observed.length === 1 && billsReadingQualified(observed[0])
+      && financialDate(observed[0].evidenceDate) === asOf && savingsCents(observed[0].value, true) === cents;
   }
   function reconcileCardPurchases(transactions, opts) {
     opts = opts || {};
@@ -18071,9 +18086,14 @@
       .map(row => ({ ...row, remaining: Math.max(0, savingsCents(row.amount)
         - savingsCents(row.refunded) - savingsCents(row.covered)) / 100 }));
     const knownReserve = ledger.reduce((sum,row) => sum + savingsCents(row.remaining), 0) / 100;
-    const bills = (plan.startingCash?.breakdown || []).filter(row => row.id === 'chequing-a');
-    if (bills.length !== 1 || typeof bills[0].value !== 'number' || !Number.isFinite(bills[0].value)
-      || bills[0].unknown === true || bills[0].value < knownReserve) issue('coverage-bills-backing-unconfirmed');
+    const bills = (plan.startingCash?.breakdown || []).filter(row => row?.id === BILLS_ACCOUNT_ID);
+    const billsBalance = bills.length === 1 && bills[0].unknown !== true && Number.isFinite(bills[0].value)
+      ? bills[0].value : null;
+    const belowReserve = billsBalance != null && billsBalance < knownReserve;
+    const verifiedShortfall = aggregate && belowReserve && !issues.length
+      && !destinationUnconfirmed.length && !purposeUnconfirmed.length && !sourceUnconfirmed.length
+      && packet.observationAsOf === asOf && verifiedBillsBacking(plan, asOf, opts.observedCash, bills[0], savingsCents(billsBalance, true));
+    if (billsBalance == null || (belowReserve && !verifiedShortfall)) issue('coverage-bills-backing-unconfirmed');
     // An unconfirmed destination degrades only on its own. When anything else
     // already withholds, it withholds with it exactly as before.
     if (issues.length) for (const leg of destinationUnconfirmed) issue('coverage-payment-destination-unconfirmed', leg.tx.coverageRef);
@@ -18143,6 +18163,8 @@
       // Dale's direction (lead dispatch 2026-11-18): the payment is applied to
       // no card, so every figure built on this coverage is an ESTIMATE (it
       // can only understate the money left). Each payment is one To-confirm row.
+      ...(verifiedShortfall ? { trust: 'estimated', estimateBasis: CARD_BILLS_SHORTFALL_ESTIMATE_BASIS,
+        estimateReason: CARD_BILLS_SHORTFALL_ESTIMATE_REASON } : {}),
       ...(destinationEstimate ? { trust: 'estimated', estimateBasis,
         estimateReason: CARD_ESTIMATE_REASONS[estimateBasis],
         toConfirm: [...destinationUnconfirmed.map(leg => coverageRowFor({ basis: CARD_DESTINATION_ESTIMATE_BASIS,
@@ -18360,7 +18382,10 @@
   const CARD_PAYMENT_SOURCE_ESTIMATE_BASIS = 'card-payment-source-unconfirmed';
   // More than one kind at once.
   const CARD_ROWS_ESTIMATE_BASIS = 'card-coverage-rows-unconfirmed';
-  // One fixed reason per closed basis; the coverage publishes exactly one.
+  // A verified Bills balance can be insufficient to fund the card reserve.
+  const CARD_BILLS_SHORTFALL_ESTIMATE_BASIS = 'card-bills-backing-shortfall';
+  const CARD_BILLS_SHORTFALL_ESTIMATE_REASON = 'Budget funding schedule unavailable.';
+  // One fixed reason per unconfirmed card-payment or credit basis.
   const CARD_ESTIMATE_REASONS = Object.freeze({
     [CARD_DESTINATION_ESTIMATE_BASIS]: 'A card payment left a household account but its card is not confirmed, so it is applied to no card and every card purchase stays reserved as if unpaid.',
     [CARD_CREDIT_PURPOSE_ESTIMATE_BASIS]: 'A card credit is not confirmed as a payment or a refund, so it is counted as neither and every card purchase stays reserved as if unpaid.',
@@ -18369,6 +18394,7 @@
   });
   // The planned close's reason for each basis.
   const CARD_CLOSE_REASONS = Object.freeze({
+    [CARD_BILLS_SHORTFALL_ESTIMATE_BASIS]: CARD_BILLS_SHORTFALL_ESTIMATE_REASON,
     [CARD_DESTINATION_ESTIMATE_BASIS]: 'A card payment\'s card is not confirmed, so it is applied to no card and card purchases stay reserved.',
     [CARD_CREDIT_PURPOSE_ESTIMATE_BASIS]: 'A card credit is not confirmed as a payment or a refund, so it is counted as neither and card purchases stay reserved.',
     [CARD_PAYMENT_SOURCE_ESTIMATE_BASIS]: 'A card payment\'s source is not confirmed, so it counts toward no card and card purchases stay reserved.',
@@ -18383,14 +18409,16 @@
   // withoutCard is the same figure's trust with the card term removed.
   // The one cause code the page reads (Forecast.CARD_ESTIMATE_CAUSE).
   const CARD_ESTIMATE_CAUSE = 'card-coverage';
-  function cardEstimateCause(trust, withoutCard) {
-    return trust === 'estimated' && withoutCard === 'calculated' ? CARD_ESTIMATE_CAUSE : null;
+  function cardEstimateCause(coverage, trust, withoutCard) {
+    return coverage.estimateBasis !== CARD_BILLS_SHORTFALL_ESTIMATE_BASIS
+      && trust === 'estimated' && withoutCard === 'calculated' ? CARD_ESTIMATE_CAUSE : null;
   }
   // The closed estimate basis of an estimated, ready card coverage, for every
   // consumer outside Forecast (assistant packet, operating answer): its own
   // basis when recognised, else the combined one; null when not estimated.
   function cardCoverageEstimateBasis(coverage) {
     if (!coverage || coverage.status !== 'ready' || coverage.trust !== 'estimated') return null;
+    if (coverage.estimateBasis === CARD_BILLS_SHORTFALL_ESTIMATE_BASIS) return CARD_BILLS_SHORTFALL_ESTIMATE_BASIS;
     return Object.hasOwn(CARD_ESTIMATE_REASONS, coverage.estimateBasis || '')
       ? coverage.estimateBasis : CARD_ROWS_ESTIMATE_BASIS;
   }
@@ -18753,7 +18781,7 @@
     if (!coverage || coverage.status !== 'ready') return 0;
     if (!(savingsCents(coverage.reservedCash, true) > 0)) return 0;
     const packet = currentPeriodActualsPacket(opts) || {};
-    const recon = reconcileCardPurchases(packet.transactions, { plan, asOf, packet, debts: opts && opts.debts });
+    const recon = reconcileCardPurchases(packet.transactions, { plan, asOf, packet, debts: opts && opts.debts, observedCash: opts?.observedCash });
     if (!recon || !recon.publication || recon.publication.status !== 'ready') return null;
     const txByRef = new Map(), txIds = new Set();
     for (const tx of Array.isArray(packet.transactions) ? packet.transactions : []) {
@@ -18805,14 +18833,14 @@
   // publication inside this synchronous recommend, keyed by every input to
   // this call. Each consumer still owns its copy, including the private link
   // from a To-confirm row to the transaction that also appears under Held.
-  function recommendationCardPublication(plan, asOf, packet, debts) {
+  function recommendationCardPublication(plan, asOf, packet, debts, observedCash) {
     const scope = recommendationReads?.ledger;
     const txs = packet.transactions;
-    if (!scope || !Array.isArray(txs)) return visaPaymentReconciliation(txs, { plan, asOf, packet, debts });
+    if (!scope || !Array.isArray(txs)) return visaPaymentReconciliation(txs, { plan, asOf, packet, debts, observedCash });
     if (!scope.publication || scope.plan !== plan || scope.asOf !== asOf || scope.packet !== packet
-        || scope.txs !== txs || scope.debts !== debts) {
-      const publication = visaPaymentReconciliation(txs, { plan, asOf, packet, debts });
-      Object.assign(scope, { plan, asOf, packet, txs, debts, publication });
+        || scope.txs !== txs || scope.debts !== debts || scope.observedCash !== observedCash) {
+      const publication = visaPaymentReconciliation(txs, { plan, asOf, packet, debts, observedCash });
+      Object.assign(scope, { plan, asOf, packet, txs, debts, observedCash, publication });
     }
     const copy = structuredClone(scope.publication);
     for (const [i, row] of (scope.publication.toConfirm || []).entries()) {
@@ -18822,7 +18850,7 @@
   }
   function cardCoverageState(plan, asOf, opts) {
     const packet = currentPeriodActualsPacket(opts) || {};
-    const coverage = recommendationCardPublication(plan, asOf, packet, opts && opts.debts);
+    const coverage = recommendationCardPublication(plan, asOf, packet, opts?.debts, opts?.observedCash);
     const minimums = cardMinimumState(plan, asOf, opts);
     // Existing operating-cash gates also withhold permission when minimum
     // funding is unknown. Purchase reconciliation itself is left untouched.
@@ -18833,7 +18861,7 @@
   // One payday cent search (maxFeasiblePaydayRemoval) probes simulateModel
   // many times with options that differ only in disabled / plannedFlows /
   // injections. cardCoverageState reads none of those: it reads plan, asOf,
-  // opts.currentPeriodActuals, opts.debts and opts.representedEvents. The
+  // opts.currentPeriodActuals, opts.observedCash, opts.debts and opts.representedEvents. The
   // search hands its probes a holder bound to exactly those inputs, so card
   // coverage is computed once per search. Any input that is not the identical
   // object/value falls through to a fresh computation. The holder lives only
@@ -18841,14 +18869,14 @@
   function cardCoverageHolderMatches(reuse, plan, asOf, opts) {
     return !!reuse && reuse.plan === plan && reuse.asOf === asOf
       && reuse.currentPeriodActuals === opts.currentPeriodActuals
-      && reuse.debts === opts.debts
+      && reuse.observedCash === opts.observedCash && reuse.debts === opts.debts
       && reuse.representedEvents === opts.representedEvents;
   }
   // The caller's matching holder, else a fresh one bound to these inputs.
   function cardCoverageHolderFor(plan, asOf, opts) {
     if (cardCoverageHolderMatches(opts.cardCoverageReuse, plan, asOf, opts)) return opts.cardCoverageReuse;
     return { plan, asOf, currentPeriodActuals: opts.currentPeriodActuals, debts: opts.debts,
-      representedEvents: opts.representedEvents, computed: false, value: null };
+      observedCash: opts.observedCash, representedEvents: opts.representedEvents, computed: false, value: null };
   }
   function probeCardCoverage(plan, asOf, opts) {
     const reuse = opts.cardCoverageReuse;
@@ -21436,8 +21464,9 @@
     const essentialRemaining = categories
       .filter(c => c.class === 'essential' && c.remaining != null)
       .reduce((s, c) => s + c.remaining, 0);
+    const billsShortfall = alloc.cardPurchaseCoverage?.estimateBasis === CARD_BILLS_SHORTFALL_ESTIMATE_BASIS;
     const todayActions = [];
-    for (const bill of bills) {
+    for (const bill of billsShortfall ? [] : bills) {
       if (bill.settlement === 'upcoming' && bill.date === asOf) {
         todayActions.push({
           kind: 'pay',
@@ -21448,7 +21477,7 @@
         });
       }
     }
-    const moneyMovementRequired = cal.todayIsPayday
+    const moneyMovementRequired = billsShortfall ? null : cal.todayIsPayday
       ? ((alloc.lines || []).some(l => Number(l.amount) > EPSILON))
       : todayActions.length > 0;
     // Unverified is reserved, not a shortfall. A current-period shortfall is
@@ -21487,7 +21516,7 @@
       weeklyCap: alloc.weeklyCap,
       moneyMovementRequired,
       todayActions,
-      noMovementToday: !cal.todayIsPayday && !moneyMovementRequired,
+      noMovementToday: billsShortfall ? null : !cal.todayIsPayday && !moneyMovementRequired,
       currentShortfall,
       remainingClaim: coverage.remainingClaim,
       categoryRemainingClaim: categoryRemainingClaimFrom(
@@ -21701,6 +21730,7 @@
       plan, asOf,
       currentPeriodActuals: masterOpts.currentPeriodActuals,
       debts: masterOpts.debts,
+      observedCash: masterOpts.observedCash,
       representedEvents: masterOpts.representedEvents,
       computed: false, value: null,
     };
@@ -22755,14 +22785,16 @@
     const cardEstimated = cardCoverageTrust(cardCoverage) === 'estimated';
     if (cardCoverage.status === 'unavailable' || cardEstimated) {
       const reason = cardEstimated
-        ? 'Proposals to move money wait until the card payment is confirmed. ' + cardCoverage.estimateReason
-        : cardCoverage.reason;
+        ? cardCoverage.estimateReason : cardCoverage.reason;
+      const billsShortfall = cardCoverage.estimateBasis === CARD_BILLS_SHORTFALL_ESTIMATE_BASIS;
+      const proposalReason = cardEstimated && !billsShortfall
+        ? 'Proposals to move money wait until the card payment is confirmed. ' + reason : reason;
       if (cardEstimated) {
         // Card coverage is the only cause where the figure was calculated
         // before this estimate applied (Dale, 2026-11-18: shown with its date).
         const cause = {};
         for (const key of ['available', 'household']) {
-          const own = cardEstimateCause('estimated', result.paydayShellTrust[key]);
+          const own = cardEstimateCause(cardCoverage, 'estimated', result.paydayShellTrust[key]);
           if (own) cause[key] = own;
           result.paydayShellTrust[key] = 'estimated';
         }
@@ -22772,10 +22804,17 @@
         result.paydayShellTrust.available = 'unknown';
       }
       result.extraDebt = { status: 'unavailable', allocated: null, absorbable: null,
-        target: null, consequence: null, reason };
-      result.protectedPath = protectedPathUnavailable(reason);
-      withholdFutureCostAndLiquidityClaims(result, reason);
-      if (!cardEstimated) result.weeklyCap = result.spendPermission = result.supportedAllowance = null;
+        target: null, consequence: null, reason: proposalReason };
+      result.protectedPath = protectedPathUnavailable(proposalReason);
+      withholdFutureCostAndLiquidityClaims(result, proposalReason);
+      if (!cardEstimated || billsShortfall) {
+        result.weeklyCap = result.spendPermission = result.supportedAllowance = null;
+      }
+      if (billsShortfall) {
+        result.essentials.weeklyCap = result.essentials.spendPermission = null;
+        const essentialsLine = result.lines.find(row => row.kind === 'essentials');
+        if (essentialsLine) essentialsLine.weeklyCap = essentialsLine.spendPermission = null;
+      }
       result.movable = result.unallocated = result.remainder = null;
       result.optional = [];
       result.lines = result.lines.filter(row => ['obligations', 'essentials'].includes(row.kind));
@@ -24422,7 +24461,7 @@
               && [r.confidence, r.status].some(tag => String(tag).toLowerCase() === 'estimated'))
               ? 'estimated' : 'calculated';
             const trust = periodWaterfallCombinedTrust(forward.fundingTrust, basisTrust, cashTrust);
-            const estimateCause = cardEstimateCause(trust,
+            const estimateCause = cardEstimateCause(coverage, trust,
               // 'card-coverage' means a card payment to confirm (fundingTrustExceptCard is published only then). Beside one,
               // the card-target term is a card cause too (#1573); without one, the card targets alone publish no cause.
               periodWaterfallCombinedTrust(forward.fundingTrustExceptCard, basisTrustExceptCard, cashTrust));
@@ -24480,11 +24519,15 @@
       // can exceed the truth. Today's available now stays (it is at or below the
       // truth); its proposals and every later payday are withheld.
       if (cardCoverageTrust(coverage) === 'estimated') {
-        const reason = 'The funding plan beyond today waits until the card payment is confirmed. ' + coverage.estimateReason;
+        const reason = coverage.estimateBasis === CARD_BILLS_SHORTFALL_ESTIMATE_BASIS ? coverage.estimateReason
+          : 'The funding plan beyond today waits until the card payment is confirmed. ' + coverage.estimateReason;
         const today = current && current.fromTodayFunding;
         if (today && today.status !== 'unavailable') {
           Object.assign(today, { contribution: null, cashAfterProposal: null, gap: null, originalPaydayPlan: null,
             proposalReason: reason,
+            ...(coverage.estimateBasis === CARD_BILLS_SHORTFALL_ESTIMATE_BASIS ? { reason,
+              periods: today.periods.map(({ payday }) => ({ payday, status: 'unavailable', contribution: null, items: [], reason })),
+            } : {}),
             items: (today.items || []).map(item => ({ ...item, contribution: null, cumulativeProposed: null,
               remainingGap: null, projectedFullyFunded: null })) });
         }
@@ -24886,7 +24929,8 @@
       const walkCoverage = knowledgeSim && knowledgeSim.cardPurchaseCoverage;
       const planSpendFunding = cardCoverageTrust(walkCoverage) === 'estimated'
         ? { ...planSpendFundingWalked, status: 'unavailable', paydays: [], gap: null, fundingTrust: 'unavailable',
-          reason: 'The funding plan waits until the card payment is confirmed. ' + walkCoverage.estimateReason }
+          reason: walkCoverage.estimateBasis === CARD_BILLS_SHORTFALL_ESTIMATE_BASIS ? walkCoverage.estimateReason
+            : 'The funding plan waits until the card payment is confirmed. ' + walkCoverage.estimateReason }
         : planSpendFundingWalked;
       // Trust packet for the payday instruction shell (AMANDA SLICE 1).
       // Forecast publishes the trust state of every figure the shell
@@ -25324,7 +25368,8 @@
           ? { scheduledAmounts: planOptions.scheduledAmounts } : {}),
         ...(cardCoverageState(plan, asOf, paydayOpts).status !== 'incumbent'
           ? { cardPurchaseCoverage: cardCoverageState(plan, asOf, paydayOpts) } : {}),
-        mode, weekly: weeklyCap, effectiveFrom, buffer: declaredPlanAmountOk(buffer) ? buffer : null, gap, sim: viewSim, zero: zeroSim,
+        mode, weekly: walkCoverage?.estimateBasis === CARD_BILLS_SHORTFALL_ESTIMATE_BASIS ? null : weeklyCap,
+        effectiveFrom, buffer: declaredPlanAmountOk(buffer) ? buffer : null, gap, sim: viewSim, zero: zeroSim,
         step: STEP,
         knowledge: {
           start: horizon.start, end: horizon.end, days: horizon.days,
@@ -30575,6 +30620,7 @@
     const seq = fundingSequence(plan, day, opts);
     if (seq.some(c => c.flexibility !== 'optional' && c.date && c.date < day && (c.need ?? c.bounds?.floor) > 0)) return unknown('Unpaid past requirements remain protected until evidenced settlement.');
     const coverage = cardCoverageState(plan, day, opts);
+    if (coverage.estimateBasis === CARD_BILLS_SHORTFALL_ESTIMATE_BASIS) return unknown(coverage.estimateReason);
     // PA-4a-2b: an eligible matching-only card hold may still supply a private
     // ESTIMATED planning basis. Every other card hold returns here unchanged.
     const cardEstimate = coverage.status === 'unavailable' && cardMatchEstimateEligible(plan, coverage, opts);
@@ -30782,6 +30828,7 @@
     if (opening == null) return unavailable('The validated operating opening is unknown or outside supported cents.');
     const coverage = cardCoverageState(plan, day, opts);
     if (!['incumbent', 'ready'].includes(coverage.status)) return unavailable(coverage.reason);
+    if (coverage.estimateBasis === CARD_BILLS_SHORTFALL_ESTIMATE_BASIS) return unavailable(coverage.estimateReason);
     const inventory = savingsInventory(plan, day);
     if (inventory.status !== 'ready' || plan.savingsPoolObservation?.asOf !== day
         || !Array.isArray(plan.savingsPoolObservation?.accounts)
@@ -32505,7 +32552,8 @@
     startingCashAmount, spendableHouseholdCash, householdChequingRowValue, openingCashState, postedHouseholdChequingCash, resolveFundingSources, resolveActions, EPSILON, STEP,
     billOccurrenceAmount, categorySpendingTrends,
     visaPaymentReconciliation, visaPaymentPublication, CARD_PAYMENT_REASONS,
-    CARD_ESTIMATE_REASONS, CARD_ESTIMATE_CAUSE, cardCoverageEstimateBasis, LINKED_BILL_MISFIT_CHECKS };
+    CARD_ESTIMATE_REASONS, CARD_ESTIMATE_CAUSE, CARD_BILLS_SHORTFALL_ESTIMATE_BASIS, CARD_BILLS_SHORTFALL_ESTIMATE_REASON,
+    cardCoverageEstimateBasis, LINKED_BILL_MISFIT_CHECKS };
   if (typeof module !== 'undefined' && module.exports) module.exports = Forecast;
   else root.Forecast = Forecast;
   // The exported recommend opens the packet-facts reuse scope around it
