@@ -82,11 +82,13 @@ Three different models, every time:
    request #[number] at head [the long code shown on the pull request] under
    CLAUDE.md's review contract."
 3. **Merger** — neither the builder's model nor the reviewer's. Muse cannot
-   merge a pull request it reviewed. Atlas never merges. You may always merge
-   yourself.
+   merge a pull request it reviewed. Atlas never merges. A Grok coding model
+   can be the merger when it neither built nor reviewed (the lead assigned
+   one on #1686). You may always merge yourself.
 
-Grok Bot, the ledger app, is never a reviewer or a merger. Grok Build is a
-separate coding tool and may build like any other model.
+Grok Bot, the ledger app, is never a reviewer or a merger. Grok Build and
+other Grok coding models are separate from it and may build like any other
+model.
 
 Before anyone merges, the pull request needs:
 

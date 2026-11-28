@@ -105,8 +105,9 @@ These boxes are how it gets checked.
       repairs. Until then the current rules apply, and they expect a lead.
 - [ ] Your lineup gives three different models for each repair: a builder, a
       reviewer on a different model, and a merger different from both. For
-      example: Muse reviews; you, or a model that neither built nor reviewed,
-      merges. Grok Bot is not in this lineup.
+      example: Muse reviews; you, or a model that neither built nor reviewed
+      (such as a Grok coding model), merges. Grok Bot, the ledger app, is not
+      in this lineup.
 - [ ] Drill: using [`docs/REPAIR_GUIDE.md`](REPAIR_GUIDE.md) and only your normal
       accounts, a fresh session reproduces an invented problem and opens one
       small pull request. The required checks reject a broken version. You can
