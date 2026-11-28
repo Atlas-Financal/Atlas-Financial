@@ -93,6 +93,104 @@ to be visible, merchant strings needing normalising before matching).
 
 ---
 
+## Work list after 1.0 — consolidated 2026-11-28
+
+**What this is.** One list of the work that was spread across the #1620 and
+#1611 threads, in the lead's order, so a smaller team, or Dale with a fresh
+session, can pick it up without reading those threads. Source: LEAD 13's eight
+groups (#1620 7233577442), reconciled on 2026-11-28 against open and merged
+pull requests, the Merge line (#821 6717921878, as updated 05:00 UTC) and the
+lead's dated plan for the large-plan end date of about 12-11 (#1620
+7234089110). Each line: the item, its source, its owner, its next action.
+
+**What it is not.** The Merge line stays the one live list of pull requests
+and exact heads (rule 12); this list names work, not heads. Build order is the
+lead's: Savings display (#1682), Savings attribution (#1680), then HELOC
+(#1679) and transfers (#1681), with the pending-twin repair in parallel. Where
+an owner is "lead to place", nobody is assigned yet. Dates already recorded in
+the repository are used; no household figures.
+
+### 1. In flight
+
+| Item | Source | Owner | Next action |
+|---|---|---|---|
+| See what was spent on each savings item (#1682) | Merge line | T3 lead (reassessment); existing builder | Frozen at its current head. The decision desk rules on the smallest safe Savings display contract (#1620 7234263136) before any repair |
+| Keep savings item spending out of the household budget (#1680) | Merge line; #1611 7234070782 | Existing builder | After #1682 lands: catch up, regenerate the demo digest once, use the real shared evidence reader in the test instead of a stand-in, then exact-head review |
+| Count a HELOC payment once in Budget (#1679) | Merge line; #1611 7234076063 | Existing builder; regular Claude reviews (#1620 7234089110) | After both Savings outcomes: catch up, check Astra's two cases, renew exact-head review and private figures. Rule 17 governs the competing settlement claims |
+| Keep own-account transfers out of spending and income (#1681) | Merge line; #1611 7234083964 | Existing builder; Gemini reviews | After both Savings outcomes: catch up carrying the tested pairing repair, renew exact-head review and private figures |
+| Pending-twin coverage repair | Merge line; #1620 7230563770 | Claude Code builder; Gemini reviews | Build in progress in parallel; it keeps the PR order. Target by 12-04 with a qualified live Forecast (#1620 7234089110) |
+| Pin the day card coverage runs out of history (#1686) | #1620 7234317440 | LEAD 13 builder; Meta Muse reviewed; Grok 4.7 merges | `NO BLOCKERS FOUND` on its head (#1620 7234441203). Merge decision when its row is reached |
+| Repair guide and exit checklist (#1688) | #1620 7234280729 | LEAD 13 builder; Muse reviews | Review once its checks are green |
+| Clarify that Codex can build under the new rule (#1687) | OD-065 | T3 lead | Per the Merge line once listed |
+| Merged today, no action left | Merge line | — | #1683 simulator (`a9613209`), #1684 coaching cash record (`f48be97e`), #1685 build by model (`e9c204e`) |
+
+### 2. Agreed next
+
+| Item | Source | Owner | Next action |
+|---|---|---|---|
+| Same-card noted payments | Merge line; #1620 7234089110 | Lead to place | Waits on the existing evidence boundary; a target by 12-10 if the evidence clears |
+| The corrected savings tag map goes live | #1620 7234089110 | Dale (yes/no); lead | Goes live only with Dale's yes at the time; target by 12-04 |
+| Show the `item:` note name in transaction lists in place of the processor's name | #1620 7230414374 | Lead to place | Display only; Atlas reads the note, no matching, no figure moves (rule 17). Cover: no note, two `item:` lines, a note with other lines, and rows printed as "Merchant unavailable" |
+| Make the simulator's known failures fail the build | #1620 7233385595 (point 3) | Lead to place | Beyond 12-11 in the lead's plan. #1683's check is advisory and cannot fail on a financial defect today |
+
+### 3. Dated
+
+| Item | Source | Owner | Next action |
+|---|---|---|---|
+| Rolling card opening, so card coverage does not stop on 2027-03-07 | #1620 7233385595, 7233619845; #1611 7234072548 | Lead (dated work) | Reconciled opening that rolls forward and keeps unsettled purchases. Turns case 3 of #1686's test from withheld to ready. Target by 12-10 |
+| Separate cash-opening-to-payday proof cutoff on 2026-12-19 | #1611 7234055667; #1620 7234197077 | Lead (dated work) | Confirmed by the lead; not fixed by rolling the card opening. Needs its own fix before that date |
+| Proof that period closes are saved | #1620 7233385595, 7233619845 | Lead | No stored receipt for the close of the period that ended 2026-11-19 was found; route recovery if it is missing. Require a dated stored receipt for the 2026-12-03 close |
+| 2027 statutory tables and the dated pay step | #1620 7233617162 (item 9) | Lead to place | Do before January; the lead targets January prerequisites by 12-10 |
+| Astra's calendar items | #1611 7233167483 | Lead to place | Statutory source review due 2026-12-15; insurance terms to confirm in February 2027; Node 24 support ends 2028-04-30. Give each an owner and a reminder or an automatic rollover |
+
+### 4. Bills
+
+| Item | Source | Owner | Next action |
+|---|---|---|---|
+| Identity rule for the streaming subscription | #1611 7224156180 | Lead to place | A target by 12-10 if its evidence clears |
+| Home-insurance item off the bill load | #1611 7224156180 | Lead to place | Full lane: figures move, so Dale's figures look applies |
+| App-store combined charges | #1620 7233063943 (point 4), 7233283301 | Lead to place; Grok Bot for the ledger side | A reliably identified bundle settles once as one item; separate settlement needs Dale's split and evidence for each part. Not urgent: the next yearly renewal is months away |
+| The rest of the bills audit | #1611 7224156180 | Lead to place | Four bills with no identity rule; five that settle by schedule and can also count the real debit in spending |
+
+### 5. Root causes not yet covered by a pull request
+
+| Item | Source | Owner | Next action |
+|---|---|---|---|
+| One cash balance a day behind refuses the whole refresh | #1620 7224662833; #1611 7224186247 | Lead to place | Top of the twelve ranked whole-refresh refusals |
+| Early income with no unique occurrence holds the plan until payday | #1620 7224662833; #1611 7224186247 | Lead to place | Third of the ranked refusals |
+| The twelve-month consumer-debt series disappeared when one card's pending turned unknown | #1620 7229672205 (point 1) | Lead to place | Decide under OD-045 whether the posted-only total publishes at its existing tag while the pending is unresolved |
+| The rest of the whole-refresh refusals | #1611 7224186247 | Lead to place | Includes one malformed optional savings link rejecting the whole live map |
+
+### 6. End state
+
+| Item | Source | Owner | Next action |
+|---|---|---|---|
+| One private "Plan facts" input for intentions and terms the ledger cannot know | #1611 7233180257 | Lead to place | Large; beyond 12-11. Settle the design with Astra while the large plan lasts |
+| Repair guide and exit checklist | #1611 7233208352, 7233219217 | LEAD 13 builder | In #1688 |
+| The 30-morning count | #1611 7233208352 | Dale; lead | Starts the day the Forecast block is available on the live route. The full count runs beyond 12-11. A proposed threshold, not yet an owner decision |
+
+### 7. Parked by Dale
+
+| Item | Source | Owner | Next action |
+|---|---|---|---|
+| A funded Shopping line | #1620 7233283301 | Dale | Parked, not queued. Shared Shopping purchases stay in Other spending |
+| The provider test budget, test token and loader | #1620 7232480678 | Dale | Dropped for now. Revisit only if Grok Bot makes repeated mistakes its routine cannot fix |
+
+### 8. Check first, then decide
+
+From a separate Astra bug sweep re-run on main (#1620 7223770346). Each needs
+a check before any build.
+
+| Item | Where | Next action |
+|---|---|---|
+| A linked and a manual account sharing a provider id are combined | `scripts/provider-observe.js` (`mappingFor`) | One private check of the live map; if real, key on type plus id |
+| A pending card charge in another currency is added at face value | `scripts/provider-observe.js` (`pendingComponentsForCard`) | Confirm whether it withholds on the live path or gives a wrong number on the refresh-proposal path |
+| A future-dated view publishes "available for extra debt payments" despite an earlier unknown payment | `public/forecast.js` | Reproduce; if real it is an estimate reaching a decision surface |
+| A one-day view reports no shortfall while its own weekly row shows a negative low | `public/forecast.js` | Reproduce; two published figures that contradict each other |
+| Two snapshot writers for the same date can both report written | `scripts/snapshot-balances.js` | Matters only if two writers can run at once; check that first |
+
+---
+
 ## Atlas v2 — path to complete
 
 **Finish line (owner, 2026-11-23, OD-032):** every figure on the Budget page is
