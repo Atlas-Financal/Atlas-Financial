@@ -5582,6 +5582,9 @@ function stripRawTransactionMetadata(tx) {
 
 function transactionLooksSanitized(tx) {
   if (!tx || typeof tx !== 'object') return false;
+  if (Object.hasOwn(tx, 'tfrCounterpartyAccountId')
+      && (typeof tx.tfrCounterpartyAccountId !== 'string'
+        || !/^[a-z][a-z0-9-]{0,63}$/.test(tx.tfrCounterpartyAccountId))) return false;
   for (const key of RAW_TX_METADATA_KEYS) {
     if (Object.prototype.hasOwnProperty.call(tx, key)) return false;
   }
@@ -7763,6 +7766,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
   // it; emitted row id -> its provider id. Internal to this pass; never emitted.
   const groupChildIds = new Map(), providerIdOfRow = new Map();
   const bankDescriptions = new Map();
+  const transferDescriptors = new Map();
   const join = [];
   const currencyUnconfirmed = [];
   let droppedCoverageRows = 0;
@@ -8076,6 +8080,9 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       // held reader can see a category/note conflict (cardPaymentDestinationConflict).
       ...(typeof tx.minimumCategoryDebt === 'string' ? { minimumCategoryDebt: tx.minimumCategoryDebt } : {}),
     };
+    if (typeof tx.originalName === 'string' && emittedRow.tfrReference) {
+      transferDescriptors.set(emittedRow, tx.originalName);
+    }
     // On a posted credit, retain the payee destination only when it exposes contradictory card evidence.
     if (amount < 0 && emittedRow.savingsPostingEvidence === 'posted' && payeeDestination
       && Forecast.cardPaymentDestinationConflict({ ...emittedRow, cardPaymentDestination: payeeDestination })) {
@@ -8229,6 +8236,13 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       }
     }
     stripRawTransactionMetadata(tx);
+  }
+  if (postedWindowIsComplete(window)) {
+    const inWindow = txs.filter(tx => tx.date >= window.startDate && tx.date <= window.endDate && tx.date <= asOf);
+    const counterparties = Forecast.observeTdTransferCounterparties(inWindow, transferDescriptors);
+    for (const tx of txs) {
+      if (counterparties.has(tx.id)) tx.tfrCounterpartyAccountId = counterparties.get(tx.id);
+    }
   }
   const classifyPacket = { transactions: txs, representedActuals };
   // An inbound row with no item link of its own that shares its account and

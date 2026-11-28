@@ -8620,6 +8620,12 @@
         date: movement.date,
       };
     }
+    // A native receiving leg can change an account balance without qualifying
+    // as either household income or a refund while its source is unresolved.
+    if (householdCashLocationId(tx) && parseTdInternalTransferIdentity(tx)?.tfrDirection === 'FR'
+        && Number(tx.amount) < -EPSILON) {
+      return { kind: 'transfer', categoryId: null, householdSpending: false, reason: 'transfer-label' };
+    }
     if (tx.isIncome === true) {
       // A debit in an income category is money leaving, never income. It is
       // classified exactly as the same debit without the income flag, so
@@ -12842,7 +12848,10 @@
         && (stampedDir === 'TO' || stampedDir === 'FR')) {
       return { tfrReference: stampedRef, tfrDirection: stampedDir };
     }
-    const match = TD_INTERNAL_TRANSFER_RE.exec(txTypeIdentityBlob(tx));
+    const hasOriginal = Object.hasOwn(tx, 'original_name') || Object.hasOwn(tx, 'originalName');
+    const match = hasOriginal
+      ? /^\s*([A-Z]{2}\d{3})\s+TFR-(TO|FR)\b/i.exec(tx.original_name ?? tx.originalName ?? '')
+      : Object.hasOwn(tx, 'tfrReference') ? null : TD_INTERNAL_TRANSFER_RE.exec(txTypeIdentityBlob(tx));
     if (!match) return null;
     return {
       tfrReference: match[1].toUpperCase(),
@@ -13154,62 +13163,132 @@
     return null;
   }
 
-  function pairHouseholdInternalMovements(transactions) {
+  function pairHouseholdInternalMovements(transactions, { requirePostingEvidence = false } = {}) {
     const groups = new Map();
+    const identityCounts = new Map();
+    for (const tx of transactions) {
+      if (tx?.id != null) {
+        const id = String(tx.id);
+        identityCounts.set(id, (identityCounts.get(id) || 0) + 1);
+      }
+    }
     for (const tx of transactions || []) {
-      if (!tx || tx.pending === true) continue;
-      if (isTdCardPaymentIdentity(tx)) continue;
+      if (!tx || isTdCardPaymentIdentity(tx)) continue;
       if (tx.id == null || tx.id === '') continue;
-      const loc = householdCashLocationId(tx);
-      if (!loc) continue;
       const parsed = parseTdInternalTransferIdentity(tx);
       if (!parsed) continue;
+      const loc = householdCashLocationId(tx);
+      const date = financialDate(tx.date);
+      if (!loc || !date) continue;
       const amt = Number(tx.amount);
-      if (!isFinite(amt) || amt === 0) continue;
-      if (parsed.tfrDirection === 'TO' && !(amt > EPSILON)) continue;
-      if (parsed.tfrDirection === 'FR' && !(amt < -EPSILON)) continue;
-      const list = groups.get(parsed.tfrReference) || [];
-      list.push({ tx, loc, parsed, amt });
-      groups.set(parsed.tfrReference, list);
+      const explicitlyPosted = tx.pending === false && tx.savingsPostingEvidence === 'posted';
+      const usable = identityCounts.get(String(tx.id)) === 1 && tx.pending !== true
+        && [tx.atlasAccountId, tx.accountId, tx.account].every(id => !id || id === loc)
+        && (!requirePostingEvidence || explicitlyPosted)
+        && (tx.currency == null || typeof tx.currency === 'string' && tx.currency.toLowerCase() === 'cad')
+        && !tx.coverageCurrencyConflict && !tx.pendingPostedAmbiguous && !tx.pendingPostedDuplicate
+        && !tx.contradictoryEvidence && !tx.isGroup && tx.parentId == null
+        && !tx.representedBill && !tx.cardMinimumOwned && !cardPaymentNoteEvidence(tx)
+        && savingsCents(tx.amount, true) != null
+        && (parsed.tfrDirection === 'TO' ? amt > EPSILON : amt < -EPSILON);
+      // A replaced pending copy is irrelevant. Other unusable posted legs
+      // stay in their reference/date group and can block a conflicting proof.
+      if (tx.pending === true) continue;
+      const key = parsed.tfrReference + '@' + date;
+      const list = groups.get(key) || [];
+      list.push({ tx, loc, parsed, amt, date, usable, explicitlyPosted });
+      groups.set(key, list);
     }
     const movements = [];
     const byTxId = new Map();
-    groups.forEach((legs, tfrReference) => {
-      if (!legs || legs.length !== 2) return;
-      const left = legs[0];
-      const right = legs[1];
-      if (left.parsed.tfrDirection === right.parsed.tfrDirection) return;
-      if (left.loc === right.loc) return;
-      if (roundCent(Math.abs(left.amt)) !== roundCent(Math.abs(right.amt))) return;
-      if (String(left.tx.id) === String(right.tx.id)) return;
-      const source = left.parsed.tfrDirection === 'TO' ? left : right;
-      const dest = left.parsed.tfrDirection === 'FR' ? left : right;
-      if (source === dest) return;
-      const amount = roundCent(Math.abs(source.amt));
+    const transferCounterparty = leg => leg.tx.tfrCounterpartyAccountId || null;
+    function recordInternalMovement(source, dest, destinationAccountId) {
       const movement = {
-        amount,
-        date: source.tx.date || dest.tx.date || null,
-        sourceDate: source.tx.date || null,
-        destinationDate: dest.tx.date || null,
+        amount: roundCent(source.amt),
+        date: source.date,
+        sourceDate: source.date,
+        destinationDate: dest?.date ?? null,
         sourceAccountId: source.loc,
-        destinationAccountId: dest.loc,
+        destinationAccountId,
         sourceTransactionId: String(source.tx.id),
-        destinationTransactionId: String(dest.tx.id),
-        tfrReference,
+        destinationTransactionId: dest ? String(dest.tx.id) : null,
+        tfrReference: source.parsed.tfrReference,
         householdIncome: 0,
         householdConsumption: 0,
-        householdAssetDelta: 0,
+        householdAssetDelta: dest ? 0 : null,
         provenance: {
-          evidence: 'td-tfr-reference-pair',
+          evidence: dest ? 'td-tfr-reference-pair' : 'td-tfr-known-destination',
           calculator: 'Forecast',
           source: 'Forecast.householdInternalMovements',
         },
       };
       movements.push(movement);
       byTxId.set(String(source.tx.id), { movement, role: 'source' });
-      byTxId.set(String(dest.tx.id), { movement, role: 'destination' });
+      if (dest) byTxId.set(String(dest.tx.id), { movement, role: 'destination' });
+    }
+    groups.forEach(legs => {
+      const sources = legs.filter(leg => leg.parsed.tfrDirection === 'TO');
+      const receipts = legs.filter(leg => leg.parsed.tfrDirection === 'FR');
+      const compatibleReceipt = (source, receipt) => source.loc !== receipt.loc
+        && (!transferCounterparty(source) || transferCounterparty(source) === receipt.loc)
+        && (!transferCounterparty(receipt) || transferCounterparty(receipt) === source.loc);
+      for (const source of sources) {
+        if (!source.usable || sources.some(other => other !== source && other.loc === source.loc)) continue;
+        const destination = transferCounterparty(source);
+        const candidates = receipts.filter(receipt => compatibleReceipt(source, receipt));
+        if (candidates.length === 1) {
+          const dest = candidates[0];
+          const sendingAccount = transferCounterparty(dest);
+          if (dest.usable && (sources.length === 1 || sendingAccount === source.loc)
+              && (!destination && !sendingAccount || source.explicitlyPosted && dest.explicitlyPosted)
+              && sources.filter(other => compatibleReceipt(other, dest)).length === 1
+              && savingsCents(source.amt, true) === -savingsCents(dest.amt, true)) {
+            recordInternalMovement(source, dest, dest.loc);
+          }
+        } else if (!receipts.length && source.explicitlyPosted && !source.tx.outgoingETransferIdentity
+            && source.tx.currency?.toLowerCase() === 'cad' && destination && source.loc !== destination
+            && householdCashLocationId({ atlasAccountId: destination, accountRole: 'household-reserve' })) {
+          recordInternalMovement(source, null, destination);
+        }
+      }
     });
     return { movements, byTxId };
+  }
+
+  // Resolve original bank suffixes before the observer strips transaction
+  // text. The suffix is never stored in the packet. An earlier pair teaches
+  // the mapping and any conflicting pair in the observation invalidates it.
+  function observeTdTransferCounterparties(transactions, originalDescriptors) {
+    const descriptors = new Map();
+    const legs = [];
+    for (const tx of transactions) {
+      const match = /^([A-Z]{2}\d{3})\s+TFR-(TO|FR)\s+([A-Z0-9.*-]{1,24})$/i
+        .exec(originalDescriptors.get(tx)?.trim() || '');
+      if (!match || !/[A-Z0-9]/i.test(match[3]) || tx.outgoingETransferIdentity) continue;
+      const id = String(tx.id);
+      descriptors.set(id, match[3].toUpperCase());
+      legs.push({ ...tx, tfrReference: match[1].toUpperCase(), tfrDirection: match[2].toUpperCase(),
+        contradictoryEvidence: tx.contradictoryEvidence || tx.currency !== 'cad' });
+    }
+    const suffixes = new Map();
+    const learn = (suffix, accountId, date) => {
+      const prior = suffixes.get(suffix);
+      if (!prior || prior.accountId !== accountId) {
+        suffixes.set(suffix, { accountId: prior ? null : accountId, date });
+      } else if (date < prior.date) prior.date = date;
+    };
+    const pairs = pairHouseholdInternalMovements(legs, { requirePostingEvidence: true }).movements;
+    for (const pair of pairs) {
+      learn(descriptors.get(pair.sourceTransactionId), pair.destinationAccountId, pair.date);
+      learn(descriptors.get(pair.destinationTransactionId), pair.sourceAccountId, pair.date);
+    }
+    const counterparties = new Map();
+    for (const leg of legs) {
+      if (!householdCashLocationId(leg) || leg.pending || leg.savingsPostingEvidence !== 'posted') continue;
+      const known = suffixes.get(descriptors.get(String(leg.id)));
+      if (known?.accountId && known.date < leg.date) counterparties.set(leg.id, known.accountId);
+    }
+    return counterparties;
   }
 
   function householdInternalMovementIndex(opts) {
@@ -25009,7 +25088,8 @@
             if (!operating || tx.date < s1RiskWindow.start) continue;
             if (tx.pending !== false || tx.savingsPostingEvidence !== 'posted'
                 || tx.pendingPostedAmbiguous || tx.pendingPostedDuplicate || tx.contradictoryEvidence
-                || isInternalHouseholdTransfer(tx) && !movements.byTxId.has(String(tx.id))) return null;
+                || isInternalHouseholdTransfer(tx)
+                  && !movements.byTxId.get(String(tx.id))?.movement.destinationTransactionId) return null;
             // A qualified split parent is counted through its children,
             // never in addition to them (the incumbent packet-scoped rule,
             // as in postedAccountMovements and the daily-funding bridge).
@@ -32496,7 +32576,7 @@
   const Forecast = { earlyReceiptLegMembership, earlyReceiptOpeningSeed, earlyReceiptSweptSeed, cardPaymentNoteDestination, cardPaymentDestinationConflict, cardNotePaymentReceipts, periodBankCheck, billPaymentState, fixedBillPartialPayment, billPaymentHistorySummary, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, obligationAmountScheduleSelect, debtPrincipalShareFor, statementOccurrenceDate, statementOccurrenceIdentity, statementPaymentsReflectedThrough, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
     cardPeriodMovements, payingSidePayment, carriedPayerReceipt, nextProvedPayerReceipts, stackCardSummary, stackCreditLines, stackCreditBreakdown, pendingHoldReleases, cardActivityForDisplay, heldCardLineCoversPayerGap,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
-    classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
+    classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, observeTdTransferCounterparties, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
     spendingCycle, incomeReceivedAmount, calendarIncomeContribution,
     recommendWeekly, recommend, incomeDeadline, amandaHouseholdIncomeDeadline, counterfactuals,
     budgetBreakdown, monthlyFromWeekly, withLunchMoneyBudgets, lunchMoneyTargetCarried, LUNCH_MONEY_BUDGET_CARRIED,
