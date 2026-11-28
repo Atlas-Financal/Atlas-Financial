@@ -98,14 +98,22 @@ Before anyone merges, the pull request needs:
 - the reviewer's `NO BLOCKERS FOUND` on that same version;
 - if the card says `figures-moved`: your own private look at which figures
   moved ([`docs/PRIVATE_FIGURES_REVIEW.md`](PRIVATE_FIGURES_REVIEW.md)),
-  unless that check shows no household figure moved and someone other than
-  the builder records that on the pull request;
+  unless that check, run on the exact base and version, shows no household
+  figure moved and someone other than the builder records that result on
+  the pull request, naming that base and version (rule 16);
 - no new push after the review. If the builder pushes again, the review has
   to be redone for the new version.
 
-The current rules also expect a lead to list the pull request on the
-"Merge line" (#821). With no lead, ask the merger to post that line
-before merging.
+The current rules also give a lead three jobs here: picking the reviewer,
+picking the merger, and listing the pull request and its exact version on the
+"Merge line" (#821). A merger may only merge what that list shows, and it
+cannot add its own entry. So with no lead running, nothing merges until you
+do one of these:
+
+- name one session to act as lead for this repair (not the builder, the
+  reviewer or the merger); it picks the other two and keeps the list; or
+- adopt simpler repair rules by a direct decision, so a lead is no longer
+  needed.
 
 ## 5. After it merges: check, and undo if needed
 
