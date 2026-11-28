@@ -35,8 +35,9 @@ function savingsExpectations(seed, day, events) {
     links = input.accountMap.savingsLinks?.links || [];
   const rows = input.payload.transactions,
     goals = new Map();
+  const occurrence = (link) => link.goalRef.kind + ':' + link.goalRef.id + '@' + link.occurrenceDate;
   for (const link of links) {
-    const key = link.goalRef.kind + ':' + link.goalRef.id;
+    const key = occurrence(link);
     if (!goals.has(key)) goals.set(key, { ids: new Set(), reasons: new Set(), net: 0 });
     if (link.effectiveFrom < input.payload.transactionWindow.startDate) goals.get(key).reasons.add('history');
   }
@@ -44,12 +45,12 @@ function savingsExpectations(seed, day, events) {
     const matches = links.filter(
       (l) => r.tag_ids?.includes(l.tagId) && r.date >= l.effectiveFrom && r.date <= l.effectiveThrough
     );
-    const keys = new Set(matches.map((l) => l.goalRef.kind + ':' + l.goalRef.id));
+    const keys = new Set(matches.map(occurrence));
     for (const key of keys) {
       const g = goals.get(key);
       g.ids.add(r.id);
       if (keys.size > 1) g.reasons.add('conflicting links');
-      const due = matches.find((l) => l.goalRef.kind + ':' + l.goalRef.id === key).occurrenceDate;
+      const due = matches.find((l) => occurrence(l) === key).occurrenceDate;
       if (offset(r.date) <= offset(due) + 14 && (!r.is_pending || Number(r.amount) > 0))
         g.net += Math.round(Number(r.amount) * 100);
     }
@@ -297,9 +298,10 @@ function inspect({ seed, day, events, view: v, clean, prior, fault, baseline, kn
         // Withheld tagged spending has no published number. Only accept an
         // unknown when the independently observed evidence cannot price it.
         const withheld = (v.withheldPurchases || []).filter((x) => buy.ids.includes(x.id));
-        const authorizedUnknown = [...goals.values()].some(
-          (g) => g.reasons.size && buy.ids.some((id) => g.ids.has(id))
-        );
+        const authorizedUnknown = withheld.some((row) => {
+          const g = goals.get(row.goal + '@' + row.needDate);
+          return g?.reasons.size && g.ids.has(row.id);
+        });
         if (!counted && authorizedUnknown && withheld.length) continue;
         const actual = !counted && withheld.length ? null : counted;
         if (
@@ -347,7 +349,7 @@ function inspect({ seed, day, events, view: v, clean, prior, fault, baseline, kn
           );
       }
     for (const [key, g] of goals) {
-      const published = v.goalFigures.find((x) => x.id === key);
+      const published = v.goalFigures.find((x) => x.id + '@' + x.needDate === key);
       if (g.reasons.size && published && numeric(published.spent))
         finding(
           'savings/unprovable',
@@ -456,7 +458,7 @@ function inspect({ seed, day, events, view: v, clean, prior, fault, baseline, kn
       const expected = charges + refunds;
       if (
         expected >= 0 &&
-        !goals.get('commitment:kite')?.reasons.size &&
+        !goals.get('commitment:kite@' + date(12))?.reasons.size &&
         v.amounts.goalKiteSpent !== expected
       )
         finding('savings/goal-tally', 'kite Spent', expected, v.amounts.goalKiteSpent, n, 'purchase-once');

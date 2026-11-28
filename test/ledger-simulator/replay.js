@@ -181,7 +181,12 @@ function display(today, prior) {
     .flatMap((i) =>
       i.evidence
         .filter((e) => e.direction === 'charge')
-        .map((e) => ({ id: ids.get(e.transactionRef), goal: i.goalKey, reasons: i.reasons }))
+        .map((e) => ({
+          id: ids.get(e.transactionRef),
+          goal: i.goalKey,
+          needDate: i.needDate,
+          reasons: i.reasons,
+        }))
     );
   return {
     qualified: today.qualified,
@@ -243,6 +248,7 @@ function display(today, prior) {
     cardObservedAt: card?.activityObservedAt || null,
     goalFigures: goalLedger.items.map((i) => ({
       id: i.goalKey,
+      needDate: i.needDate,
       spent: i.spent?.cents ?? null,
       net: i.net?.cents ?? null,
       reasons: i.reasons,
@@ -254,7 +260,7 @@ function display(today, prior) {
       Boolean(
         v?.heldOutflowsToConfirm?.recon?.length ||
           credit?.unconfirmedPayments?.length ||
-          goalLedger.unresolved?.total ||
+          goalLedger.unresolved?.evidence?.length ||
           packet?.transactions?.some((t) => t.pendingPostedAmbiguous)
       ),
     moves,
