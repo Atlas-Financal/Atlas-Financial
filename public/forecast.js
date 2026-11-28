@@ -8622,7 +8622,7 @@
     }
     // A native receiving leg can change an account balance without qualifying
     // as either household income or a refund while its source is unresolved.
-    if (householdCashLocationId(tx) && parseTdInternalTransferIdentity(tx)?.tfrDirection === 'FR'
+    if (householdCashLocationId(tx) && tx.bankTfrReceipt === true && !competingTransferCardEvidence(tx)
         && Number(tx.amount) < -EPSILON) {
       return { kind: 'transfer', categoryId: null, householdSpending: false, reason: 'transfer-label' };
     }
@@ -12826,6 +12826,7 @@
   // movement is a higher bar than TFR identity: unique opposite TO/FR legs
   // of the same reference, matching amount, both household cash locations.
   const TD_INTERNAL_TRANSFER_RE = /\b([A-Z]{2}\d{3})\s+TFR-(TO|FR)\b/i;
+  const TD_BANK_TRANSFER_RE = /^([A-Z]{2}\d{3})\s+TFR-(TO|FR)(?:\s+(.+))?$/i;
   // Dale's recorded Q2 answer identifies this bank form as payment to a known
   // card. It identifies recipient class only, never an individual card/purpose.
   const TD_CARD_RECIPIENT_RE = /^\s*([A-Z]{2}\d{3})\s+TFR-TO\s+C\/C\s*$/i;
@@ -12848,15 +12849,19 @@
         && (stampedDir === 'TO' || stampedDir === 'FR')) {
       return { tfrReference: stampedRef, tfrDirection: stampedDir };
     }
-    const hasOriginal = Object.hasOwn(tx, 'original_name') || Object.hasOwn(tx, 'originalName');
-    const match = hasOriginal
-      ? /^\s*([A-Z]{2}\d{3})\s+TFR-(TO|FR)\b/i.exec(tx.original_name ?? tx.originalName ?? '')
+    const original = [tx.original_name, tx.originalName]
+      .find(value => typeof value === 'string' && value.trim() !== '');
+    const match = original ? bankTdTransferDescriptor(original)
       : Object.hasOwn(tx, 'tfrReference') ? null : TD_INTERNAL_TRANSFER_RE.exec(txTypeIdentityBlob(tx));
     if (!match) return null;
     return {
       tfrReference: match[1].toUpperCase(),
       tfrDirection: match[2].toUpperCase(),
     };
+  }
+
+  function bankTdTransferDescriptor(original) {
+    return typeof original === 'string' ? TD_BANK_TRANSFER_RE.exec(original.trim()) : null;
   }
 
   function isInternalTransferIdentity(tx) {
@@ -13150,6 +13155,13 @@
     return /^\s*[A-Z]{2}\d{3}\s+TFR-(?:TO|FR)\s+C\/C\s*$/i.test(txBankDescriptor(tx));
   }
 
+  function competingTransferCardEvidence(tx) {
+    // The paying-side credit reader already names the explicit card signals.
+    // The matched payer receipt and owned minimum can also survive a rename.
+    return incomingCardReversalIdentity(tx) || !!provedPayerReceiptMatches(tx) || tx.cardMinimumOwned === true
+      || (typeof tx.minimumCategoryDebt === 'string' && tx.minimumCategoryDebt !== '');
+  }
+
   function householdCashLocationId(tx) {
     if (!tx) return null;
     if (tx.accountRole === 'household-external' || tx.accountRole === 'unmapped') {
@@ -13166,7 +13178,7 @@
   function pairHouseholdInternalMovements(transactions, { requirePostingEvidence = false } = {}) {
     const groups = new Map();
     const identityCounts = new Map();
-    for (const tx of transactions) {
+    for (const tx of transactions || []) {
       if (tx?.id != null) {
         const id = String(tx.id);
         identityCounts.set(id, (identityCounts.get(id) || 0) + 1);
@@ -13179,7 +13191,7 @@
       if (!parsed) continue;
       const loc = householdCashLocationId(tx);
       const date = financialDate(tx.date);
-      if (!loc || !date) continue;
+      if (!date || (!loc && parsed.tfrDirection !== 'FR')) continue;
       const amt = Number(tx.amount);
       const explicitlyPosted = tx.pending === false && tx.savingsPostingEvidence === 'posted';
       const usable = identityCounts.get(String(tx.id)) === 1 && tx.pending !== true
@@ -13189,6 +13201,7 @@
         && !tx.coverageCurrencyConflict && !tx.pendingPostedAmbiguous && !tx.pendingPostedDuplicate
         && !tx.contradictoryEvidence && !tx.isGroup && tx.parentId == null
         && !tx.representedBill && !tx.cardMinimumOwned && !cardPaymentNoteEvidence(tx)
+        && (!(requirePostingEvidence || tx.tfrCounterpartyAccountId) || !competingTransferCardEvidence(tx))
         && savingsCents(tx.amount, true) != null
         && (parsed.tfrDirection === 'TO' ? amt > EPSILON : amt < -EPSILON);
       // A replaced pending copy is irrelevant. Other unusable posted legs
@@ -13201,6 +13214,7 @@
     }
     const movements = [];
     const byTxId = new Map();
+    const contradictedSources = new Set();
     const transferCounterparty = leg => leg.tx.tfrCounterpartyAccountId || null;
     function recordInternalMovement(source, dest, destinationAccountId) {
       const movement = {
@@ -13229,13 +13243,26 @@
     groups.forEach(legs => {
       const sources = legs.filter(leg => leg.parsed.tfrDirection === 'TO');
       const receipts = legs.filter(leg => leg.parsed.tfrDirection === 'FR');
+      // Keep non-cash receipts long enough to identify a contradiction. A
+      // same-reference, same-day receipt with no qualified cash location
+      // can never establish or confirm a cash destination.
+      if (receipts.some(receipt => !receipt.loc)) {
+        for (const source of sources) {
+          if (source.explicitlyPosted) contradictedSources.add(String(source.tx.id));
+        }
+        return;
+      }
       const compatibleReceipt = (source, receipt) => source.loc !== receipt.loc
         && (!transferCounterparty(source) || transferCounterparty(source) === receipt.loc)
         && (!transferCounterparty(receipt) || transferCounterparty(receipt) === source.loc);
       for (const source of sources) {
         if (!source.usable || sources.some(other => other !== source && other.loc === source.loc)) continue;
         const destination = transferCounterparty(source);
-        const candidates = receipts.filter(receipt => compatibleReceipt(source, receipt));
+        // An outgoing leg qualified from the original descriptor can acquire
+        // a posted receipt only from the same class of bank evidence. The
+        // incumbent two-leg reading still accepts its existing ledger types.
+        const eligibleReceipts = destination ? receipts.filter(leg => leg.tx.bankTfrReceipt === true) : receipts;
+        const candidates = eligibleReceipts.filter(receipt => compatibleReceipt(source, receipt));
         if (candidates.length === 1) {
           const dest = candidates[0];
           const sendingAccount = transferCounterparty(dest);
@@ -13245,14 +13272,14 @@
               && savingsCents(source.amt, true) === -savingsCents(dest.amt, true)) {
             recordInternalMovement(source, dest, dest.loc);
           }
-        } else if (!receipts.length && source.explicitlyPosted && !source.tx.outgoingETransferIdentity
+        } else if (!eligibleReceipts.length && source.explicitlyPosted && !source.tx.outgoingETransferIdentity
             && source.tx.currency?.toLowerCase() === 'cad' && destination && source.loc !== destination
             && householdCashLocationId({ atlasAccountId: destination, accountRole: 'household-reserve' })) {
           recordInternalMovement(source, null, destination);
         }
       }
     });
-    return { movements, byTxId };
+    return { movements, byTxId, contradictedSources };
   }
 
   // Resolve original bank suffixes before the observer strips transaction
@@ -13262,29 +13289,37 @@
     const descriptors = new Map();
     const legs = [];
     for (const tx of transactions) {
-      const match = /^([A-Z]{2}\d{3})\s+TFR-(TO|FR)\s+([A-Z0-9.*-]{1,24})$/i
-        .exec(originalDescriptors.get(tx)?.trim() || '');
-      if (!match || !/[A-Z0-9]/i.test(match[3]) || tx.outgoingETransferIdentity) continue;
+      const match = bankTdTransferDescriptor(originalDescriptors.get(tx));
+      const native = match && match[1].toUpperCase() === tx.tfrReference
+        && match[2].toUpperCase() === tx.tfrDirection && !tx.outgoingETransferIdentity;
+      if (!native && householdCashLocationId(tx)) continue;
       const id = String(tx.id);
-      descriptors.set(id, match[3].toUpperCase());
-      legs.push({ ...tx, tfrReference: match[1].toUpperCase(), tfrDirection: match[2].toUpperCase(),
-        contradictoryEvidence: tx.contradictoryEvidence || tx.currency !== 'cad' });
+      // Learn a literal account suffix. Generic labels such as SAVINGS,
+      // ACCT, CHQ, LOC and CC carry no account-specific ending digits.
+      const suffix = native && match[3];
+      if (suffix && /^(?=.{3,24}$)[A-Z0-9.*-]*\d{3}$/i.test(suffix)) {
+        descriptors.set(id, suffix.toUpperCase());
+      }
+      legs.push(tx);
     }
     const suffixes = new Map();
     const learn = (suffix, accountId, date) => {
+      if (!suffix) return;
       const prior = suffixes.get(suffix);
       if (!prior || prior.accountId !== accountId) {
         suffixes.set(suffix, { accountId: prior ? null : accountId, date });
       } else if (date < prior.date) prior.date = date;
     };
-    const pairs = pairHouseholdInternalMovements(legs, { requirePostingEvidence: true }).movements;
-    for (const pair of pairs) {
+    const { movements, contradictedSources } = pairHouseholdInternalMovements(legs, { requirePostingEvidence: true });
+    for (const pair of movements) {
       learn(descriptors.get(pair.sourceTransactionId), pair.destinationAccountId, pair.date);
       learn(descriptors.get(pair.destinationTransactionId), pair.sourceAccountId, pair.date);
     }
+    for (const id of contradictedSources) suffixes.delete(descriptors.get(id));
     const counterparties = new Map();
     for (const leg of legs) {
-      if (!householdCashLocationId(leg) || leg.pending || leg.savingsPostingEvidence !== 'posted') continue;
+      if (!householdCashLocationId(leg) || leg.pending || leg.savingsPostingEvidence !== 'posted' || leg.representedBill
+          || competingTransferCardEvidence(leg)) continue;
       const known = suffixes.get(descriptors.get(String(leg.id)));
       if (known?.accountId && known.date < leg.date) counterparties.set(leg.id, known.accountId);
     }
@@ -15306,6 +15341,7 @@
     const confirmedGrocery = isConfirmedGroceryMerchant(tx);
     const amandaAmazonTravelVisa = amazonMerchant && isTravelVisaAccount(tx);
     const parsedTfr = parseTdInternalTransferIdentity(tx);
+    const bankTfr = bankTdTransferDescriptor(tx.original_name ?? tx.originalName);
     const internalTransferIdentity = isInternalTransferIdentity(tx);
     const card = derivedCardFlags(tx);
     const paymentNote = cardPaymentNoteEvidence(tx);
@@ -15339,6 +15375,8 @@
       cashWithdrawalIdentity,
       tfrReference: parsedTfr ? parsedTfr.tfrReference : null,
       tfrDirection: parsedTfr ? parsedTfr.tfrDirection : null,
+      ...(bankTfr?.[2].toUpperCase() === 'FR' && parsedTfr?.tfrDirection === 'FR'
+        && bankTfr[1].toUpperCase() === parsedTfr.tfrReference ? { bankTfrReceipt: true } : {}),
       personalOwner: daleGuiltFreeMerchant ? 'dale'
         : (amandaAmazonTravelVisa ? 'amanda' : personalSpendOwner(tx)),
     };

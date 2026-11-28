@@ -5585,6 +5585,7 @@ function transactionLooksSanitized(tx) {
   if (Object.hasOwn(tx, 'tfrCounterpartyAccountId')
       && (typeof tx.tfrCounterpartyAccountId !== 'string'
         || !/^[a-z][a-z0-9-]{0,63}$/.test(tx.tfrCounterpartyAccountId))) return false;
+  if (Object.hasOwn(tx, 'bankTfrReceipt') && tx.bankTfrReceipt !== true) return false;
   for (const key of RAW_TX_METADATA_KEYS) {
     if (Object.prototype.hasOwnProperty.call(tx, key)) return false;
   }
@@ -8068,6 +8069,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       cashWithdrawalIdentity: flags.cashWithdrawalIdentity,
       tfrReference: flags.tfrReference || null,
       tfrDirection: flags.tfrDirection || null,
+      ...(flags.bankTfrReceipt === true ? { bankTfrReceipt: true } : {}),
       personalOwner,
       isGroup: tx.isGroup === true,
       parentId: localIdFor(tx.parentId),
@@ -8237,11 +8239,97 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     }
     stripRawTransactionMetadata(tx);
   }
-  if (postedWindowIsComplete(window)) {
-    const inWindow = txs.filter(tx => tx.date >= window.startDate && tx.date <= window.endDate && tx.date <= asOf);
-    const counterparties = Forecast.observeTdTransferCounterparties(inWindow, transferDescriptors);
-    for (const tx of txs) {
-      if (counterparties.has(tx.id)) tx.tfrCounterpartyAccountId = counterparties.get(tx.id);
+  // C1: a raw dated row with an unreadable amount that the collapsed pass
+  // did not localise (or never saw) withholds coverage globally.
+  for (const tx of rawAmountDrops) {
+    if (tx.providerTransactionId == null || !localizedDropIds.has(String(tx.providerTransactionId))) droppedCoverageRows += 1;
+  }
+  const pending = report && report.pendingCoverage;
+  let pendingCoverage = 'unknown';
+  if (pending && pending.complete === true) pendingCoverage = 'complete';
+  else if (pending && pending.status === 'bounded-window') pendingCoverage = 'partial';
+  const syncEvidence = accountSyncEvidence((opts && opts.accounts) || (report && report.accounts), mapDoc, dateOnly(window.endDate) || asOf);
+  // A1: the stamp is earned by positive evidence, never by the absence of a
+  // named failure. Each gap below withholds 'complete'.
+  const sourceRole = tx => atlasAccountRole(mapDoc ? mappingFor(mapDoc, tx && tx.providerAccountId) : null);
+  const evidenceRows = Array.isArray(report && report.transactions) ? report.transactions
+    : (report && report.collapsedTransactions) || [];
+  const inWindowCoverageRows = evidenceRows.filter(tx => tx
+    && COVERAGE_ACCOUNT_ROLES.has(sourceRole(tx)) && droppedRowInCoverage(tx.date, window));
+  const collectionPresent = Object.hasOwn(opts, 'transactionsPresent')
+    ? opts.transactionsPresent === true
+    : Array.isArray(report && report.transactions) || Array.isArray(report && report.collapsedTransactions);
+  // A2: Forecast suppresses a split parent once any child is present, so the
+  // present children must reconcile to the parent to the cent.
+  // U5 (lead dispatch): a cross-account group parent has no account of its own
+  // (#1306) and every consumer skips it once its children are present
+  // (skipSplitParent). It is not an unmapped-account gap when exactly the
+  // children Lunch Money lists for it (by id, each once) are present as rows
+  // and every one of them is individually mapped. A parent with any child
+  // missing, duplicated, unlisted or unmapped, or with no listed children,
+  // stays a gap.
+  const completeGroupParent = parent => {
+    if (!parent || parent.isGroup !== true || parent.id == null) return false;
+    const expected = groupChildIds.get(String(parent.id));
+    if (!Array.isArray(expected) || !expected.length || expected.some(id => id == null)
+      || new Set(expected).size !== expected.length) return false;
+    const children = txs.filter(child => child && child !== parent && child.parentId != null
+      && String(child.parentId) === String(parent.id));
+    const present = children.map(child => providerIdOfRow.get(String(child.id)));
+    return children.length === expected.length && new Set(present).size === present.length
+      && present.every(id => id != null && expected.includes(id))
+      && children.every(child => child.accountRole && child.accountRole !== 'unmapped');
+  };
+  const splitUnreconciled = txs.some(parent => {
+    if (!parent || parent.isGroup !== true || !COVERAGE_ACCOUNT_ROLES.has(parent.accountRole)) return false;
+    const children = txs.filter(child => child && child !== parent && child.parentId != null
+      && (parent.id == null || String(child.parentId) === String(parent.id)));
+    if (!children.length) return false;
+    if (parent.id == null) return true;
+    const cents = v => Math.round(Number(v) * 100);
+    return children.reduce((sum, child) => sum + cents(child.amount), 0) !== cents(parent.amount);
+  });
+  const positiveEvidenceGap = window.complete !== true
+    || !collectionPresent
+    // The Bills account identity, as the incumbent salary attribution reads it.
+    || !((mapDoc && mapDoc.mappings) || []).some(m => atlasAccountRole(m) === 'household-cash'
+      && m.canonical && m.canonical.id === 'chequing-a')
+    || !dateOnly(window.startDate) || !dateOnly(window.endDate)
+    || inWindowCoverageRows.some(tx => !['posted', 'pending'].includes(tx.savingsPostingEvidence))
+    // Rule 6 reads the rows that survive pending/posted replacement: a
+    // superseded pending leg does not feed any figure.
+    || collapsed.some(tx => tx && ['household-cash', 'household-reserve'].includes(sourceRole(tx))
+      && droppedRowInCoverage(tx.date, window) && tx.currency !== 'cad')
+    || splitUnreconciled;
+  let transactionCoverage = 'complete';
+  // C1: every gap except a localised category drop. The stamp itself still
+  // reads 'incomplete' for a localised drop, so every consumer that reads it
+  // alone keeps withholding as before; only the category actuals path reads
+  // droppedCategoryRows (Forecast actualsCoverageState, localizedDrops opt-in).
+  const otherCoverageGap = cardCoverageUnconfirmed.length || currencyUnconfirmed.length || droppedCoverageRows > 0
+      || syncEvidence.some(row => row.syncEvidence === 'failed')
+      || txs.some(tx => tx && tx.accountRole === 'unmapped' && !completeGroupParent(tx))
+      || positiveEvidenceGap;
+  if (window.truncated === true || window.complete === false || window.hasMore === true) {
+    transactionCoverage = 'truncated';
+  } else if (otherCoverageGap || droppedCategoryRows.length) {
+    transactionCoverage = 'incomplete';
+  }
+  const coverageExceptCategories = transactionCoverage === 'incomplete' && !otherCoverageGap
+    && droppedCategoryRows.length > 0;
+  // Reuse the settled coverage decision before handing any suffix to Forecast.
+  // A dropped or unresolved row could be the one that contradicts the suffix.
+  if (transactionCoverage === 'complete' && pendingCoverageIsComplete(pending)
+      && !savingsMovementUnconfirmed.length && window.startDate <= asOf && asOf <= window.endDate) {
+    const inWindow = txs.filter(tx => tx.date >= window.startDate && tx.date <= asOf);
+    const rawCoverageReady = collapsed.every(tx => !tx || !droppedRowInCoverage(tx.date, window)
+      || (dateOnly(tx.date) && lunchMoneyDebitAmount(tx.amount) != null && tx.currency === 'cad'
+        && !tx.coverageCurrencyConflict && ['posted', 'pending'].includes(tx.savingsPostingEvidence)));
+    if (rawCoverageReady && inWindow.every(tx => !tx.pendingPostedAmbiguous && !tx.pendingPostedDuplicate)) {
+      const counterparties = Forecast.observeTdTransferCounterparties(inWindow, transferDescriptors);
+      for (const tx of inWindow) {
+        if (counterparties.has(tx.id)) tx.tfrCounterpartyAccountId = counterparties.get(tx.id);
+      }
     }
   }
   const classifyPacket = { transactions: txs, representedActuals };
@@ -8346,84 +8434,6 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       && Forecast.classifyCurrentPeriodTransaction.linkedCategoryRefund(row, cls, opts.plan,
         { packet: classifyPacket, currentPeriodActuals: classifyPacket })) row.bankDescription = bankDescriptions.get(row.id);
   }
-  // C1: a raw dated row with an unreadable amount that the collapsed pass
-  // did not localise (or never saw) withholds coverage globally.
-  for (const tx of rawAmountDrops) {
-    if (tx.providerTransactionId == null || !localizedDropIds.has(String(tx.providerTransactionId))) droppedCoverageRows += 1;
-  }
-  const pending = report && report.pendingCoverage;
-  let pendingCoverage = 'unknown';
-  if (pending && pending.complete === true) pendingCoverage = 'complete';
-  else if (pending && pending.status === 'bounded-window') pendingCoverage = 'partial';
-  const syncEvidence = accountSyncEvidence((opts && opts.accounts) || (report && report.accounts), mapDoc, dateOnly(window.endDate) || asOf);
-  // A1: the stamp is earned by positive evidence, never by the absence of a
-  // named failure. Each gap below withholds 'complete'.
-  const sourceRole = tx => atlasAccountRole(mapDoc ? mappingFor(mapDoc, tx && tx.providerAccountId) : null);
-  const evidenceRows = Array.isArray(report && report.transactions) ? report.transactions
-    : (report && report.collapsedTransactions) || [];
-  const inWindowCoverageRows = evidenceRows.filter(tx => tx
-    && COVERAGE_ACCOUNT_ROLES.has(sourceRole(tx)) && droppedRowInCoverage(tx.date, window));
-  const collectionPresent = Object.hasOwn(opts, 'transactionsPresent')
-    ? opts.transactionsPresent === true
-    : Array.isArray(report && report.transactions) || Array.isArray(report && report.collapsedTransactions);
-  // A2: Forecast suppresses a split parent once any child is present, so the
-  // present children must reconcile to the parent to the cent.
-  // U5 (lead dispatch): a cross-account group parent has no account of its own
-  // (#1306) and every consumer skips it once its children are present
-  // (skipSplitParent). It is not an unmapped-account gap when exactly the
-  // children Lunch Money lists for it (by id, each once) are present as rows
-  // and every one of them is individually mapped. A parent with any child
-  // missing, duplicated, unlisted or unmapped, or with no listed children,
-  // stays a gap.
-  const completeGroupParent = parent => {
-    if (!parent || parent.isGroup !== true || parent.id == null) return false;
-    const expected = groupChildIds.get(String(parent.id));
-    if (!Array.isArray(expected) || !expected.length || expected.some(id => id == null)
-      || new Set(expected).size !== expected.length) return false;
-    const children = txs.filter(child => child && child !== parent && child.parentId != null
-      && String(child.parentId) === String(parent.id));
-    const present = children.map(child => providerIdOfRow.get(String(child.id)));
-    return children.length === expected.length && new Set(present).size === present.length
-      && present.every(id => id != null && expected.includes(id))
-      && children.every(child => child.accountRole && child.accountRole !== 'unmapped');
-  };
-  const splitUnreconciled = txs.some(parent => {
-    if (!parent || parent.isGroup !== true || !COVERAGE_ACCOUNT_ROLES.has(parent.accountRole)) return false;
-    const children = txs.filter(child => child && child !== parent && child.parentId != null
-      && (parent.id == null || String(child.parentId) === String(parent.id)));
-    if (!children.length) return false;
-    if (parent.id == null) return true;
-    const cents = v => Math.round(Number(v) * 100);
-    return children.reduce((sum, child) => sum + cents(child.amount), 0) !== cents(parent.amount);
-  });
-  const positiveEvidenceGap = window.complete !== true
-    || !collectionPresent
-    // The Bills account identity, as the incumbent salary attribution reads it.
-    || !((mapDoc && mapDoc.mappings) || []).some(m => atlasAccountRole(m) === 'household-cash'
-      && m.canonical && m.canonical.id === 'chequing-a')
-    || !dateOnly(window.startDate) || !dateOnly(window.endDate)
-    || inWindowCoverageRows.some(tx => !['posted', 'pending'].includes(tx.savingsPostingEvidence))
-    // Rule 6 reads the rows that survive pending/posted replacement: a
-    // superseded pending leg does not feed any figure.
-    || collapsed.some(tx => tx && ['household-cash', 'household-reserve'].includes(sourceRole(tx))
-      && droppedRowInCoverage(tx.date, window) && tx.currency !== 'cad')
-    || splitUnreconciled;
-  let transactionCoverage = 'complete';
-  // C1: every gap except a localised category drop. The stamp itself still
-  // reads 'incomplete' for a localised drop, so every consumer that reads it
-  // alone keeps withholding as before; only the category actuals path reads
-  // droppedCategoryRows (Forecast actualsCoverageState, localizedDrops opt-in).
-  const otherCoverageGap = cardCoverageUnconfirmed.length || currencyUnconfirmed.length || droppedCoverageRows > 0
-      || syncEvidence.some(row => row.syncEvidence === 'failed')
-      || txs.some(tx => tx && tx.accountRole === 'unmapped' && !completeGroupParent(tx))
-      || positiveEvidenceGap;
-  if (window.truncated === true || window.complete === false || window.hasMore === true) {
-    transactionCoverage = 'truncated';
-  } else if (otherCoverageGap || droppedCategoryRows.length) {
-    transactionCoverage = 'incomplete';
-  }
-  const coverageExceptCategories = transactionCoverage === 'incomplete' && !otherCoverageGap
-    && droppedCategoryRows.length > 0;
   let coverageStart = window.startDate || null;
   let coverageThrough = window.endDate || null;
   if (!coverageStart || !coverageThrough) {
