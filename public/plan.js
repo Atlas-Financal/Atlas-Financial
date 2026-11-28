@@ -4183,6 +4183,7 @@ function budgetGoalPaidProgressHtml(row) {
   const tagKnown = spent?.amount != null;
   const tagWithheld = !tagKnown && cost.taggedSpend?.status === 'withheld';
   const tagState = tagKnown ? 'known' : tagWithheld ? 'withheld' : null;
+  const spentReadout = tagKnown && cost.taggedSpend.hasPurchases === true;
   const barFact = tagState ? (tagKnown ? spent : null) : paid;
   const paidGeometry = paid?.amount != null && original?.amount > 0;
   const barGeometry = barFact?.amount != null && original?.amount > 0;
@@ -4191,7 +4192,9 @@ function budgetGoalPaidProgressHtml(row) {
   const paidText = fullyPaid && ownerFull && !paid ? '' : budgetGoalCostText(paid);
   const saved = budgetV3Known(row.saved, row.savedTrust) ? row.saved : null;
   const savedSegment = saved > 0 && original?.amount > 0 ? `<span class="budget-goal-bar-saved" data-budget-goal-bar-saved style="--goal-saved:${budgetGoalRatio(saved, original.amount)}"></span>` : '';
-  const fill = tagState
+  const fill = spentReadout
+    ? (saved > 0 ? `<span class="budget-goal-bar-paid" data-budget-goal-bar-paid style="--goal-paid:${budgetGoalRatio(spent.amount, saved)}"></span>` : '')
+    : tagState
     ? (barGeometry
       ? `${barFact.amount > 0 ? `<span class="budget-goal-bar-paid" data-budget-goal-bar-paid style="--goal-paid:${budgetGoalRatio(barFact.amount, original.amount)}"></span>` : ''}${savedSegment}`
       : '')
@@ -4208,9 +4211,11 @@ function budgetGoalPaidProgressHtml(row) {
     + (pendingRefund ? ` <small data-budget-goal-spent-pending-refund="${pendingRefund}">${money2(pendingRefund)} pending refund not yet netted</small>` : '');
   const spentHtml = tagWithheld
     ? '<span><small>Spent</small> <span class="budget-goal-paid-amount" data-budget-goal-spent-withheld>Withheld</span></span>'
-    : tagKnown && (spent.amount !== paid?.amount || pendingNote)
-      ? `<span><small>Spent</small> <span class="budget-goal-paid-amount" data-budget-goal-spent>${budgetGoalCostText(spent)}${original?.amount > 0 ? ' / ' + money2(original.amount) : ''}</span>${pendingNote}</span>` : '';
-  return `<div class="budget-goal-paid is-${state}" data-budget-goal-paid-progress="${state}"${tagState ? ` data-budget-goal-tag-state="${tagState}"` : ''}${stamp('paid', paid)}${stamp('spent', spent)}${stamp('original', original)}${gapStamp}>
+    : tagKnown && (spentReadout || spent.amount !== paid?.amount || pendingNote)
+      ? `<span><small>Spent</small> <span class="budget-goal-paid-amount" data-budget-goal-spent>${budgetGoalCostText(spent)}${spentReadout ? ' / ' + budgetV3Money(row.saved, row.savedTrust) : original?.amount > 0 ? ' / ' + money2(original.amount) : ''}</span>${pendingNote}</span>` : '';
+  const tagStamp = tagState ? ` data-budget-goal-tag-state="${tagState}"` : '';
+  const readoutStamp = spentReadout ? ' data-budget-goal-spent-readout="true"' : '';
+  return `<div class="budget-goal-paid is-${state}" data-budget-goal-paid-progress="${state}"${tagStamp}${readoutStamp}${stamp('paid', paid)}${stamp('spent', spent)}${stamp('original', original)}${gapStamp}>
         <span class="budget-goal-bar" data-budget-goal-bar aria-hidden="true">${fill}</span>
         <span class="budget-goal-paid-figures" data-budget-goal-paid-figures><span><small>Paid</small> <span class="budget-goal-paid-amount" data-budget-goal-paid>${paidText}</span>${budgetGoalOwnerConfirmationHtml(owner, cost.observedLinked, paid, original, cost.overspend)}</span>${spentHtml}<span><small>Still to fund</small> <span class="budget-goal-paid-amount" data-budget-goal-still-to-fund>${stillToFund.html}</span></span></span>
       </div>`;
@@ -6324,6 +6329,16 @@ function budgetSavingsGoalsHtml(ctx, period, schedule) {
       const settled = budgetGoalOwnerSettled(row);
       const target = settled ? budgetGoalCostText(budgetGoalCostFact(row.commitmentCost.originalCost))
         : budgetDailyNeededHtml(row);
+      const spend = row.commitmentCost?.taggedSpend;
+      const spentReadout = spend?.status === 'known' && spend.hasPurchases === true;
+      const saved = value(row.saved, row.savedTrust);
+      const first = spentReadout ? `<span class="budget-goal-amount">${money2(spend.amount)}</span><small>Spent</small>`
+        : settled ? `<span class="budget-goal-amount">${BUDGET_GOAL_OWNER_PAID_WORD}</span><small>${BUDGET_GOAL_OWNER_PAID_NOTE}</small>`
+          : `<span class="budget-goal-amount">${saved}</span><small>Saved</small>`;
+      const second = spentReadout ? saved : target;
+      const secondLabel = spentReadout ? 'Saved' : settled ? 'Planned' : 'Needed';
+      const transactions = spend?.status === 'known' && spend.recon?.length
+        ? `<div hidden data-budget-goal-transactions><dl>${householdBudgetMetric('Spent', spend.amount, { recon: spend.recon })}</dl></div>` : '';
       const group = budgetSavingsRowMembers(daily, row);
       const members = group ? `<div class="budget-goal-members">${group.members.map(member => {
         const figures = budgetSavingsMemberFigures(member, row.thisPeriodTrust, group.historical);
@@ -6331,11 +6346,10 @@ function budgetSavingsGoalsHtml(ctx, period, schedule) {
       }).join('')}</div>` : '';
       return `<li data-budget-savings-goal="${budgetV3Escape(row.key)}"${savedStamp}${requiredStamp}><button type="button" class="budget-goal-row" data-budget-goal-open="${budgetV3Escape(row.key)}" aria-haspopup="dialog">
       <div class="budget-goal-heading"><strong>${budgetV3Escape(group ? group.title : row.label)}</strong></div>
-      <div class="budget-goal-amounts">${settled ? `<span><span class="budget-goal-amount">${BUDGET_GOAL_OWNER_PAID_WORD}</span><small>${BUDGET_GOAL_OWNER_PAID_NOTE}</small></span>`
-        : `<span><span class="budget-goal-amount">${value(row.saved, row.savedTrust)}</span><small>Saved</small></span>`}<span aria-hidden="true">/</span><span><span class="budget-goal-amount">${target}</span><small>${settled ? 'Planned' : 'Needed'}</small></span></div>
+      <div class="budget-goal-amounts"><span>${first}</span><span aria-hidden="true">/</span><span><span class="budget-goal-amount">${second}</span><small>${secondLabel}</small></span></div>
       ${budgetGoalPaidProgressHtml(row)}
       <p class="budget-goal-context">${settled ? '' : `${value(row.thisPeriod, row.thisPeriodTrust)} this period`}<span class="budget-goal-evidence">Info <span aria-hidden="true">></span></span></p>${members}
-    </button></li>`;
+    </button>${transactions}</li>`;
     }).join('');
     return `<div class="budget-surface-card budget-savings-goals" data-budget-savings-goals><p class="budget-surface-eyebrow">${budgetV3Escape(payPeriodRangeLabel(period))}</p><h3>Saving for</h3>${period?.timelineRole === 'current' && typeof SavingsInventory !== 'undefined' ? SavingsInventory.reportedStockHtml(daily, ctx.advice?.savingsInventory?.reportedStock) : ''}${projected ? '<p data-budget-savings-forecast-stock>Savings at period close: ' + value(daily.forecastClosing?.stock, daily.forecastClosing?.trust) + '.</p>' + budgetSavingsEstimateBasisHtml(daily) : ''}${projected && daily.forecastClosing?.status === 'ready' ? '<p data-budget-savings-forecast-bills>Bills at period close (both chequing accounts): ' + value(daily.forecastClosing.operatingCash, daily.forecastClosing.trust) + '.</p>' : ''}${daily.forecastClosing?.gap ? daily.forecastClosing?.status === 'ready' ? '<p data-budget-savings-forecast-gap>Bills shortfall of ' + value(daily.forecastClosing.gap.shortBy, daily.forecastClosing.gap.trust) + ' on ' + budgetV3Escape(fmtDate(daily.forecastClosing.gap.date)) + '.</p>' : '<p>' + budgetV3Escape(budgetFundingReason(daily.forecastClosing.reason)) + '</p>' : ''}<ul>${named || (projected && (daily.plannedRequirements?.rows.length === 0 && !daily.forecastClosing?.gap || daily.forecastClosing?.status === 'ready') ? '<li>No remaining Savings requirements.</li>' : '<li>Named savings unavailable.</li>')}</ul>
       <button type="button" class="budget-surface-link" data-budget-funding-inventory aria-haspopup="dialog">Accounts &amp; evidence</button>

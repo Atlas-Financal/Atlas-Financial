@@ -1479,10 +1479,6 @@
       index.set(id, { source: SAVINGS_LEDGER_SOURCE, occurrenceKey: item.occurrenceKey, uncertain,
         paidCents: uncertain ? null : item.paid.cents, unpaidCents: uncertain ? null : item.unpaid.cents,
         linkedPaidCents: uncertain ? 0 : ownerOnly ? 0 : item.paid.cents, completedOn: null,
-        spentCents: item.spent && Number.isSafeInteger(item.spent.cents) && item.spent.cents >= 0 ? item.spent.cents : null,
-        spentWithheld: item.spent?.withheld === true,
-        spentPendingCents: item.spent && Number.isSafeInteger(item.spent.pendingCents) && item.spent.pendingCents >= 0 ? item.spent.pendingCents : 0,
-        spentPendingRefundCents: item.spent && Number.isSafeInteger(item.spent.pendingRefundCents) && item.spent.pendingRefundCents >= 0 ? item.spent.pendingRefundCents : 0,
         observedNetCents: item.net.cents, overspendCents: uncertain ? null : item.overspend.cents,
         ...(ownerOnly ? { ownerPaidCents: item.owner.cents, confirmedOn: item.owner.confirmedOn } : {}) });
     }
@@ -1611,7 +1607,19 @@
     const unknown = () => ({ status: 'unavailable', amount: null, range: null });
     return { asOf, originalCost: unknown(), confirmedLinkedPaid: unknown(), unpaidCost: unknown() };
   }
-  function commitmentPublicationCost(plan, row, asOf, index, configured) {
+  function savingsTaggedSpendFact(tally) {
+    if (!tally) return null;
+    if (tally.withheld) return { status: 'withheld', amount: null, range: null, reason: 'tag-tally-withheld' };
+    return { status: 'known', amount: tally.cents / 100, range: null,
+      ...(tally.pendingCents > 0 ? { pendingAmount: tally.pendingCents / 100 } : {}),
+      ...(tally.pendingRefundCents > 0 ? { pendingRefundAmount: tally.pendingRefundCents / 100 } : {}),
+      ...(tally.recon.length ? { recon: tally.recon, hasPurchases: tally.recon.some(row => row.amount > 0) } : {}) };
+  }
+  function savingsCommitmentTaggedSpend(plan, row, asOf, opts) {
+    const tallies = savingsTaggedTalliesFor(plan, asOf, currentPeriodActualsPacket(opts));
+    return savingsTaggedSpendFact(tallies?.get(row.id + '@' + commitmentCashDate(row)));
+  }
+  function commitmentPublicationCost(plan, row, asOf, index, configured, opts) {
     const result = unavailableCommitmentCost(asOf);
     if (!savingsDate(asOf) || !row || typeof row.id !== 'string' || !row.id
         || (plan.commitments || []).filter(c => c && c.id === row.id).length !== 1
@@ -1623,6 +1631,8 @@
     if (point != null) result.originalCost = { status: 'known', amount: point / 100, range: null };
     else if (row.amount == null && low != null && high != null && high >= low)
       result.originalCost = { status: 'known', amount: null, range: { min: low / 100, max: high / 100 } };
+    const taggedSpend = savingsCommitmentTaggedSpend(plan, row, asOf, opts);
+    if (taggedSpend) result.taggedSpend = taggedSpend;
     // No evidence is distinct from confirmed zero. Malformed configured input
     // and uncertain relief withhold paid/unpaid facts rather than inventing zero.
     if (index && !index.has(row.id) && savingsLedgerNamedIds.get(index)?.has(row.id)) return result;
@@ -1630,12 +1640,6 @@
       if (!configured) for (const key of ['confirmedLinkedPaid', 'unpaidCost']) result[key].status = 'unconfigured';
       return result;
     }
-    const spentEntry = index.get(row.id);
-    if (spentEntry?.spentWithheld === true) result.taggedSpend = { status: 'withheld', amount: null, range: null, reason: 'tag-tally-withheld' };
-    else if (spentEntry && Number.isSafeInteger(spentEntry.spentCents) && spentEntry.spentCents >= 0)
-      result.taggedSpend = { status: 'known', amount: spentEntry.spentCents / 100, range: null,
-        ...(spentEntry.spentPendingCents > 0 ? { pendingAmount: spentEntry.spentPendingCents / 100 } : {}),
-        ...(spentEntry.spentPendingRefundCents > 0 ? { pendingRefundAmount: spentEntry.spentPendingRefundCents / 100 } : {}) };
     const relief = settlementRowRelief(index, row, point);
     if (relief?.uncertain) return result;
     result.confirmedLinkedPaid = { status: 'known', amount: relief ? relief.linkedPaidCents / 100 : 0, range: null };
@@ -1674,16 +1678,17 @@
       if (known && Number.isSafeInteger(min) && Number.isSafeInteger(max)) result[key] = {
         status: 'known', amount: ranged ? null : min / 100, range: ranged ? { min: min / 100, max: max / 100 } : null };
     }
-    if (members.some(i => i.commitmentCost.taggedSpend?.status === 'withheld')) {
+    const tagged = members.map(i => i.commitmentCost.taggedSpend).filter(Boolean);
+    if (tagged.some(fact => fact.status === 'withheld')) {
       result.taggedSpend = { status: 'withheld', amount: null, range: null, reason: 'tag-tally-withheld' };
-    } else if (members.every(i => i.commitmentCost.taggedSpend?.status === 'known'
-        && Number.isSafeInteger(savingsCents(i.commitmentCost.taggedSpend.amount)))) {
-      const total = members.reduce((sum, i) => sum + savingsCents(i.commitmentCost.taggedSpend.amount), 0);
-      const pendingOf = key => members.reduce((sum, i) => sum + (savingsCents(i.commitmentCost.taggedSpend[key] || 0) || 0), 0);
+    } else if (tagged.length && tagged.every(fact => fact.status === 'known'
+        && Number.isSafeInteger(savingsCents(fact.amount)))) {
+      const total = tagged.reduce((sum, fact) => sum + savingsCents(fact.amount), 0);
+      const pendingOf = key => tagged.reduce((sum, fact) => sum + (savingsCents(fact[key] || 0) || 0), 0);
       const pending = pendingOf('pendingAmount'), pendingRefund = pendingOf('pendingRefundAmount');
-      if (Number.isSafeInteger(total)) result.taggedSpend = { status: 'known', amount: total / 100, range: null,
-        ...(pending > 0 ? { pendingAmount: pending / 100 } : {}),
-        ...(pendingRefund > 0 ? { pendingRefundAmount: pendingRefund / 100 } : {}) };
+      const recon = tagged.flatMap(fact => fact.recon || []);
+      if ([total, pending, pendingRefund].every(Number.isSafeInteger)) result.taggedSpend = savingsTaggedSpendFact({
+        cents: total, pendingCents: pending, pendingRefundCents: pendingRefund, recon });
     }
     // A5: with any owner-confirmed member, Paid is each member's own Paid
     // fact (owner amount; Unknown for an unstated full amount; otherwise the
@@ -1706,16 +1711,13 @@
   // A5: a full owner confirmation's display cost. Original cost as stated;
   // U = 0; the actual amount and date paid are Unknown (no amount is
   // invented and no transaction is read as the owner's).
-  function ownerConfirmedCommitmentCost(row, asOf, confirmedOn, index) {
+  function ownerConfirmedCommitmentCost(plan, row, asOf, confirmedOn, index, opts) {
     const result = unavailableCommitmentCost(asOf), point = savingsCents(row.amount);
     // Linked spending the item ledger observed is shown beside the
     // confirmation as its own fact; it never becomes the owner's amount.
     const entry = index?.get(row.id), observed = entry?.source === SAVINGS_LEDGER_SOURCE ? entry.observedNetCents : null;
-    if (entry?.spentWithheld === true) result.taggedSpend = { status: 'withheld', amount: null, range: null, reason: 'tag-tally-withheld' };
-    else if (entry && Number.isSafeInteger(entry.spentCents) && entry.spentCents >= 0)
-      result.taggedSpend = { status: 'known', amount: entry.spentCents / 100, range: null,
-        ...(entry.spentPendingCents > 0 ? { pendingAmount: entry.spentPendingCents / 100 } : {}),
-        ...(entry.spentPendingRefundCents > 0 ? { pendingRefundAmount: entry.spentPendingRefundCents / 100 } : {}) };
+    const taggedSpend = savingsCommitmentTaggedSpend(plan, row, asOf, opts);
+    if (taggedSpend) result.taggedSpend = taggedSpend;
     if (Number.isSafeInteger(observed) && observed > 0) result.observedLinked = { status: 'known', amount: observed / 100, range: null };
     if (point != null) result.originalCost = { status: 'known', amount: point / 100, range: null };
     result.unpaidCost = { status: 'known', amount: 0, range: null };
@@ -1831,7 +1833,7 @@
     }
     if (['commitment', 'group'].includes(ref.kind)) goal.commitmentCost = resolved
       ? aggregateCommitmentCost(rows.filter(row => !commitmentSettledBy(row, asOf) && !(disabled || []).includes(row.id)).map(row => ({ id: row.id,
-        commitmentCost: commitmentPublicationCost(plan, row, asOf, reliefIndex, evidence != null) })), asOf)
+        commitmentCost: commitmentPublicationCost(plan, row, asOf, reliefIndex, evidence != null, opts) })), asOf)
       : unavailableCommitmentCost(asOf);
     return goal;
   }
@@ -2087,6 +2089,118 @@
     result.status = 'available';
     return result;
   }
+  // Exact tag and native occurrence qualify the display independently of
+  // the pool and anchor. Keep the observer's one posting/duplicate decision.
+  function savingsTaggedEvidence(plan, asOf, packet, publication = savingsLinkPublication(plan, asOf, packet)) {
+    if (!savingsDate(asOf) || publication?.status !== 'available') return null;
+    const raw = packet.savingsLinks;
+    const links = publication.links.filter(link => link.type === 'tag').map(link => {
+      const input = raw.links.find(row => row.ref === link.ref);
+      const ref = input.goalRef ?? input.tagGoalRef;
+      const date = link.occurrenceDate;
+      const validRef = savingsKeys(ref, ['kind', 'id']) && SAVINGS_ALIAS.test(ref.id || '')
+        && ['commitment', 'group', 'yearly-bill', 'budget-reserve'].includes(ref.kind);
+      const goal = validRef ? savingsGoal(plan, ref, asOf) : null;
+      let ids = [];
+      if (goal?.resolved) {
+        const members = new Set(goal.members.map(member => member.slice(5)));
+        if (ref.kind === 'yearly-bill') {
+          ids = expandEvents(plan, date, date, {}).filter(event => event.kind === 'bill' && members.has(event.id)).map(event => event.id);
+        } else if (ref.kind === 'budget-reserve') {
+          ids = (plan.budget?.categories || []).filter(row => members.has(row?.id) && row.planningDate === date).map(row => row.id);
+        } else {
+          ids = (plan.commitments || []).filter(row => members.has(row?.id) && commitmentCashDate(row) === date
+            && !(plan.bills || []).some(bill => bill?.id === row.id)
+            && !(plan.budget?.categories || []).some(category => category?.id === row.id)).map(row => row.id);
+        }
+      }
+      const occurrenceKey = ids.length === 1 ? ids[0] + '@' + date : null;
+      const cutoff = addDays(date, 14);
+      const effectiveThrough = link.effectiveThrough < cutoff ? link.effectiveThrough : cutoff;
+      const through = effectiveThrough < raw.asOf ? effectiveThrough : raw.asOf;
+      const window = packet.transactionWindow;
+      const history = packet.transactionCoverage === 'complete' && window?.complete === true
+        && window.hasMore === false && window.truncated === false && savingsDate(window.startDate)
+        && savingsDate(window.endDate) && window.startDate <= link.effectiveFrom && window.endDate >= through
+        ? 'complete' : 'incomplete';
+      const linked = occurrenceKey != null && effectiveThrough >= link.effectiveFrom;
+      return { ref: link.ref, type: link.type, goalKey: goal?.key ?? null, occurrenceKey,
+        effectiveFrom: link.effectiveFrom, effectiveThrough, history,
+        status: linked ? 'linked' : 'unresolved', reason: linked ? null : 'occurrence-unresolved' };
+    });
+    const counts = new Map();
+    for (const { occurrenceKey } of links) if (occurrenceKey) counts.set(occurrenceKey, (counts.get(occurrenceKey) || 0) + 1);
+    for (const link of links) if (counts.get(link.occurrenceKey) > 1) {
+      link.status = 'unresolved';
+      link.reason = 'conflicting-links';
+    }
+    const tagByRef = new Map(links.map(link => [link.ref, link]));
+    const rawByRef = new Map(raw.evidence.map(row => [row.transactionRef, row]));
+    const txByRef = new Map((packet.transactions || []).map(tx => [tx?.id, tx]));
+    const evidence = [];
+    for (const row of publication.evidence) {
+      const hits = row.linkRefs.map(ref => tagByRef.get(ref))
+        .filter(link => link && row.date >= link.effectiveFrom && row.date <= link.effectiveThrough);
+      if (!hits.length) continue;
+      const input = rawByRef.get(row.transactionRef), tx = txByRef.get(row.transactionRef);
+      const extraState = input.reason === 'conflicting-links' && row.direction === (tx.amount > 0 ? 'charge' : 'refund')
+        && ['posted', 'pending'].includes(input.tagPostingState) && input.tagPostingState === tx.savingsPostingEvidence
+        ? input.tagPostingState : null;
+      const state = extraState || row.state;
+      const key = hits[0].occurrenceKey;
+      const qualified = hits.length === 1 && hits[0].status === 'linked' && state !== 'unresolved'
+        && (extraState || row.occurrenceKey === key);
+      evidence.push({ transactionRef: row.transactionRef, date: row.date, direction: row.direction,
+        linkRefs: hits.map(link => link.ref), occurrenceKey: qualified ? key : null, state: qualified ? state : 'unresolved',
+        reason: qualified ? null : row.reason || 'conflicting-links' });
+    }
+    return { links, evidence };
+  }
+  savingsLinkTarget.taggedEvidence = savingsTaggedEvidence;
+
+  const savingsTaggedTallyCache = new WeakMap();
+  function savingsTaggedTalliesFor(plan, asOf, packet, publication) {
+    if (!packet?.savingsLinks || !plan || !savingsDate(asOf)) return null;
+    let plans = savingsTaggedTallyCache.get(packet);
+    if (!plans) { plans = new WeakMap(); savingsTaggedTallyCache.set(packet, plans); }
+    let dates = plans.get(plan);
+    if (!dates) { dates = new Map(); plans.set(plan, dates); }
+    if (!dates.has(asOf)) {
+      const tagged = savingsTaggedEvidence(plan, asOf, packet, publication);
+      const txById = new Map((packet.transactions || []).map(tx => [tx?.id, tx]));
+      dates.set(asOf, savingsTaggedTallies(tagged, txById));
+    }
+    return dates.get(asOf);
+  }
+  function savingsTaggedTallies(tagged, txById) {
+    const tallies = new Map();
+    const withheld = { ...ledgerFact(null), withheld: true };
+    for (const link of tagged?.links || []) {
+      const key = link.occurrenceKey;
+      if (!key) continue;
+      if (link.status !== 'linked' || link.history !== 'complete') { tallies.set(key, withheld); continue; }
+      const rows = tagged.evidence.filter(row => row.linkRefs.includes(link.ref));
+      let charges = 0, refunds = 0, pendingCharges = 0, pendingRefunds = 0;
+      const recon = [];
+      for (const row of rows) {
+        if (row.state === 'unresolved') break;
+        const tx = txById.get(row.transactionRef);
+        const cents = savingsCents(tx.amount, true);
+        const pending = row.state === 'pending';
+        if (cents > 0) { charges += cents; if (pending) pendingCharges += cents; }
+        else if (pending) pendingRefunds -= cents;
+        else refunds -= cents;
+        const { displayedPayee, originalMerchant, displayedNote, bankDescription } = reconTxFrom(tx);
+        recon.push({ id: row.transactionRef, date: row.date, amount: cents / 100, pending,
+          displayedPayee, originalMerchant, displayedNote, bankDescription });
+      }
+      const known = recon.length === rows.length && refunds <= charges
+        && [charges, refunds, pendingCharges, pendingRefunds].every(Number.isSafeInteger);
+      tallies.set(key, known ? { ...ledgerFact(charges - refunds, 'calculated'),
+        pendingCents: pendingCharges, pendingRefundCents: pendingRefunds, recon } : withheld);
+    }
+    return tallies;
+  }
   // Descriptive metadata belongs to its existing goal row. Keep the governed
   // Forecast packet roots unchanged, including with the foundation enabled.
   // A4a: an unresolved link that names no goal row is attached to every row,
@@ -2216,6 +2330,7 @@
     const keys = result.status !== 'available' ? []
       : [...new Set(links.links.filter(link => link.status === 'linked').map(link => link.occurrenceKey))];
     const txById = new Map((packet?.transactions || []).map(tx => [tx?.id, tx]));
+    const tallies = savingsTaggedTalliesFor(plan, asOf, packet, links);
     for (const key of keys) {
       const at = key.lastIndexOf('@'), id = key.slice(0, at), date = key.slice(at + 1);
       const own = links.links.filter(link => link.occurrenceKey === key);
@@ -2292,45 +2407,10 @@
         const ownerPaid = commitments.length === 1 ? commitmentOwnerPaid(commitments[0], asOf) : null;
         if (ownerPaid) owner = { status: 'partial', cents: ownerPaid.cents, confirmedOn: ownerPaid.confirmedOn };
       }
-      // Plain tagged-spend tally for the item's bar: resolved purchases in
-      // the packet (posted and pending, the observer having already counted
-      // a pending row once with its posted twin) minus posted tagged
-      // refunds, through two weeks after the item's own date. It is shown
-      // no stronger than calculated and never relieves Paid or need: a
-      // pending or history hold still withholds those above.
-      // Only matching TAG evidence counts (a category-only match never earns
-      // it), and only when every tag link's history is complete in this
-      // packet: a window that no longer covers the link start has lost
-      // earlier rows, so the tally is withheld, never a partial amount or a
-      // zero. A pending purchase is counted once (its posted twin is already
-      // collapsed by the observer) and reported separately as pending; a
-      // pending refund is not netted and is reported as pending too.
-      const spentThrough = addDays(date, 14);
-      const tagRefs = new Set(own.filter(link => link.type === 'tag').map(link => link.ref));
-      let spentCents = null, pendingCharges = 0, pendingRefunds = 0;
-      if (tagRefs.size && own.filter(link => tagRefs.has(link.ref)).every(link => link.history === 'complete')
-          && !rows.some(item => item.state === 'unresolved')) {
-        let charges = 0, refunds = 0, usable = true;
-        for (const item of rows) {
-          if (!item.linkRefs.some(ref => tagRefs.has(ref))) continue;
-          if (spentThrough && item.date > spentThrough) continue;
-          const cents = savingsCents(txById.get(item.transactionRef)?.amount, true);
-          if (cents == null) { usable = false; break; }
-          if (cents > 0) { charges += cents; if (item.state === 'pending') pendingCharges += cents; }
-          else if (cents < 0 && item.state === 'posted') refunds -= cents;
-          else if (cents < 0) pendingRefunds -= cents;
-        }
-        if (usable && refunds <= charges && Number.isSafeInteger(charges - refunds)) spentCents = charges - refunds;
-      }
       result.items.push({ occurrenceKey: key, goalKey: own[0].goalKey, needDate: date,
         evidence: rows.map(item => ({ transactionRef: item.transactionRef, direction: item.direction, state: item.state })),
         ...savingsLedgerEntry({ plannedCents, transactions, owner, overlap }),
-        spent: { ...ledgerFact(spentCents, 'calculated'),
-          ...(spentCents != null ? { pendingCents: pendingCharges, pendingRefundCents: pendingRefunds }
-            // A tag link exists but its tally is unavailable (history,
-            // unresolved evidence): a display-only withheld state, distinct
-            // from an item with no tag at all. It carries no amount.
-            : tagRefs.size ? { withheld: true } : {}) } });
+        spent: tallies?.get(key) || ledgerFact(null) });
     }
     if (opts.pool) {
       result.pool = savingsLedgerPool({ cashCents: opts.pool.cashCents, liabilities: opts.pool.liabilities,
@@ -6067,7 +6147,7 @@
         groupLabel: groupId ? (groupMeta.labels.get(groupId) || null) : null,
         planSpendSummary: !!(groupId && groupMeta.summary.has(groupId)),
         need,
-        commitmentCost: commitmentPublicationCost(plan, c, asOf, reliefIndex, opts.settlementEvidence != null),
+        commitmentCost: commitmentPublicationCost(plan, c, asOf, reliefIndex, opts.settlementEvidence != null, opts),
         amountMin: range.amountMin,
         amountMax: range.amountMax,
         bounds,
@@ -29611,7 +29691,7 @@
       const key = c.id + '@' + date; if (seen.has(key)) continue; seen.add(key);
       paidDisplay.push({ key, id: c.id, label: c.label, date, scheduledDate: date, when: c.when || null, group: null,
         groupLabel: null, source: null, rank: Number.MAX_SAFE_INTEGER,
-        needed: 0, neededRange: null, commitmentCost: ownerConfirmedCommitmentCost(c, day, life.confirmedOn, ownerIndex),
+        needed: 0, neededRange: null, commitmentCost: ownerConfirmedCommitmentCost(plan, c, day, life.confirmedOn, ownerIndex, opts),
         paymentStatus: 'paid', paymentSource: 'owner-confirmed', confirmedOn: life.confirmedOn, paidOn: null, paymentRetired: false,
         saved: null, inactive: false, trust: c.confidence === 'confirmed' ? 'calculated' : c.confidence === 'estimated' ? 'estimated' : 'unknown',
         poolId: 'combined-savings', needCents: 0, savedCents: 0, event: null, dateBasis: 'cash-planning-date' });
@@ -29646,7 +29726,7 @@
           const judged = settlementRowRelief(reliefIndex, c, savingsCents(commitmentNeed(c)));
           append({id:c.id,label:c.label,
             date:commitmentCashDate(c),when:c.when,group:c.group,confidence:c.confidence,
-            commitmentCost:commitmentPublicationCost(plan,c,day,reliefIndex,opts.settlementEvidence!=null),
+            commitmentCost:commitmentPublicationCost(plan,c,day,reliefIndex,opts.settlementEvidence!=null,opts),
             need: judged ? (judged.uncertain ? null : judged.remainingCents / 100) : commitmentNeed(c),
             ...(judged && judged.uncertain ? { settlementUncertain: true } : {}),
             ...commitmentRange(c)});
@@ -29851,7 +29931,7 @@
           const item = { key, id, label: source?.label || id, date: matches.length === 1 ? cashWalkDate(matches[0], day) : date,
             ...(commitmentPaymentLifecycle(plan, commitment, day, reliefIndex) || {}),
             ...(commitment ? { commitmentCost: inactive ? unavailableCommitmentCost(day)
-              : commitmentPublicationCost(plan, commitment, day, reliefIndex, opts.settlementEvidence != null) } : {}),
+              : commitmentPublicationCost(plan, commitment, day, reliefIndex, opts.settlementEvidence != null, opts) } : {}),
             scheduledDate: date, rank: seq.find(c => c.id === id)?.rank || Number.MAX_SAFE_INTEGER,
             needed: need == null ? null : need / 100, neededRange: need == null && low != null && high != null ? { min: low / 100, max: high / 100 } : null,
             saved: 0, inactive: !!inactive, trust: source?.confidence === 'confirmed' ? 'calculated'

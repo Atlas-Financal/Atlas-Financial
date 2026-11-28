@@ -191,6 +191,8 @@
         ? [...contextNodes.slice(0, -1), document.createTextNode(tailLead)] : contextNodes.slice(0, -1));
     }
     if (facts.childNodes.length) content.appendChild(facts);
+    const transactions = row.querySelector('[data-budget-goal-transactions] .household-budget-txs');
+    if (transactions) content.appendChild(explainCopy(transactions));
     if (context && !labelled) {
       const line = document.createElement('p');
       line.className = 'blend-explain-context';
@@ -338,6 +340,11 @@
     const originalValue = stampedAmount(block?.getAttribute('data-budget-goal-original-amount'));
     const width = ratio => Math.max(0, Math.min(1, ratio)).toFixed(4);
     const grade = ratio => ratio >= 1 ? 'is-full' : ratio >= 0.25 ? 'is-amber' : 'is-red';
+    if (block?.getAttribute('data-budget-goal-spent-readout') === 'true') {
+      if (taggedValue == null || !(savedValue > 0)) return { band: 'is-unknown', width: null };
+      const ratio = taggedValue / savedValue;
+      return { band: grade(ratio), width: width(ratio) };
+    }
     if (paidState && !tagFollows) return { band: 'is-paid', width: null };
     if (taggedValue != null && originalValue != null && originalValue > 0 && savedValue != null) {
       const ratio = (taggedValue + savedValue) / originalValue;
@@ -2400,6 +2407,7 @@
         return mark;
       };
       const saved = sideFor('Saved');
+      const spent = sideFor('Spent');
       const planned = sideFor('Planned');
       const needed = planned || sideFor('Needed');
       const totalWord = planned ? 'Planned' : 'Needed';
@@ -2410,7 +2418,17 @@
       figures.setAttribute('data-blend-goal-figures', '');
       // Build the accessible name from the labelled amounts in reading order.
       const spoken = [name.textContent];
-      if (paidState) {
+      if (spent) {
+        figures.appendChild(printed('blend-goal-saved', 'Spent', spent.node, false));
+        spoken.push('Spent ' + text(spent.node));
+        if (saved) {
+          figures.appendChild(slash());
+          figures.appendChild(printedMoney(saved.node) ? printed('blend-goal-needed', 'Saved', saved.node, false) : unprinted(saved.node));
+          spoken.push('Saved ' + text(saved.node));
+        }
+        for (const pending of progressBlock.querySelectorAll('[data-budget-goal-spent-pending], [data-budget-goal-spent-pending-refund]'))
+          spoken.push(text(pending));
+      } else if (paidState) {
         // A paid goal says Paid. The published paid amount follows when
         // plan.js printed one; otherwise the planned cost keeps its own
         // visible label, so it is never read as an amount paid.
