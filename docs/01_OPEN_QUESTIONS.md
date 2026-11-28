@@ -65,7 +65,7 @@ has the salaries. Do not add a coaching revenue line. Extra coaching leftover is
 gravy when it actually arrives, not a recurring income line. Going forward he
 will say coaching in/out when it happens. TENNIS INCOME stays excluded from
 spendable `plan.startingCash`. Tennis BC salary remains Forecast household
-income (owner-confirmed 2026-08-22). Q25 stays OPEN for the mixed remainder.
+income (owner-confirmed 2026-08-22). Q25 answers current cash availability.
 **What the answer changes:** The historical net, if evidenced. If leftover
 exceeded coach pay and other evidenced coaching costs, the household kept a
 surplus; if HELOC-funded outbound subsidised the activity, that is a different
@@ -330,27 +330,6 @@ one amount, only after evidence exists. Do not fabricate dates or midpoints.
 A later estimate change is an edit to the existing `plan.commitments` row
 (`B95`), not a new question and not a new backlog item.
 
-### Q25. How much of Amanda’s TENNIS INCOME balance is genuinely household-available after coaching, business, and pass-through obligations?
-**Status:** OPEN · **Owner:** Dale + Amanda
-**What we know:** The account (id `amanda-debt-payments`, display name
-TENNIS INCOME, previously labelled DEBT&PAYMENTS) is already excluded from
-spendable `plan.startingCash`. Coaching/business receipts land there;
-coaches/business/pass-through amounts are paid first. Owner-confirmed
-2026-08-22: the two fixed Tennis BC salary deposits ($2,168.85 on the 15th
-and $2,387.99 on month-end) are Forecast household income. Owner-clarified
-2026-08-31: they first land in this TENNIS INCOME account and are not
-spendable there; household-visible posting proof is the later transfer into
-BILLS ACCOUNT. That path is not what this question is for. Q25 is only
-the uncertain coaching/business remainder of the mixed operating-account
-balance. Owner-stated 2026-08-29: extra coaching leftover is gravy when it
-actually arrives, not a budgeted inflow, and does not make this mixed remainder
-spendable starting cash. The Aug. 14 payday session observed $798.37 in that
-account. A fresh balance is not automatically spendable starting cash. Do not
-estimate how much of the current remainder is household-available.
-**What the answer changes:** How much, if any, of that mixed-account
-remainder can enter household available cash after a refresh. B91 must
-preserve held/pass-through semantics rather than guessing.
-
 ---
 
 ## Queued for the next round of accounts
@@ -362,6 +341,15 @@ preserve held/pass-through semantics rather than guessing.
 ---
 
 ## Answered
+
+### Q25. How much of the coaching account balance is household-available? — ANSWERED 2026-11-27
+
+Dale confirmed that none of the balance in that account is available to the
+household. The coaching funds held there are for third parties. The fixed
+salary passes through the external account and counts once on the qualified
+Bills account credit under the existing rule. The external balance stays
+outside spendable starting cash. Historical coaching profit or loss remains
+open under Q1. [Owner record](https://github.com/Atlas-Financal/Atlas-Financial/issues/821#issuecomment-7233350376)
 
 ### Card purchase coverage - confirmed opening and explicit payment intent — ANSWERED 2026-11-04
 **Answer (Dale, 2026-11-04, #787 comment 6641053911):** "the same amount or

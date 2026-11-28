@@ -122,8 +122,8 @@ Do **not** add a coaching revenue stream to `plan.income`. TENNIS INCOME
 (`amanda-debt-payments`) stays excluded from spendable `plan.startingCash`.
 Tennis BC salary remains Forecast household income. Q1 stays OPEN for
 historical coaching P&L. Q12 stays OPEN — no inventory business going
-forward is not a spending reclass. Q25 stays OPEN for the mixed-account
-remainder.
+forward is not a spending reclass. Q25 is answered in
+[`01_OPEN_QUESTIONS.md`](01_OPEN_QUESTIONS.md).
 
 Attributed source: [`household_interviews/DALE_2026-08-29_COACHING_PLANNING.md`](household_interviews/DALE_2026-08-29_COACHING_PLANNING.md).
 The 2026-08-09 tracking-sheet 27.7% / ~$1,700/month retained figure later
@@ -782,14 +782,12 @@ directly in household BILLS/WEEKLY accounts. The household-visible
 posting/representation evidence is the later transfer into BILLS ACCOUNT.
 Coaching income also lands here. Coaches/business/pass-through amounts are
 paid from this account first. Coaching surplus is not forecast and is
-transferred only after those obligations are paid. A later transfer of
-already-counted salary dollars is not a second income stream. Whatever mixed remainder is left after coaching obligations may
-become household-available only when that surplus is actually established.
-The raw balance is NOT automatically spendable household cash. Do not
-estimate how much of the current remainder is household-available (Q25 stays
-OPEN only for that coaching/business remainder). Owner-stated 2026-08-29:
-extra coaching leftover is gravy when it actually arrives, not a Forecast
-income line and not spendable starting cash.
+transferred only after those obligations are paid. Dale confirmed on
+2026-11-27 that the balance in this external account is unavailable to the
+household and the coaching funds there are for third parties. Count the
+qualified Bills credit for the fixed salary once under the existing rule.
+Coaching surplus becomes available only when it reaches the household.
+[Owner record](https://github.com/Atlas-Financal/Atlas-Financial/issues/821#issuecomment-7233350376)
 
 **Her Tennis BC pay is semi-monthly, not bi-weekly** — the **15th and the last
 day of the month**, verified across all 18 months. Recent: $2,168.85 on 15 Jul,

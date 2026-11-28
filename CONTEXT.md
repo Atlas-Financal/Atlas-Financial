@@ -228,7 +228,9 @@ accounts (Q6). Q2 (where the $46,657 of TFR-TO C/C transfers go) is
 payments to the known cards, not a missing fourth TD Visa. Q5 (why
 the monthly spousal transfer stopped after May 2026) is **ANSWERED** — the
 garage/lab income ended. Q12 stays OPEN without a spending
-reclass. Q25 stays OPEN for the TENNIS INCOME mixed remainder.
+reclass. Q25 is ANSWERED. The coaching account balance stays outside
+household available cash, and the fixed salary counts once on its qualified
+Bills credit.
 
 **Do not carry these 9 August or 16 August conclusions forward as current
 truth.** The 2026-08-19 opening replaced them: spendable cash is $939.62;
