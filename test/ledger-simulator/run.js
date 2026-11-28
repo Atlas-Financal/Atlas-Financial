@@ -29,6 +29,7 @@ const { evaluate, observationReader } = require('./witness');
 const { tokensFor, subset, shrink } = require('./shrink');
 const { workedControls } = require('./worked');
 const { inventory } = require('./inventory');
+const { signature } = require('./signature');
 const panel = {
   'topup-late': 'topup',
   'topup-pending': 'topup',
@@ -73,21 +74,6 @@ function options(argv) {
 const increment = (map, key, n = 1) => {
   map[key] = (map[key] || 0) + n;
 };
-function signature(f) {
-  const effect = Number.isSafeInteger(f.expected)
-    ? f.actual == null
-      ? 'withheld'
-      : f.actual < f.expected
-        ? 'too-low'
-        : 'too-high'
-    : Array.isArray(f.expected) && f.cause.startsWith('last-known/')
-      ? [
-          f.actual[0] == null ? 'unknown' : f.actual[0] === f.expected[0] ? 'same' : 'changed',
-          f.actual[1],
-        ].join('/')
-      : f.check;
-  return [f.cause, f.figure, f.habit, effect].join('|');
-}
 const cost = (c) => tokensFor(c.events, c.day).length;
 async function run(opts) {
   if (opts.mode === 'list')
@@ -118,7 +104,8 @@ async function run(opts) {
     faults: {},
   };
   const candidates = new Map(),
-    counts = new Map();
+    counts = new Map(),
+    missing = new Set();
   function collect(c, checksResult) {
     for (const name of checksResult.exercised) increment(stats.exercised, name);
     for (const f of checksResult.failures) {
@@ -171,10 +158,13 @@ async function run(opts) {
       const out = inspect({ ...c, view });
       // A changed result needs a current control and an exact historical
       // witness before the baseline can be reclassified as repaired.
-      assert.ok(
-        out.failures.some((f) => f.cause === cause),
-        'COVERAGE: missing consensus witness for ' + name
-      );
+      if (!out.failures.some((f) => f.cause === cause)) {
+        // The known-failure gate decides what a vanished consensus case means:
+        // a recorded one is stale and fails there. Every other mode keeps the
+        // simulator's own coverage requirement.
+        if (opts.tolerateMissingConsensus) missing.add(name);
+        else assert.fail('COVERAGE: missing consensus witness for ' + name);
+      }
       collect(c, out);
     }
     const historical = {
@@ -188,10 +178,10 @@ async function run(opts) {
       knownOnly: true,
     };
     const retained = await evaluate(historical, historical.events);
-    assert.ok(
-      retained.failures.some((f) => f.cause === 'topup'),
-      'missing retained prior-row witness'
-    );
+    if (!retained.failures.some((f) => f.cause === 'topup')) {
+      if (opts.tolerateMissingConsensus) missing.add(historical.panel);
+      else assert.fail('missing retained prior-row witness');
+    }
     collect(historical, retained);
     if (modes === 'known-six') continue;
     const journal = generate(seed, days, opts.rates);
@@ -378,7 +368,8 @@ async function run(opts) {
     );
   result.consensus = ranked.filter((r) => known.includes(r.cause));
   result.additional = ranked.filter((r) => !known.includes(r.cause));
-  assert.equal(result.consensus.length, 6, 'partial known-six coverage');
+  if (opts.tolerateMissingConsensus) result.missingConsensus = [...missing].sort();
+  else assert.equal(result.consensus.length, 6, 'partial known-six coverage');
   result.reportId = digest(result);
   return result;
 }
@@ -445,4 +436,4 @@ if (require.main === module)
     console.error('HARNESS OR COVERAGE FAILURE', err.stack);
     process.exitCode = 2;
   });
-module.exports = { run, options, panel, replayReport };
+module.exports = { run, options, panel, replayReport, signature };

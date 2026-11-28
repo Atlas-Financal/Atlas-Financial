@@ -1,0 +1,298 @@
+{
+  "schema": 1,
+  "note": "Known failures of the invented ledger simulator on its fixed CI sample. Invented data only. Each entry is a real defect that reproduces today and is queued to be fixed elsewhere. A new failure fails the gate; an entry that stops reproducing also fails it until the entry is removed. See README.md, Known-failure gate.",
+  "run": {
+    "mode": "advisory",
+    "seeds": [
+      73
+    ],
+    "days": 7
+  },
+  "entries": [
+    {
+      "id": "topup-late",
+      "invariant": "internal-neutral",
+      "cause": "topup",
+      "figure": "Balance After Deductions / Bills period end",
+      "habit": "topup-late",
+      "effect": "internal-neutral",
+      "rootCause": "Consensus 1. An own-account top-up whose receiving leg is late is held as an outflow: Balance After Deductions falls by the transfer and Bills period end becomes unavailable.",
+      "witness": {
+        "seed": 73,
+        "day": "2026-10-12",
+        "panel": "topup-late",
+        "fault": null
+      },
+      "clearedBy": {
+        "status": "open-pr",
+        "ref": "#1681 Keep transfers between our own accounts out of spending and income"
+      }
+    },
+    {
+      "id": "topup-pending",
+      "invariant": "internal-neutral",
+      "cause": "topup",
+      "figure": "Balance After Deductions / Bills period end",
+      "habit": "topup-pending",
+      "effect": "internal-neutral",
+      "rootCause": "Consensus 1. Same as topup-late, with the receiving leg pending instead of late.",
+      "witness": {
+        "seed": 73,
+        "day": "2026-10-12",
+        "panel": "topup-pending",
+        "fault": null
+      },
+      "clearedBy": {
+        "status": "open-pr",
+        "ref": "#1681 Keep transfers between our own accounts out of spending and income"
+      }
+    },
+    {
+      "id": "topup-retained-pending",
+      "invariant": "internal-neutral",
+      "cause": "topup",
+      "figure": "retained pending top-up / Bills period end",
+      "habit": "topup-pending",
+      "effect": "internal-neutral",
+      "rootCause": "Consensus 1. A pending top-up kept on the retained reading after a missing-balance day still reduces Balance After Deductions and blanks Bills period end.",
+      "witness": {
+        "seed": 73,
+        "day": "2026-10-14",
+        "panel": "retained-pending-topup",
+        "fault": "missing-balance"
+      },
+      "clearedBy": {
+        "status": "open-pr",
+        "ref": "#1681 Keep transfers between our own accounts out of spending and income"
+      }
+    },
+    {
+      "id": "bill-above-plan",
+      "invariant": "purchase-once",
+      "cause": "bill",
+      "figure": "bill still due and Other",
+      "habit": "bill-above",
+      "effect": "purchase-once",
+      "rootCause": "Consensus 4. A bill paid above its planned amount is not tied to its occurrence, so the bill stays due and the same debit also counts in Other spending.",
+      "witness": {
+        "seed": 73,
+        "day": "2026-10-12",
+        "panel": "bill-above",
+        "fault": null
+      },
+      "clearedBy": {
+        "status": "backlog",
+        "ref": "BACKLOG.md work list, Bills: 'The rest of the bills audit' (#1611 7224156180; list added by #1689)"
+      }
+    },
+    {
+      "id": "bill-renamed",
+      "invariant": "purchase-once",
+      "cause": "bill",
+      "figure": "bill still due and Other",
+      "habit": "bill-renamed",
+      "effect": "purchase-once",
+      "rootCause": "Consensus 4. A bill paid under a new payee name stays due and the same debit also counts in Other spending.",
+      "witness": {
+        "seed": 73,
+        "day": "2026-10-12",
+        "panel": "bill-renamed",
+        "fault": null
+      },
+      "clearedBy": {
+        "status": "backlog",
+        "ref": "BACKLOG.md work list, Bills: 'The rest of the bills audit' (#1611 7224156180; list added by #1689)"
+      }
+    },
+    {
+      "id": "bill-paid-from-weekly",
+      "invariant": "purchase-once",
+      "cause": "bill",
+      "figure": "bill still due and Other",
+      "habit": "bill-weekly",
+      "effect": "purchase-once",
+      "rootCause": "Consensus 4. A bill paid from the Weekly account instead of Bills stays due and the same debit also counts in Other spending.",
+      "witness": {
+        "seed": 73,
+        "day": "2026-10-12",
+        "panel": "bill-weekly",
+        "fault": null
+      },
+      "clearedBy": {
+        "status": "backlog",
+        "ref": "BACKLOG.md work list, Bills: 'The rest of the bills audit' (#1611 7224156180; list added by #1689)"
+      }
+    },
+    {
+      "id": "subscription-paypal",
+      "invariant": "purchase-once",
+      "cause": "bill",
+      "figure": "schedule-settled subscription and Other",
+      "habit": "subscription-paypal",
+      "effect": "purchase-once",
+      "rootCause": "Consensus 4. A subscription settled by its schedule reads Paid while its processor-named debit also counts in Other spending.",
+      "witness": {
+        "seed": 73,
+        "day": "2026-10-12",
+        "panel": "subscription-paypal",
+        "fault": null
+      },
+      "clearedBy": {
+        "status": "backlog",
+        "ref": "BACKLOG.md work list, Bills: 'The rest of the bills audit' (#1611 7224156180; list added by #1689)"
+      }
+    },
+    {
+      "id": "line-of-credit-held-twice",
+      "invariant": "figures",
+      "cause": "line-payment",
+      "figure": "line minimum and held outflows",
+      "habit": "line-payment",
+      "effect": "figures",
+      "rootCause": "Consensus 2. A line-of-credit payment is deducted twice: once through the line minimum in the bill load and again as a held transfer outflow.",
+      "witness": {
+        "seed": 73,
+        "day": "2026-10-12",
+        "panel": "line-payment",
+        "fault": null
+      },
+      "clearedBy": {
+        "status": "open-pr",
+        "ref": "#1679 Count a HELOC payment once in Budget"
+      }
+    },
+    {
+      "id": "equal-card-payments",
+      "invariant": "figures",
+      "cause": "equal-card",
+      "figure": "card Paid back",
+      "habit": "equal-card",
+      "effect": "too-low",
+      "rootCause": "Consensus 3. Two equal payments to one card close together, each with its issuer receipt, read Paid back as zero.",
+      "witness": {
+        "seed": 73,
+        "day": "2026-10-14",
+        "panel": "equal-card",
+        "fault": null
+      },
+      "clearedBy": {
+        "status": "backlog",
+        "ref": "BACKLOG.md work list, Agreed next: 'Same-card noted payments' (list added by #1689); lead to confirm it covers this case"
+      }
+    },
+    {
+      "id": "noteless-transfer-as-minimum",
+      "invariant": "figures",
+      "cause": "false-minimum",
+      "figure": "card Paid back",
+      "habit": "near-minimum",
+      "effect": "too-high",
+      "rootCause": "Consensus 6. An outgoing e-transfer with no card note and no card receipt, sized like a card minimum, is counted as that card's payment.",
+      "witness": {
+        "seed": 73,
+        "day": "2026-10-12",
+        "panel": "near-minimum",
+        "fault": null
+      },
+      "clearedBy": {
+        "status": "unplaced",
+        "ref": "No PR yet. Touches the OD-044 amount-match case, so rule 17 applies (Grok Bot first); lead to place"
+      }
+    },
+    {
+      "id": "ownerless-shopping",
+      "invariant": "figures",
+      "cause": "shopping",
+      "figure": "ownerless Shopping in Other",
+      "habit": "shopping",
+      "effect": "too-high",
+      "rootCause": "Consensus 5. A Shopping purchase with no person lands in Other spending.",
+      "witness": {
+        "seed": 73,
+        "day": "2026-10-12",
+        "panel": "shopping",
+        "fault": null
+      },
+      "clearedBy": {
+        "status": "parked",
+        "ref": "Parked by Dale: a funded Shopping line (#1620 7233283301); shared Shopping stays in Other spending until he decides"
+      }
+    },
+    {
+      "id": "surplus-omits-held-outflow",
+      "invariant": "figures",
+      "cause": "figures/remainder",
+      "figure": "Stack Surplus / Balance After Deductions",
+      "habit": "mixed",
+      "effect": "too-low",
+      "rootCause": "Outside the six. Stack Surplus leaves out a held outflow that Balance After Deductions deducts, so the two published figures disagree.",
+      "witness": {
+        "seed": 73,
+        "day": "2026-10-10",
+        "panel": "timeline",
+        "fault": null
+      },
+      "clearedBy": {
+        "status": "unplaced",
+        "ref": "Astra corrected first report, 'Held outflow omitted from Stack Surplus' (#1611 7233129551); no PR or backlog entry yet; lead to place"
+      }
+    },
+    {
+      "id": "advice-with-unresolved-evidence",
+      "invariant": "no-move",
+      "cause": "advice/unresolved",
+      "figure": "current money-move instructions",
+      "habit": "mixed",
+      "effect": "no-move",
+      "rootCause": "Outside the six. Forecast gives a pay instruction and money-movement-required while a row it depends on is still unresolved.",
+      "witness": {
+        "seed": 73,
+        "day": "2026-10-12",
+        "panel": "timeline",
+        "fault": null
+      },
+      "clearedBy": {
+        "status": "unplaced",
+        "ref": "Astra corrected first report, 'Payment instruction alongside unresolved evidence' (#1611 7233129551); no PR or backlog entry yet; lead to place"
+      }
+    },
+    {
+      "id": "advice-with-unresolved-thin-card",
+      "invariant": "no-move",
+      "cause": "advice/unresolved",
+      "figure": "current money-move instructions",
+      "habit": "thin-card",
+      "effect": "no-move",
+      "rootCause": "Outside the six. Same as advice-with-unresolved-evidence, reached through a thin card reading.",
+      "witness": {
+        "seed": 73,
+        "day": "2026-10-12",
+        "panel": "rotation",
+        "fault": "thin-card"
+      },
+      "clearedBy": {
+        "status": "unplaced",
+        "ref": "Astra corrected first report, 'Payment instruction alongside unresolved evidence' (#1611 7233129551); no PR or backlog entry yet; lead to place"
+      }
+    },
+    {
+      "id": "malformed-statement-refresh",
+      "invariant": "refresh",
+      "cause": "refresh/malformed-statement",
+      "figure": "refresh exception",
+      "habit": "malformed-statement",
+      "effect": "refresh",
+      "rootCause": "Outside the six. One malformed card statement occurrence throws and refuses the whole refresh instead of withholding only that card.",
+      "witness": {
+        "seed": 73,
+        "day": "2026-10-14",
+        "panel": "qualified-fault",
+        "fault": "malformed-statement"
+      },
+      "clearedBy": {
+        "status": "backlog",
+        "ref": "BACKLOG.md work list, Root causes: 'The rest of the whole-refresh refusals' (#1611 7224186247; list added by #1689)"
+      }
+    }
+  ]
+}

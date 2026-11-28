@@ -45,3 +45,21 @@ A required cash balance or transaction-identity conflict can refuse a whole refr
 The focused review cases include the mapped pay-down-only card, payer-gap retention, a real Bills row edited between pages, qualified history across two refusals and the retained pending top-up. Secondary coverage limits remain: the synthetic owner note cannot qualify the hard-coded personal owner, the isolated studio salary scenarios do not establish the early-pay hold, and the recurring-items endpoint is empty. The entrypoint's synchronous string-path guard covers the reads used here; it is not a general filesystem sandbox.
 
 The label catalogue covers the pre-mortems and representative public classification shapes, with invented personal and issuer labels. A private provider catalogue can change independently. The simulator measures how the supplied evidence is handled and does not establish how often the household performs a habit or which repair the owner authorizes.
+
+## Known-failure gate
+
+```sh
+node test/ledger-simulator/gate.js
+node test/ledger-simulator/gate.js --report advisory.json
+node test/ledger-simulator/test-gate.js
+```
+
+The runner reports financial findings and still exits 0. The gate turns the fixed CI sample (seed 73, seven days, about half a minute) into a pass or a fail against `known-failures.json`. Each entry there names the invariant, the cause, the affected figure, the habit, the effect, its root cause in plain words, the smallest reproducing seed, day, panel and fault, and the issue, pull request or backlog item expected to clear it. All of it is invented.
+
+- A failure that matches an entry is printed as `expected` and does not fail the run.
+- A failure that matches no entry prints `NEW` and exits 1.
+- An entry that no longer reproduces prints `STALE` and exits 1. Remove that entry in the pull request that fixed it. For one of the six consensus cases, also keep the control the simulator brief asks for.
+- An entry whose smallest witness moved prints `MOVED` and exits 1 with the values to record.
+- A missing, empty, unreadable or malformed ledger, a report that is not the ledger's sample, a tampered report, or a harness or coverage failure exits 2.
+
+A match is exact on the invariant, cause, figure, habit and effect, so a recorded defect that starts failing differently is a new failure. In gate mode a vanished consensus witness is left to the ledger (it shows as `STALE`) instead of stopping the run; every other mode keeps the simulator's own coverage requirement. `test-gate.js` proves these exits with a small invented stand-in invariant, so it does not depend on Atlas's current defects. The workflow job runs both and is advisory until it is added to the required checks.

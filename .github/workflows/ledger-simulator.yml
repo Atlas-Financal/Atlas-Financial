@@ -1,16 +1,26 @@
 name: invented ledger simulator
 
+# Advisory today: this check is not in the required list, so a red result
+# does not block a merge. Its exit status is honest: it fails when the fixed
+# invented sample shows a failure that is not in
+# test/ledger-simulator/known-failures.json, when a recorded failure stops
+# reproducing (remove its entry), or when the harness or the ledger is broken.
+# It already runs on merge_group with a stable name, so making it required is
+# a settings decision (the lead's and Dale's) plus the required-check list in
+# docs/RISK_LABELS.md and test/test-merge-queue.js.
 on:
   pull_request:
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
 
 jobs:
   sample:
-    name: Ledger simulator (advisory)
+    name: Ledger simulator gate
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -18,18 +28,45 @@ jobs:
           node-version: '24.22.1'
       - name: Install runtime dependencies
         run: bash scripts/ci-test.sh install-runtime
-      - name: Replay the fixed synthetic sample
+      - name: Prove the gate's own pass and fail behaviour
+        run: |
+          set -euo pipefail
+          umask 077
+          if ! node test/ledger-simulator/test-gate.js > "$RUNNER_TEMP/ledger-gate-tests.log" 2>&1; then
+            echo "Known-failure gate self-tests failed."
+            exit 1
+          fi
+          tail -n 1 "$RUNNER_TEMP/ledger-gate-tests.log"
+      - name: Replay the fixed synthetic sample against the known-failure ledger
         run: |
           set -euo pipefail
           umask 077
           report="$RUNNER_TEMP/ledger-simulator.json"
-          if ! node test/ledger-simulator/run.js --advisory --output "$report" > "$RUNNER_TEMP/ledger-simulator.log" 2>&1; then
-            echo "Simulator execution or coverage failed."
-            exit 1
+          verdict="$RUNNER_TEMP/ledger-simulator-verdict.json"
+          status=0
+          node test/ledger-simulator/gate.js --output "$report" --verdict "$verdict" \
+            > "$RUNNER_TEMP/ledger-simulator.log" 2>&1 || status=$?
+          # The verdict names ledger entries and failure signatures only.
+          if [ -f "$verdict" ]; then
+            node -e '
+              const v = require(process.argv[1]);
+              console.log("Ledger simulator gate: " + v.verdict);
+              for (const id of v.expected) console.log("  expected  " + id);
+              for (const u of v.unrecorded) console.log("  NEW       " + u.key + " (seed " + u.witness.seed + ", day " + u.witness.day + ")");
+              for (const id of v.stale) console.log("  STALE     " + id + ": no longer reproduces; remove its entry from test/ledger-simulator/known-failures.json");
+              for (const d of v.drifted) console.log("  MOVED     " + d.id + ": smallest witness is now " + JSON.stringify(d.actual));
+            ' "$verdict"
           fi
-          node -e '
-            const fs = require("node:fs");
-            const crypto = require("node:crypto");
-            const bytes = fs.readFileSync(process.argv[1]);
-            console.log("Synthetic sample SHA-256 " + crypto.createHash("sha256").update(bytes).digest("hex"));
-          ' "$report"
+          if [ "$status" -eq 2 ] || [ ! -f "$verdict" ]; then
+            echo "Simulator harness, coverage or known-failure ledger failed (fails closed)."
+            exit 2
+          fi
+          if [ -f "$report" ]; then
+            node -e '
+              const fs = require("node:fs");
+              const crypto = require("node:crypto");
+              const bytes = fs.readFileSync(process.argv[1]);
+              console.log("Synthetic sample SHA-256 " + crypto.createHash("sha256").update(bytes).digest("hex"));
+            ' "$report"
+          fi
+          exit "$status"
