@@ -16,7 +16,7 @@ scaffolding. The rule numbers are kept so existing references (for example
 
 - **Roles**: who builds, reviews and merges, including the backup-merger
   clause and, in "Review routing and claims", the 10-minute Merge fallback.
-  This is Dale's division of labour. Codex stays paused; resuming it is
+  Builder model selection follows OD-065. Codex stays paused; resuming it is
   Dale's call. Astra builds through its mailbox (OD-035).
 - **Rules 8–10**: the PR is the record and Slack is for "needs you" and
   "done"; the weekly plain-words owner report; and repository visibility
@@ -74,16 +74,16 @@ scaffolding. The rule numbers are kept so existing references (for example
   which supersedes the reviewer part of OD-026). The Claude in-house reviewer
   sessions are stood down. The review contract, findings format and merge
   gate are unchanged.
-- **ChatGPT (Atlas):** reviewer of record (OD-027) when eligible, still the
-  second builder, one item at a time, and gives desk rulings when the lead
-  asks. It never merges.
+- **ChatGPT (Atlas):** reviewer of record (OD-027) when eligible. It can build
+  one assigned item at a time and gives desk rulings when the lead asks.
+  It never merges.
 - **Muse:** reviewer of record (OD-027) and merger under the merge gate,
   each only when eligible, plus routine monitoring. Muse does not merge a PR
   it reviewed. Planning and dispatch move to the lead.
-- **Grok (Grok Bot):** owns the ledger-side work, under rule 17 below. Grok
+- **Grok Bot (ledger app):** owns the ledger-side work under rule 17 below. Grok
   Bot writes no code. It is the ledger app, not a reviewer or merger; OD-063
   does not give it either role.
-- **Astra:** approved builder and read-only analyst (Dale, 2026-11-23;
+- **Astra:** builder and read-only analyst (Dale, 2026-11-23;
   OD-035). It takes `TASK` (read-only) and `BUILD` items from the lead
   through its mailbox, issue #1611, one at a time, under every builder rule.
   It never reviews of record or merges. Slack is the primary dispatch
@@ -194,8 +194,8 @@ ledger work (rule 17), and no PR is bundled with another (rule 11).
     answer is never itself a ledger edit; every ledger edit Grok Bot makes
     is confirmed by Dale. A change that touches any of these areas is
     built, repaired, reviewed or merged only after that answer, and only as
-    Grok Bot agreed; the approved builders still do the building. When unsure
-    whether a change touches these, ask Grok Bot. Beyond those areas, any
+    Grok Bot agreed. The assigned builder implements the agreed change. When
+    unsure whether a change touches these, ask Grok Bot. Beyond those areas, any
     change that touches money (how a figure is calculated, sourced, tagged
     or shown) includes Grok Bot in the discussion: the lead tags Grok Bot in
     the Plan #6 thread with a plain statement of the change before it is
@@ -305,18 +305,18 @@ inactive foundations must not accumulate without an owner and a next action.
 **Use one name for the lane everywhere.** Two names for one lane read as two
 lanes.
 
-### The approved active implementation agent
+### The active implementation agent
 
-The agent Dale has approved to build a given outcome — the pull request's
-builder. It is a role, not a product name. Approved builders are currently
-Claude Code (main), Atlas and Muse occasionally; Codex,
-Cursor or another owner-approved surface may hold the role, running whichever
-model that surface runs.
+The lead assigns one builder to each outcome and picks the model that fits
+that job. Any available model may build, including a Grok model (Dale,
+2026-11-28; OD-065 in [`docs/OWNER_DECISIONS.md`](docs/OWNER_DECISIONS.md)).
+The builder works on an owner-approved surface and follows the applicable
+dispatch and platform approvals.
 
-The surface and the model change nothing — not the branch rules, the
-one-outcome rule, the verification gate, the review contract, the
-owner-reserved stops, or merge authority. Two agents never hold the role for the
-same outcome at the same time.
+All builders follow the branch rules, one-outcome rule, verification gate,
+review contract, and owner-reserved stops. The builder, reviewer of record,
+and merger use three distinct models under Roles, "Review and merge
+eligibility".
 
 The agent selects the work, verifies current state before editing, implements
 one independently provable outcome on a fresh `agent/<outcome>` branch from
@@ -1080,7 +1080,7 @@ the docs PR that records it here within 24 hours; until that PR merges, the
 post exists and quotes Dale exactly; it does not re-ask Dale.
 
 A relayed decision covers routine coordination within authority that
-already exists: the order and pace of work, which approved builder takes
+already exists: the order and pace of work, which builder takes
 which item, and household facts (stop 1). It never grants or expands any
 agent's authority (who may review, merge or build, or new access). It never
 loosens the two absolutes, **Absolute data safety**, the merge gate's
