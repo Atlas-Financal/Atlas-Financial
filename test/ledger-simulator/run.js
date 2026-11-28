@@ -91,7 +91,8 @@ const cost = (c) => tokensFor(c.events, c.day).length;
 function visibleRepro(seed, day, events, fault) {
   const input = world(seed, day, events);
   const selectedIds = new Set(events.flatMap((e) => e.rows.map((r) => r.id)));
-  if (faults[fault]?.row || faults[fault]?.between) selectedIds.add(410000 + day);
+  if (faults[fault]?.row || faults[fault]?.between)
+    selectedIds.add(faults[fault]?.target?.(day) ?? 410000 + day);
   const rows = input.payload.transactions
     .filter((r) => selectedIds.has(r.id))
     .map((r) => ({
@@ -110,7 +111,9 @@ function visibleRepro(seed, day, events, fault) {
         name: fault,
         day: date(day),
         ...(faults[fault].account ? { account: faults[fault].account } : {}),
-        ...(faults[fault].row || faults[fault].between ? { target: 410000 + day } : {}),
+        ...(faults[fault].row || faults[fault].between
+          ? { target: faults[fault]?.target?.(day) ?? 410000 + day }
+          : {}),
       }
     : undefined;
   return { rows, fault: readableFault };
@@ -262,6 +265,25 @@ async function run(opts) {
   }
   const proofs = [];
   const sharedRuns = new Map();
+  // Several faults can challenge the same healthy reading. Reuse that
+  // identical two-day control during reduction; final proofs are uncached.
+  const pairs = new Map();
+  async function controlPair(seed, day, events, force) {
+    const key = JSON.stringify([
+      seed,
+      day,
+      events.map((e) => [e.habit, e.start, e.rows.map((r) => [r.id, r.sync, r.pending])]),
+    ]);
+    if (!force && pairs.has(key)) return pairs.get(key);
+    const prior = await replay(seed, day - 1, events);
+    const clean = await replay(seed, day, events, null, prior.raw);
+    const pair = { prior, clean };
+    if (!force) {
+      if (pairs.size >= 48) pairs.delete(pairs.keys().next().value);
+      pairs.set(key, pair);
+    }
+    return pair;
+  }
   for (const [key, { context: c, failure }] of candidates) {
     const cache = new Map();
     const all = tokensFor(c.events, c.day);
@@ -272,8 +294,7 @@ async function run(opts) {
       const runId = [c.seed, c.day, c.fault || '', c.panel || 'timeline', key].join(':');
       if (!force && sharedRuns.has(runId))
         return sharedRuns.get(runId).find((f) => signature(f) === signature(failure));
-      const prior = c.fault ? await replay(c.seed, c.day - 1, events) : null;
-      const clean = c.fault ? await replay(c.seed, c.day, events, null, prior.raw) : null;
+      const { prior, clean } = c.fault ? await controlPair(c.seed, c.day, events, force) : {};
       const v = (await replay(c.seed, c.day, events, c.fault, prior?.raw)).view;
       const foundAll = inspect({ ...c, events, view: v, clean: clean?.view, prior: prior?.view }).failures;
       if (!force) sharedRuns.set(runId, foundAll);
@@ -285,6 +306,13 @@ async function run(opts) {
     const related = all.filter((t) => c.events[Number(t.split('/')[0])].habit === failure.habit);
     if (await test([])) start = [];
     else if (related.length && related.length < all.length && (await test(related))) start = related;
+    else if (c.fault && all.length > 6) {
+      const recent = all.filter((t) => {
+        const e = c.events[Number(t.split('/')[0])];
+        return e.start >= c.day - 1 || e.rows.some((r) => r.sync === c.day || r.until === c.day);
+      });
+      if (recent.length && recent.length < all.length && (await test(recent))) start = recent;
+    }
     const { kept, proof } = await shrink(start, test).catch((err) => {
       throw new Error(
         key +
@@ -379,6 +407,11 @@ function family(cause) {
 async function replayReport(file) {
   const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
   assert.equal(saved.schema, 1);
+  assert.deepEqual(
+    saved.consensus.map((g) => g.cause).sort(),
+    [...known].sort(),
+    'incomplete consensus report'
+  );
   let verified = 0;
   for (const group of [...saved.consensus, ...saved.additional])
     for (const proof of group.witnesses) {

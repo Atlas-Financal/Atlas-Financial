@@ -329,6 +329,18 @@ function inspect({ seed, day, events, view: v, clean, prior, fault, baseline, kn
         );
     }
   }
+  // A new card transaction, payment claim or statement can legitimately
+  // supersede the prior reading. A thin feed by itself cannot. Decide that
+  // from arrival/withdrawal times in the invented evidence journal.
+  const changedCardEvidence = active.some(
+    (e) =>
+      (e.start === day && e.habit.startsWith('statement-')) ||
+      e.rows.some(
+        (r) =>
+          (r.key === 'card' || e.transfers.some((m) => m.to === 'card' && m.debit === r.id)) &&
+          (r.sync === day || r.until === day)
+      )
+  );
   if (
     fault &&
     prior?.qualified &&
@@ -336,7 +348,7 @@ function inspect({ seed, day, events, view: v, clean, prior, fault, baseline, kn
     prior.start === v.start &&
     numeric(prior.amounts.cardSpent) &&
     !prior.cardObservedAt &&
-    (fault === 'thin-card' || v.retained)
+    ((fault === 'thin-card' && !changedCardEvidence) || v.retained)
   ) {
     exercised.add('last-known');
     const old = prior.amounts.cardSpent;

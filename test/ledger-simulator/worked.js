@@ -84,6 +84,21 @@ async function workedControls() {
     v.unresolved = true;
     v.moves = [{ kind: 'pay', cents: 701 }];
   });
+  const changed = structuredClone(cold.view);
+  const newReceipt = build(seed, 'equal-card', day - 2);
+  const obsolete = inspect({
+    seed,
+    day,
+    events: [newReceipt],
+    fault: 'thin-card',
+    view: changed,
+    clean: clean.view,
+    prior: prior.view,
+  });
+  assert.ok(
+    !obsolete.failures.some((f) => f.check === 'last-known'),
+    'a new issuer receipt supersedes the old evidence'
+  );
   assert.equal(hit.size, checks.length);
   return {
     invariants: [...hit],

@@ -6,7 +6,7 @@ const Observer = require('../../scripts/provider-observe');
 const Memory = require('../../scripts/server-observation-memory');
 const F = require('../../public/forecast');
 const { world, date, offset } = require('./household');
-const { fetchPayload } = require('./transport');
+const { fetchPayload, faults } = require('./transport');
 const cents = (value) => (Number.isFinite(value) ? Math.round(value * 100) : null);
 const activityCache = new WeakMap();
 function activity(data) {
@@ -20,6 +20,7 @@ async function observation(seed, day, events, fault) {
   // Transport / fixture failures escape. Only exceptions from the application
   // refresh itself are product observations.
   input.payload = await fetchPayload(input.payload, day, fault, input.previousWeekly);
+  faults[fault]?.plan?.(input.data.plan);
   let result,
     exception = null;
   try {

@@ -47,6 +47,30 @@ const faults = {
       r.currency = 'eur';
     },
   },
+  'foreign-card': {
+    rate: 0.012,
+    fields: ['cardSpent', 'groceries', 'spending'],
+    target: (day) => 415000 + 2 * Math.floor(day / 14),
+    row(r) {
+      r.currency = 'eur';
+    },
+  },
+  'thin-payer': {
+    rate: 0.012,
+    account: 'bills',
+    fields: ['cardPaid', 'linePaid'],
+    edit(p) {
+      delete p.plaid_accounts.find((a) => a.id === providerId('bills')).last_fetch;
+    },
+  },
+  'malformed-statement': {
+    rate: 0.006,
+    account: 'card',
+    fields: ['cardPaid', 'billLoad', 'bad', 'surplus', 'billsEnd'],
+    plan(p) {
+      p.obligations[0].statementOccurrences = [{ scheduledDate: 'unreadable', minimum: null }];
+    },
+  },
   'malformed-amount': {
     rate: 0.015,
     fields: ['groceries', 'spending'],
@@ -63,7 +87,7 @@ const faults = {
 async function fetchPayload(source, day, faultName, previousWeekly) {
   const p = structuredClone(source),
     f = faults[faultName];
-  const targetId = 410000 + day;
+  const targetId = f?.target?.(day) ?? 410000 + day;
   const target = p.transactions.find((t) => t.id === targetId);
   if (f?.row || f?.between) assert.ok(target, 'fault must reach the designated posted row');
   f?.edit?.(p, day, previousWeekly);
