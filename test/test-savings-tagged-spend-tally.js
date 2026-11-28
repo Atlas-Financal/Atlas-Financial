@@ -142,6 +142,20 @@ const bothLinked = txs => tagged(txs, [link('tag'), { ...link('tag', 'far', '202
   assert.deepEqual(item(ledger).spent.recon.map(row => row.amount), [12.34]);
   assert.equal(ledger.items.find(row => row.occurrenceKey === 'far@2026-10-28').spent.withheld, true);
 }
+{ // The Savings list carries only the allowed display fields from Budget's projection.
+  const read = notes => costOf(tagged([raw({ notes }),
+    raw({ id: 'invented-unmarked-note', date: '2026-10-04', amount: '2.00', notes: 'Invented unmarked text' })]))
+    .item.commitmentCost.taggedSpend;
+  const withNote = read('item: Invented exhibit\nInvented second line');
+  const withoutNote = read(undefined);
+  const [marked, unmarked] = withNote.recon;
+  const keys = ['amount', 'date', 'displayedPayee', 'id', 'originalMerchant', 'pending'];
+  assert.deepEqual(Object.keys(marked).sort(), [...keys, 'displayedNote'].sort());
+  assert.deepEqual(Object.keys(unmarked).sort(), keys);
+  assert.equal(marked.displayedNote, 'Invented exhibit');
+  const { displayedNote, ...markedWithoutNote } = marked;
+  assert.deepEqual({ ...withNote, recon: [markedWithoutNote, unmarked] }, withoutNote);
+}
 { // A configured group tag selects its unique native occurrence by date.
   const x = tagged([raw()], [{ ...link('tag'), goalRef: { kind: 'group', id: 'club' } }]);
   const { packet, pub } = costOf(x);

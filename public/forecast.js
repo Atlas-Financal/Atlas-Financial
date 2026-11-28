@@ -2191,9 +2191,8 @@
         if (cents > 0) { charges += cents; if (pending) pendingCharges += cents; }
         else if (pending) pendingRefunds -= cents;
         else refunds -= cents;
-        const { displayedPayee, originalMerchant, displayedNote, bankDescription } = reconTxFrom(tx);
         recon.push({ id: row.transactionRef, date: row.date, amount: cents / 100, pending,
-          displayedPayee, originalMerchant, displayedNote, bankDescription });
+          ...reconTxFrom(tx, null, { displayIdentityOnly: true }) });
       }
       const known = recon.length === rows.length && refunds <= charges
         && [charges, refunds, pendingCharges, pendingRefunds].every(Number.isSafeInteger);
@@ -15375,14 +15374,7 @@
   }
 
   function reconTxFrom(tx, cls, extra) {
-    const pending = transactionPendingState(tx) === 'pending';
-    const duplicate = extra && extra.pendingPostedDuplicate === true;
-    return {
-      id: tx.id || null,
-      date: tx.date || null,
-      account: tx.account || tx.atlasAccountId || null,
-      amount: roundCent(Number(tx.amount) || 0),
-      categoryLabel: tx.categoryLabel || null,
+    const displayIdentity = {
       displayedPayee: reconIdentityField(tx.displayedPayee),
       originalMerchant: reconIdentityField(tx.originalMerchant),
       // Display-only. Bounded server-side (displayedItemNote); no math or
@@ -15393,6 +15385,17 @@
       // sanitizer allows it only on a credit; no math or classification reads it.
       ...(Number(tx.amount) < 0 && typeof tx.bankDescription === 'string' && tx.bankDescription.trim()
         ? { bankDescription: tx.bankDescription.trim() } : {}),
+    };
+    if (extra?.displayIdentityOnly === true) return displayIdentity;
+    const pending = transactionPendingState(tx) === 'pending';
+    const duplicate = extra && extra.pendingPostedDuplicate === true;
+    return {
+      id: tx.id || null,
+      date: tx.date || null,
+      account: tx.account || tx.atlasAccountId || null,
+      amount: roundCent(Number(tx.amount) || 0),
+      categoryLabel: tx.categoryLabel || null,
+      ...displayIdentity,
       atlasRow: (cls && (cls.atlasRow || cls.categoryId)) || null,
       includeReason: duplicate
         ? 'pending-posted-duplicate'
