@@ -1,9 +1,10 @@
 # Invented ledger simulator
 
-From the repository root, run two seeds for one calendar month with the first command. The second starts at seed 500 and runs four households for three months. Use Node 24.22.1.
+From the repository root, run one household for one calendar month with the first command. The second reproduces the two-seed first report. The third starts at seed 500 and runs four households for three months. Use Node 24.22.1.
 
 ```sh
-node test/ledger-simulator/run.js --output simulator.json
+node test/ledger-simulator/run.js --output quick.json
+node test/ledger-simulator/run.js --seed 173 --seeds 2 --months 1 --output simulator.json
 node test/ledger-simulator/run.js --seed 500 --seeds 4 --months 3 --output simulator.json
 node test/ledger-simulator/run.js --replay-report simulator.json
 ```

@@ -42,7 +42,7 @@ const panel = {
 };
 const allRates = { ...habits, ...faults };
 function options(argv) {
-  const opts = { seeds: 2, months: 1, seed: 173, rates: {}, mode: 'campaign' };
+  const opts = { seeds: 1, months: 1, seed: 173, rates: {}, mode: 'campaign' };
   const take = (i) => {
     if (i >= argv.length) throw Error('Missing option value');
     return argv[i];
