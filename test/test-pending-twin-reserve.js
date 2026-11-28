@@ -202,6 +202,18 @@ try {
     assertNoAdvice(beside, 'sibling');
   }
 
+  // ── Savings: other cash cannot release a Savings proposal beside the twin. ──
+  {
+    const savings = scenario(twin(60), { reserveSavings: true, editInput(input) {
+      input.payload.accounts[1].balance = 3000;
+      input.data.plan.startingCash.breakdown[1].value = 3000;
+    } });
+    assert.equal(savings.coverage.estimateBasis, TWIN);
+    assert.equal(savings.advice.savingsFunding.period.proposal ?? null, null, 'no Savings proposal');
+    assert.equal(savings.advice.savingsFunding.period.reason, savings.coverage.estimateReason);
+    assertNoAdvice(savings, 'savings');
+  }
+
   // ── A genuine link recovers the control and revokes only its own hold. ──
   {
     const linked = scenario([purchase(60, { id: 97001 }), purchase(60, { ...PENDING, id: 97001 })]);
@@ -282,6 +294,8 @@ try {
     ['a second possible replacement', [...twin(60), purchase(25), purchase(25, PENDING)], {}],
     ['a payment touched the twin', [...twin(60), ['bills', 60, null, 'cash', { notes: 'travelvisa' }],
       ['card', -60, null, 'credit']], {}],
+    ['a payment reversal on the ledger', [...twin(60), ['bills', 25, null, 'cash'], ['card', -25, null, 'credit'],
+      ['card', 10, null, 'credit'], ['bills', -10, null, 'cash']], {}],
   ];
   for (const [label, rows, opts] of hardCases) assertHardReplacement(scenario(rows, opts), label);
 

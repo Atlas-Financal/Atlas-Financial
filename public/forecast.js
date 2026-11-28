@@ -17311,6 +17311,8 @@
     // on the card the note names: the issuer's own receipt of that payment
     // (lead dispatch U4, option A). Read by the observer only.
     const notedCreditPairs = [], reversedPairs = new Set();
+    // Any paired payment reversal on the ledger: a twin beside one is never bounded here.
+    let paymentReversalSeen = false;
     const derivedPolicy = aggregate ? { rule: CARD_COVERAGE_AGGREGATE_RULE, opening: policy.opening,
       payments: [], refunds: [], reversals: [] } : null;
     const aggregatePeriods = [], minimumCoverage = [], savingsFundedByRef = new Map();
@@ -17602,6 +17604,7 @@
         } else pair.scheduled = scheduled;
       }
       const reversed = pairLegs(legs.cardDebit, legs.cashCredit, [], 'coverage-payment-reversal-unconfirmed').filter(fundedLeg(false));
+      if (reversed.length) paymentReversalSeen = true;
       // An unpaired posted payment leg on Bills, Weekly or Savings has an
       // unknown destination (Atlas partial review, #849). Dale's direction
       // (lead dispatch 2026-11-18): one unconfirmed card payment never blanks
@@ -18102,7 +18105,7 @@
       && issues.every(row => row.code === 'coverage-replacement-ambiguous' && row.ref)
       && issues[0].ref !== issues[1].ref ? issues.map(row => row.ref) : null;
     const boundedTwin = !!twinRefs && !destinationUnconfirmed.length && !purposeUnconfirmed.length
-      && !sourceUnconfirmed.length && packet.observationAsOf === asOf
+      && !sourceUnconfirmed.length && !paymentReversalSeen && packet.observationAsOf === asOf
       && boundedPurchaseTwin(twinRefs.map(ref => byRef.get(ref)), twinRefs.map(ref => ledger.find(row => row.ref === ref)))
       && verifiedBillsBacking(plan, asOf, opts.observedCash, bills[0], savingsCents(billsBalance, true));
     if (boundedTwin) issues.length = 0;
@@ -18130,7 +18133,7 @@
       if (pairs.get(String(posted.id)) !== String(pending.id) || pairs.get(String(pending.id)) !== String(posted.id)) return false;
       // One Budget treatment: household spending in one category, not an item.
       const [a, b] = txs.map(tx => classifyCurrentPeriodTransaction(tx, plan, { packet }));
-      if (a.householdSpending !== true || b.householdSpending !== true || a.kind !== b.kind
+      if (a.householdSpending !== true || b.householdSpending !== true || a.kind !== b.kind || a.kind === 'savings-item'
         || normalizeCategoryLabel(posted.categoryLabel) !== normalizeCategoryLabel(pending.categoryLabel)) return false;
       // Both copies wholly unpaid: no payment, refund or allocation touched either.
       if (rows.some(row => row.accountId !== account || savingsCents(row.amount) !== cents || savingsCents(row.covered) !== 0
