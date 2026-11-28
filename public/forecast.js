@@ -2185,7 +2185,8 @@
       for (const row of rows) {
         if (row.state === 'unresolved') break;
         const tx = txById.get(row.transactionRef);
-        const cents = savingsCents(tx.amount, true);
+        const cents = savingsCents(tx?.amount, true);
+        if (cents == null) break;
         const pending = row.state === 'pending';
         if (cents > 0) { charges += cents; if (pending) pendingCharges += cents; }
         else if (pending) pendingRefunds -= cents;

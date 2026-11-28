@@ -30,8 +30,7 @@ const ledgerOf = x => {
   return { packet, ledger: F.savingsItemLedger(x.plan, x.asOf, { ...x.opts, currentPeriodActuals: packet }) };
 };
 const item = ledger => ledger.items.find(row => row.occurrenceKey === NEAR);
-const costOf = x => {
-  const packet = observe(x);
+const costOf = (x, packet = observe(x)) => {
   const advice = F.recommend(x.plan, x.asOf, { ...x.opts, currentPeriodActuals: packet, debts: [] });
   const pub = F.savingsFundingPublication(advice.savingsFunding, { asOf: x.asOf, advice });
   const items = [...(advice.savingsFunding.backing.items || []), ...(advice.savingsFunding.unresolved || [])];
@@ -90,6 +89,19 @@ const bothLinked = txs => tagged(txs, [link('tag'), { ...link('tag', 'far', '202
   const { recon, ...fact } = costItem.commitmentCost.taggedSpend;
   assert.deepEqual(fact, { status: 'known', amount: 12.34, range: null, pendingAmount: 12.34, hasPurchases: true });
   assert.deepEqual(recon.map(row => [row.date, row.amount, row.pending]), [['2026-10-03', 12.34, true]]);
+}
+{ // Unusable tagged amounts in the packet cannot publish a subtotal or a zero row.
+  for (const [amount, pending] of [[-5.001, false], [-5.001, true], [null, false], ['-5.00', true]]) {
+    const x = tagged([raw({ amount: '20.00' }),
+      raw({ id: 'invented-invalid-refund', date: '2026-10-04', amount: '-5.00', is_pending: pending })]);
+    const packet = observe(x);
+    const refund = packet.savingsLinks.evidence.find(row => row.direction === 'refund');
+    packet.transactions.find(row => row.id === refund.transactionRef).amount = amount;
+    const { pub, item: costItem } = costOf(x, packet);
+    assert.equal(F.savingsLinkTarget.taggedEvidence(x.plan, x.asOf, packet), null);
+    assert.equal(costItem.commitmentCost.taggedSpend, undefined);
+    assert.equal(pub.rows.find(row => row.key === 'group:club').commitmentCost.taggedSpend, undefined);
+  }
 }
 { // The same tag can qualify display while the legacy anchor/pool gate holds.
   const x = tagged([raw({ id: 'made-up-twin', amount: '105.00', is_pending: true }),
