@@ -470,7 +470,7 @@ console.log('\n=== remaining owner questions stay open ===');
   ok(/^ANSWERED\b/.test(questionStatus(md, 'Q23')), 'Q23 Fusion instalments are ANSWERED');
   ok(/^OPEN\b/.test(questionStatus(md, 'Q20')), 'Q20 emergency reserve remains OPEN');
   ok(/^OPEN\b/.test(questionStatus(md, 'Q21')), 'Q21 $527.80 remains OPEN');
-  ok(/^OPEN\b/.test(questionStatus(md, 'Q25')), 'Q25 Amanda available remainder remains OPEN');
+  ok(/^ANSWERED\b/.test(questionStatus(md, 'Q25')), 'Q25 coaching account availability is ANSWERED');
   ok(/^ANSWERED\b/.test(questionStatus(md, 'Q26')), 'Q26 card pending evidence is ANSWERED');
   ok(/^ANSWERED\b/.test(questionStatus(md, 'Q4')), 'Q4 non-TD balances remain ANSWERED');
   ok(!/Canonical opening remains posted \*\*\$13,497\.00\*\* as of 9 August/.test(md),

@@ -3,8 +3,8 @@
  * `node test/test-q1-planning-policy.js`
  *
  * Proves Forecast does not treat coaching as household income, Q1 stays OPEN
- * with the owner 2026-08-29 note, Q12 and Q25 stay OPEN, and TENNIS INCOME
- * stays out of spendable starting cash. Does not invent a coaching stream,
+ * with the owner 2026-08-29 note, Q12 stays OPEN, and Q25 records why TENNIS
+ * INCOME stays out of spendable starting cash. Does not invent a coaching stream,
  * a margin, or a second income engine.
  */
 const fs = require('fs');
@@ -63,16 +63,17 @@ console.log('=== Q1 stays OPEN with the 2026-08-29 owner facts ===');
     'Q1 heading status is not ANSWERED');
 }
 
-console.log('\n=== Q12 and Q25 stay OPEN ===');
+console.log('\n=== Q12 stays OPEN and Q25 confirms coaching cash is excluded ===');
 {
   ok(/^OPEN\b/.test(statusOf('Q12')), 'Q12 status is OPEN', statusOf('Q12'));
   ok(/no inventory\s*\/\s*resale\s*\/\s*shop business\s+going forward/i.test(qBody('Q12')),
     'Q12 notes there is no inventory business going forward');
   ok(/does not close this question/i.test(qBody('Q12')),
     'Q12 is not closed without a spending reclass');
-  ok(/^OPEN\b/.test(statusOf('Q25')), 'Q25 status is OPEN', statusOf('Q25'));
-  ok(/gravy/i.test(qBody('Q25')) && /does not make this mixed remainder\s+spendable/i.test(qBody('Q25')),
-    'Q25 records leftover as gravy and keeps the mixed remainder non-spendable');
+  ok(/^ANSWERED\b/.test(statusOf('Q25')), 'Q25 status is ANSWERED', statusOf('Q25'));
+  const q25 = qBody('Q25');
+  ok(/coaching funds held there are for third parties/i.test(q25) && /outside spendable starting cash/i.test(q25),
+    'Q25 records third-party funds and keeps the external balance outside spendable cash');
 }
 
 console.log('\n=== standing facts and chat context do not describe resale as current planning ===');

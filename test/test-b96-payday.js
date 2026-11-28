@@ -358,14 +358,13 @@ console.log('\n=== G. credit is not cash or safe-to-spend ===');
     'safe-to-spend is not inflated by dividing credit across the view');
 }
 
-console.log('\n=== H. Q19 / Q26 ANSWERED; Q20 / Q25 stay visible and fail-closed ===');
+console.log('\n=== H. Q19 / Q25 / Q26 ANSWERED; Q20 stays OPEN ===');
 {
   const md = read('docs/01_OPEN_QUESTIONS.md');
   ok(/^ANSWERED\b/.test(questionStatus(md, 'Q19')), 'Q19 is ANSWERED', questionStatus(md, 'Q19'));
   ok(/^ANSWERED\b/.test(questionStatus(md, 'Q26')), 'Q26 evidence is ANSWERED', questionStatus(md, 'Q26'));
-  for (const id of ['Q20', 'Q25']) {
-    ok(/^OPEN\b/.test(questionStatus(md, id)), `${id} remains OPEN`, questionStatus(md, id));
-  }
+  ok(/^ANSWERED\b/.test(questionStatus(md, 'Q25')), 'Q25 coaching cash is ANSWERED', questionStatus(md, 'Q25'));
+  ok(/^OPEN\b/.test(questionStatus(md, 'Q20')), 'Q20 remains OPEN', questionStatus(md, 'Q20'));
   const liveRun = composeLive(live.plan);
   ok(!/Q19 HELOC August cash impact stays OPEN/i.test(liveRun.html),
     'payday HTML does not keep Q19 as unresolved');

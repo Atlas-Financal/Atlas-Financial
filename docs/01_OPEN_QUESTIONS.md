@@ -342,7 +342,9 @@ A later estimate change is an edit to the existing `plan.commitments` row
 
 ## Answered
 
-### Q25. How much of the coaching account balance is household-available? — ANSWERED 2026-11-27
+### Q25. How much of the coaching account balance is household-available?
+
+**Status:** ANSWERED 2026-11-27
 
 Dale confirmed that none of the balance in that account is available to the
 household. The coaching funds held there are for third parties. The fixed
