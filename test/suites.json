@@ -565,6 +565,7 @@
   ["Savings row in real Chromium (skips without Playwright): a withheld tagged-spend tally says Tagged spending: Withheld on the visible Blend row, its accessible name and the opened detail; a known zero and a normal tagged item never do","test-browser-savings-tagged-withheld.js"],
   ["a savings goal remaining never goes negative or eats a sibling need on ledger overspend (M11)","test-goal-remaining-floor.js"],
   ["A4b: item routing and backing (check 2 and 3, Savings vs chequing, split/pair, owner overlap, reload)","test-savings-a4b-routing.js"],
+  ["Savings-item tag spending leaves household rows once and preserves cash, card debt and reserve authority","test-savings-tag-spend-attribution.js"],
   ["owner-confirmed Savings-paid item: Paid is the linked Savings debit, else Unknown (acceptance 2.6/2.7)","test-savings-owner-confirmed-paid.js"],
   ["combined observed savings stock and unchanged deductions","test-savings-observed-stock.js"],
   ["Savings audit: an unlinked Savings-paid purchase is counted once (not in the reserve, Balance After Deductions, Bills close or sweep)","test-savings-paid-spend-once.js"],
