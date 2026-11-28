@@ -86,6 +86,7 @@ const account = {
   second: 'cashback',
   manual: 'mbna',
   line: 'heloc',
+  pocket: 'sim-pocket',
 };
 const inventory = Object.keys(account);
 const providerId = (key) => 67101 + inventory.indexOf(key);
@@ -201,6 +202,7 @@ function world(seed, day, events) {
       card: 'revolving-credit',
       second: 'revolving-credit',
       line: 'heloc',
+      pocket: 'sim-pocket',
     }[key];
     w.accounts.push({
       id: account[key],
@@ -275,6 +277,13 @@ function world(seed, day, events) {
       raw: r.raw,
     })
   );
+  if (evidence.some((r) => r.key === 'pocket'))
+    w.accounts.push({
+      id: account.pocket,
+      role: 'household-cash',
+      collection: 'cash',
+      label: 'Invented third chequing',
+    });
   w.accounts = w.accounts.map((a) => {
     const key = inventory.find((k) => account[k] === a.id);
     return {
@@ -300,7 +309,7 @@ function world(seed, day, events) {
     plan.windowDays = 29;
     plan.cardPurchaseCoverage = openingCoverage(date(0));
     plan.startingCash.breakdown = plan.startingCash.breakdown.filter((a) =>
-      ['chequing-a', 'chequing-b', 'savings'].includes(a.id)
+      ['chequing-a', 'chequing-b', 'savings', account.pocket].includes(a.id)
     );
     for (const row of plan.startingCash.breakdown) {
       row.value = opening[inventory.find((k) => account[k] === row.id)] / 100;

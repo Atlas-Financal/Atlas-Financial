@@ -192,6 +192,25 @@ register(
   (d, n) => n !== 'savings-after-date' || d > 26
 );
 require('./variants')(register);
+register('card-extra-cash', 0.008, (b) => b.move('pocket', 'card', b.amount));
+register('manual-offline-purchase', 0.006, (b) => {
+  // The institution-side purchase exists; the owner has not updated the
+  // manually entered balance. No invented bank row can leak it to Forecast.
+  b.book('manual', b.amount);
+  b.configure((w) => {
+    w.debts.find((d) => d.id === account.manual).evidenceDate = date(-26);
+  });
+});
+register('pass-through-gift pass-through-reimbursement', 0.007, (b, n) => {
+  b.out('bills', -b.amount, n.endsWith('gift') ? 'Gifts' : 'Reimbursement', {
+    notes: 'Invented ' + n,
+    payee: 'INTERAC E-TRANSFER RECEIVED',
+  });
+  b.out('bills', b.amount, 'Transfer', {
+    notes: 'Invented forwarded proceeds',
+    payee: 'INTERAC E-TRANSFER SENT',
+  });
+});
 
 function build(seed, name, start) {
   const seq = Object.keys(habits).indexOf(name);
@@ -294,6 +313,9 @@ function build(seed, name, start) {
       row,
       purchase,
       pending,
+      book(key, cents) {
+        e.entries.push({ key, cents, day: start });
+      },
       configure(fn) {
         e.configure = fn;
       },

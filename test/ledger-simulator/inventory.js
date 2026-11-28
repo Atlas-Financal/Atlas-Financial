@@ -35,7 +35,16 @@ async function inventory(seed, record) {
         );
       if (name.startsWith('category-'))
         assert.ok(raw.some((r) => r.id === e.rows[0].id && r.category_id === ids[e.rows[0].label]));
+      if (name === 'manual-offline-purchase') {
+        assert.equal(e.entries.length, 1);
+        assert.equal(e.rows.length, 0);
+        assert.equal(x.data.debts.find((d) => d.id === 'mbna').evidenceDate, date(-26));
+      }
       const { view } = await replay(seed, day, [e]);
+      if (name === 'card-extra-cash') {
+        assert.ok(view.qualified);
+        assert.equal(view.amounts.cardPaid, e.transfers[0].cents, 'the separate cash payer reaches Credit');
+      }
       if (record) {
         if (!controls.has(day)) controls.set(day, (await replay(seed, day, [])).view);
         record({ seed, day, events: [e], panel: 'inventory/' + name, baseline: controls.get(day) }, view);

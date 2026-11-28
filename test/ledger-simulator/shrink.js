@@ -24,7 +24,15 @@ function subset(events, tokens) {
       ...transfers.flatMap((t) => [t.debit, t.receipt]),
       ...purchases.flatMap((p) => p.ids),
     ]);
-    return [{ ...e, rows, transfers, purchases, entries: e.entries.filter((r) => economic.has(r.id)) }];
+    return [
+      {
+        ...e,
+        rows,
+        transfers,
+        purchases,
+        entries: e.entries.filter((r) => economic.has(r.id) || (configured && r.id == null)),
+      },
+    ];
   });
 }
 function tokensFor(events, day) {
