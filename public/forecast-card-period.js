@@ -214,6 +214,12 @@
         }
       }
       if (!payerObserved) globalGaps.add('paying-account-not-observed');
+      // The hold reader needs the exact posted rows accepted by this walk.
+      // Keep them in-process and exclude inferred destinations.
+      const heloc = byCard.get('heloc');
+      if (primitives.captureHelocPayerDebits && !globalGaps.size && !heloc.gaps.size && heloc.cents > 0) {
+        primitives.captureHelocPayerDebits(assigned.filter(row => row.cardId === 'heloc').map(row => row.tx));
+      }
     }
     const paid = id => {
       const { cents, reasons, gaps } = byCard.get(id);
