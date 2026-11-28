@@ -6212,6 +6212,10 @@
     if (sim.cardPurchaseCoverage && sim.cardPurchaseCoverage.status === 'unavailable') {
       failures.push({ kind: 'card-coverage', date: asOf, shortfall: null, id: null,
         label: sim.cardPurchaseCoverage.reason });
+    } else if (cardStrictEstimateBasis(sim.cardPurchaseCoverage)) {
+      // A strict card estimate supports no weekly figure, so no walk at one is a plan.
+      failures.push({ kind: 'card-coverage', date: asOf, shortfall: null, id: null,
+        label: sim.cardPurchaseCoverage.estimateReason });
     }
     if (!atLeast(sim.min.balance, simulationCashFloor(sim))) {
       failures.push({
@@ -18089,6 +18093,53 @@
     const bills = (plan.startingCash?.breakdown || []).filter(row => row?.id === BILLS_ACCOUNT_ID);
     const billsBalance = bills.length === 1 && bills[0].unknown !== true && Number.isFinite(bills[0].value)
       ? bills[0].value : null;
+    // Standing rule (Dale, #821 7223690915): one pending/posted purchase twin
+    // the observer could not resolve is held at its upper reserve, both copies
+    // unpaid, never as a second confirmed purchase. It reads only the
+    // observer's flags and the household budget's own pairing; it matches
+    // nothing. Anything else on the ledger keeps the twin withheld.
+    const twinRefs = aggregate && validOpening && issues.length === 2
+      && issues.every(row => row.code === 'coverage-replacement-ambiguous' && row.ref)
+      && issues[0].ref !== issues[1].ref ? issues.map(row => row.ref) : null;
+    const boundedTwin = !!twinRefs && !destinationUnconfirmed.length && !purposeUnconfirmed.length
+      && !sourceUnconfirmed.length && packet.observationAsOf === asOf
+      && boundedPurchaseTwin(twinRefs.map(ref => byRef.get(ref)), twinRefs.map(ref => ledger.find(row => row.ref === ref)))
+      && verifiedBillsBacking(plan, asOf, opts.observedCash, bills[0], savingsCents(billsBalance, true));
+    if (boundedTwin) issues.length = 0;
+    function boundedPurchaseTwin(txs, rows) {
+      const posted = txs.find(tx => tx?.pending === false && transactionPendingState(tx) === 'posted');
+      const pending = txs.find(tx => tx?.pending === true && transactionPendingState(tx) === 'pending');
+      if (!posted || !pending || rows.some(row => !row)) return false;
+      const account = cardId(posted), cents = money(posted), cycle = spendingCycle(plan, asOf);
+      if (!account || cardId(pending) !== account || !(cents > 0) || money(pending) !== cents
+        || !unit(posted) || !unit(pending) || !cycle || posted.date !== pending.date
+        || spendingCycle(plan, posted.date)?.start !== cycle.start) return false;
+      if (txs.some(tx => tx.pendingPostedDuplicate !== true || tx.pendingPostedAmbiguous === true
+        || tx.contradictoryEvidence === true || tx.pendingBillCopy === true || tx.pendingMatchingCardPaidBill === true
+        || tx.representedBill === true || tx.parentId != null || tx.isGroup === true || tx.id == null || tx.id === ''
+        || tx.distinctPendingId != null)) return false;
+      if (String(posted.id) === String(pending.id) || posted.coverageRef === pending.coverageRef) return false;
+      // Both rows appear once, and nothing else in the packet is a possible replacement.
+      const all = Array.isArray(packet.transactions) ? packet.transactions : [];
+      if ([posted, pending].some(tx => all.filter(row => row && String(row.id) === String(tx.id)).length !== 1)
+        || all.some(row => row && !txs.includes(row) && (row.pendingPostedDuplicate === true
+          || row.pendingPostedAmbiguous === true || row.contradictoryEvidence === true))) return false;
+      // The household budget's own 1:1 pairing names each as the other's partner.
+      const pairs = new Map();
+      pendingPostedDuplicateIdSet(packet, null, pairs);
+      if (pairs.get(String(posted.id)) !== String(pending.id) || pairs.get(String(pending.id)) !== String(posted.id)) return false;
+      // One Budget treatment: household spending in one category, not an item.
+      const [a, b] = txs.map(tx => classifyCurrentPeriodTransaction(tx, plan, { packet }));
+      if (a.householdSpending !== true || b.householdSpending !== true || a.kind !== b.kind
+        || normalizeCategoryLabel(posted.categoryLabel) !== normalizeCategoryLabel(pending.categoryLabel)) return false;
+      // Both copies wholly unpaid: no payment, refund or allocation touched either.
+      if (rows.some(row => row.accountId !== account || savingsCents(row.amount) !== cents || savingsCents(row.covered) !== 0
+        || savingsCents(row.refunded) !== 0 || savingsCents(row.remaining) !== cents)) return false;
+      // The card's posted balance is a current reading.
+      const debt = debtRows.filter(row => row.id === account);
+      return debt.length === 1 && Number.isFinite(debt[0].balance) && debt[0].balanceAsOfUnknown !== true
+        && debt[0].unknown !== true && financialDate(debt[0].balanceAsOf) === asOf;
+    }
     const belowReserve = billsBalance != null && billsBalance < knownReserve;
     const verifiedShortfall = aggregate && belowReserve && !issues.length
       && !destinationUnconfirmed.length && !purposeUnconfirmed.length && !sourceUnconfirmed.length
@@ -18144,6 +18195,7 @@
     // transaction references. Pair verification above uses the original identities.
     const publishedPurchases = ledger.map(({ ref, accountId, audit, ...row }, index) => ({
       ...row, id: 'coverage-purchase-' + (index + 1),
+      ...(boundedTwin && twinRefs.includes(ref) ? { replacementUnresolved: true } : {}),
       audit: audit.map(({ ref, id, ...entry }) => entry),
     }));
     const publishedPayments = payments.map(({ id, purchases, ...row }, index) => ({
@@ -18165,6 +18217,9 @@
       // can only understate the money left). Each payment is one To-confirm row.
       ...(verifiedShortfall ? { trust: 'estimated', estimateBasis: CARD_BILLS_SHORTFALL_ESTIMATE_BASIS,
         estimateReason: CARD_BILLS_SHORTFALL_ESTIMATE_REASON } : {}),
+      // The twin's own basis wins over a shortfall beside it: both hold every proposal.
+      ...(boundedTwin ? { trust: 'estimated', estimateBasis: CARD_PURCHASE_TWIN_ESTIMATE_BASIS,
+        estimateReason: CARD_PURCHASE_TWIN_ESTIMATE_REASON } : {}),
       ...(destinationEstimate ? { trust: 'estimated', estimateBasis,
         estimateReason: CARD_ESTIMATE_REASONS[estimateBasis],
         toConfirm: [...destinationUnconfirmed.map(leg => coverageRowFor({ basis: CARD_DESTINATION_ESTIMATE_BASIS,
@@ -18185,11 +18240,13 @@
       payments: publishedPayments, issues: issues.map(({ code }) => ({ code })),
       carryForward: aggregate ? 'period-shortfall-carries-until-later-payments-or-refunds'
         : 'uncovered-purchases-carry-until-confirmed-coverage-or-refund' };
+    // Each twin copy keeps its withheld marker: neither is shown as a purchase still to cover.
+    const twinCopy = row => boundedTwin && twinRefs.includes(row.ref);
     const annotations = new Map(ledger.map(row => [row.ref, {
-      status: issues.length ? 'unconfirmed' : row.remaining > 0 ? 'awaiting-coverage' : 'resolved',
-      remaining: issues.length ? null : row.remaining,
+      status: issues.length || twinCopy(row) ? 'unconfirmed' : row.remaining > 0 ? 'awaiting-coverage' : 'resolved',
+      remaining: issues.length || twinCopy(row) ? null : row.remaining,
       accountLabel: row.accountLabel,
-      ...(aggregate ? { savingsFunded: issues.length ? null : (savingsFundedByRef.get(row.ref) || 0) / 100 } : {}),
+      ...(aggregate ? { savingsFunded: issues.length || twinCopy(row) ? null : (savingsFundedByRef.get(row.ref) || 0) / 100 } : {}),
     }]));
     // A payment that a reversal cut (wholly or partly) is not a receipt (Codex P1, #1316).
     const noteReceipts = notedCreditPairs.filter(pair => !reversedPairs.has(pair))
@@ -18385,6 +18442,25 @@
   // A verified Bills balance can be insufficient to fund the card reserve.
   const CARD_BILLS_SHORTFALL_ESTIMATE_BASIS = 'card-bills-backing-shortfall';
   const CARD_BILLS_SHORTFALL_ESTIMATE_REASON = 'Budget funding schedule unavailable.';
+  // One unresolved pending/posted purchase twin held at its upper reserve
+  // (both copies unpaid). Its reason is the existing funding-schedule line.
+  const CARD_PURCHASE_TWIN_ESTIMATE_BASIS = 'card-purchase-replacement-unresolved';
+  const CARD_PURCHASE_TWIN_ESTIMATE_REASON = CARD_BILLS_SHORTFALL_ESTIMATE_REASON;
+  // Strict estimate bases: the cautious figures stay visible, and no payment,
+  // weekly, extra-debt, transfer or funding proposal rests on them.
+  const CARD_STRICT_ESTIMATE_REASONS = Object.freeze({
+    [CARD_BILLS_SHORTFALL_ESTIMATE_BASIS]: CARD_BILLS_SHORTFALL_ESTIMATE_REASON,
+    [CARD_PURCHASE_TWIN_ESTIMATE_BASIS]: CARD_PURCHASE_TWIN_ESTIMATE_REASON,
+  });
+  function cardStrictEstimateBasis(coverage) {
+    return !!coverage && Object.hasOwn(CARD_STRICT_ESTIMATE_REASONS, coverage.estimateBasis || '');
+  }
+  // No action prompt either: a strict basis, or a withheld coverage whose
+  // issues include an unresolved pending/posted replacement.
+  function cardCoverageNoAdvice(coverage) {
+    return cardStrictEstimateBasis(coverage) || (!!coverage && coverage.status === 'unavailable'
+      && (coverage.issues || []).some(row => row?.code === 'coverage-replacement-ambiguous'));
+  }
   // One fixed reason per unconfirmed card-payment or credit basis.
   const CARD_ESTIMATE_REASONS = Object.freeze({
     [CARD_DESTINATION_ESTIMATE_BASIS]: 'A card payment left a household account but its card is not confirmed, so it is applied to no card and every card purchase stays reserved as if unpaid.',
@@ -18395,6 +18471,7 @@
   // The planned close's reason for each basis.
   const CARD_CLOSE_REASONS = Object.freeze({
     [CARD_BILLS_SHORTFALL_ESTIMATE_BASIS]: CARD_BILLS_SHORTFALL_ESTIMATE_REASON,
+    [CARD_PURCHASE_TWIN_ESTIMATE_BASIS]: CARD_PURCHASE_TWIN_ESTIMATE_REASON,
     [CARD_DESTINATION_ESTIMATE_BASIS]: 'A card payment\'s card is not confirmed, so it is applied to no card and card purchases stay reserved.',
     [CARD_CREDIT_PURPOSE_ESTIMATE_BASIS]: 'A card credit is not confirmed as a payment or a refund, so it is counted as neither and card purchases stay reserved.',
     [CARD_PAYMENT_SOURCE_ESTIMATE_BASIS]: 'A card payment\'s source is not confirmed, so it counts toward no card and card purchases stay reserved.',
@@ -18410,7 +18487,7 @@
   // The one cause code the page reads (Forecast.CARD_ESTIMATE_CAUSE).
   const CARD_ESTIMATE_CAUSE = 'card-coverage';
   function cardEstimateCause(coverage, trust, withoutCard) {
-    return coverage.estimateBasis !== CARD_BILLS_SHORTFALL_ESTIMATE_BASIS
+    return !cardStrictEstimateBasis(coverage)
       && trust === 'estimated' && withoutCard === 'calculated' ? CARD_ESTIMATE_CAUSE : null;
   }
   // The closed estimate basis of an estimated, ready card coverage, for every
@@ -18418,7 +18495,7 @@
   // basis when recognised, else the combined one; null when not estimated.
   function cardCoverageEstimateBasis(coverage) {
     if (!coverage || coverage.status !== 'ready' || coverage.trust !== 'estimated') return null;
-    if (coverage.estimateBasis === CARD_BILLS_SHORTFALL_ESTIMATE_BASIS) return CARD_BILLS_SHORTFALL_ESTIMATE_BASIS;
+    if (cardStrictEstimateBasis(coverage)) return coverage.estimateBasis;
     return Object.hasOwn(CARD_ESTIMATE_REASONS, coverage.estimateBasis || '')
       ? coverage.estimateBasis : CARD_ROWS_ESTIMATE_BASIS;
   }
@@ -21464,9 +21541,9 @@
     const essentialRemaining = categories
       .filter(c => c.class === 'essential' && c.remaining != null)
       .reduce((s, c) => s + c.remaining, 0);
-    const billsShortfall = alloc.cardPurchaseCoverage?.estimateBasis === CARD_BILLS_SHORTFALL_ESTIMATE_BASIS;
+    const noAdvice = cardCoverageNoAdvice(alloc.cardPurchaseCoverage);
     const todayActions = [];
-    for (const bill of billsShortfall ? [] : bills) {
+    for (const bill of noAdvice ? [] : bills) {
       if (bill.settlement === 'upcoming' && bill.date === asOf) {
         todayActions.push({
           kind: 'pay',
@@ -21477,7 +21554,7 @@
         });
       }
     }
-    const moneyMovementRequired = billsShortfall ? null : cal.todayIsPayday
+    const moneyMovementRequired = noAdvice ? null : cal.todayIsPayday
       ? ((alloc.lines || []).some(l => Number(l.amount) > EPSILON))
       : todayActions.length > 0;
     // Unverified is reserved, not a shortfall. A current-period shortfall is
@@ -21516,7 +21593,7 @@
       weeklyCap: alloc.weeklyCap,
       moneyMovementRequired,
       todayActions,
-      noMovementToday: billsShortfall ? null : !cal.todayIsPayday && !moneyMovementRequired,
+      noMovementToday: noAdvice ? null : !cal.todayIsPayday && !moneyMovementRequired,
       currentShortfall,
       remainingClaim: coverage.remainingClaim,
       categoryRemainingClaim: categoryRemainingClaimFrom(
@@ -22786,8 +22863,8 @@
     if (cardCoverage.status === 'unavailable' || cardEstimated) {
       const reason = cardEstimated
         ? cardCoverage.estimateReason : cardCoverage.reason;
-      const billsShortfall = cardCoverage.estimateBasis === CARD_BILLS_SHORTFALL_ESTIMATE_BASIS;
-      const proposalReason = cardEstimated && !billsShortfall
+      const strictEstimate = cardStrictEstimateBasis(cardCoverage);
+      const proposalReason = cardEstimated && !strictEstimate
         ? 'Proposals to move money wait until the card payment is confirmed. ' + reason : reason;
       if (cardEstimated) {
         // Card coverage is the only cause where the figure was calculated
@@ -22807,10 +22884,10 @@
         target: null, consequence: null, reason: proposalReason };
       result.protectedPath = protectedPathUnavailable(proposalReason);
       withholdFutureCostAndLiquidityClaims(result, proposalReason);
-      if (!cardEstimated || billsShortfall) {
+      if (!cardEstimated || strictEstimate) {
         result.weeklyCap = result.spendPermission = result.supportedAllowance = null;
       }
-      if (billsShortfall) {
+      if (cardCoverageNoAdvice(cardCoverage)) {
         result.essentials.weeklyCap = result.essentials.spendPermission = null;
         const essentialsLine = result.lines.find(row => row.kind === 'essentials');
         if (essentialsLine) essentialsLine.weeklyCap = essentialsLine.spendPermission = null;
@@ -23228,7 +23305,37 @@
     return period;
   }
 
+  // An unresolved purchase twin can sit on either side of its category's
+  // allowance, so a claim built on Balance After Deductions (the operating-cash
+  // explanation, the chain past it and any extra repayment) stays withheld as
+  // it was while that coverage was unavailable. Balance After Deductions itself
+  // and the Stack keep their existing display.
+  function withholdPurchaseTwinClaims(result) {
+    const coverage = result?.cardPurchaseCoverage;
+    if (!coverage || coverage.status !== 'ready' || coverage.estimateBasis !== CARD_PURCHASE_TWIN_ESTIMATE_BASIS) return result;
+    // Completed periods keep their own closes; only the explanation is withheld there, as before.
+    for (const view of result.pastPeriodViews || []) if (view && typeof view === 'object') view.operatingCashExplanation = null;
+    const views = new Set([result.defaultView, ...(result.defaultView?.calendarPeriods || []),
+      ...(result.payPeriodViews || [])]);
+    for (const view of views) {
+      if (!view || typeof view !== 'object') continue;
+      view.operatingCashExplanation = null;
+      if (view === result.defaultView || view.role === 'lookback') continue;
+      if (view.extraDebt && typeof view.extraDebt === 'object') {
+        view.extraDebt = { ...view.extraDebt, allocated: null, status: 'unavailable', reason: coverage.estimateReason };
+      }
+      for (const key of ['afterDebtRepayment', 'afterBigPurchases', 'projectedEnding', 'paydaySweep']) {
+        if (Object.hasOwn(view, key)) view[key] = null;
+      }
+      if (view.leftover && typeof view.leftover === 'object') {
+        for (const key of ['afterDebtRepayment', 'afterBigPurchases']) if (Object.hasOwn(view.leftover, key)) view.leftover[key] = null;
+      }
+    }
+    return result;
+  }
+
   function withholdCurrentOperatingClaims(result, opts, plan) {
+    withholdPurchaseTwinClaims(result);
     const cardUnknown = result && result.cardPurchaseCoverage?.status === 'unavailable';
     const scheduledUnknown = !!(opts && opts.scheduledAmounts
       && opts.scheduledAmounts.status === 'unavailable');
@@ -24519,13 +24626,13 @@
       // can exceed the truth. Today's available now stays (it is at or below the
       // truth); its proposals and every later payday are withheld.
       if (cardCoverageTrust(coverage) === 'estimated') {
-        const reason = coverage.estimateBasis === CARD_BILLS_SHORTFALL_ESTIMATE_BASIS ? coverage.estimateReason
+        const reason = cardStrictEstimateBasis(coverage) ? coverage.estimateReason
           : 'The funding plan beyond today waits until the card payment is confirmed. ' + coverage.estimateReason;
         const today = current && current.fromTodayFunding;
         if (today && today.status !== 'unavailable') {
           Object.assign(today, { contribution: null, cashAfterProposal: null, gap: null, originalPaydayPlan: null,
             proposalReason: reason,
-            ...(coverage.estimateBasis === CARD_BILLS_SHORTFALL_ESTIMATE_BASIS ? { reason,
+            ...(cardStrictEstimateBasis(coverage) ? { reason,
               periods: today.periods.map(({ payday }) => ({ payday, status: 'unavailable', contribution: null, items: [], reason })),
             } : {}),
             items: (today.items || []).map(item => ({ ...item, contribution: null, cumulativeProposed: null,
@@ -24929,7 +25036,7 @@
       const walkCoverage = knowledgeSim && knowledgeSim.cardPurchaseCoverage;
       const planSpendFunding = cardCoverageTrust(walkCoverage) === 'estimated'
         ? { ...planSpendFundingWalked, status: 'unavailable', paydays: [], gap: null, fundingTrust: 'unavailable',
-          reason: walkCoverage.estimateBasis === CARD_BILLS_SHORTFALL_ESTIMATE_BASIS ? walkCoverage.estimateReason
+          reason: cardStrictEstimateBasis(walkCoverage) ? walkCoverage.estimateReason
             : 'The funding plan waits until the card payment is confirmed. ' + walkCoverage.estimateReason }
         : planSpendFundingWalked;
       // Trust packet for the payday instruction shell (AMANDA SLICE 1).
@@ -25368,7 +25475,7 @@
           ? { scheduledAmounts: planOptions.scheduledAmounts } : {}),
         ...(cardCoverageState(plan, asOf, paydayOpts).status !== 'incumbent'
           ? { cardPurchaseCoverage: cardCoverageState(plan, asOf, paydayOpts) } : {}),
-        mode, weekly: walkCoverage?.estimateBasis === CARD_BILLS_SHORTFALL_ESTIMATE_BASIS ? null : weeklyCap,
+        mode, weekly: cardStrictEstimateBasis(walkCoverage) ? null : weeklyCap,
         effectiveFrom, buffer: declaredPlanAmountOk(buffer) ? buffer : null, gap, sim: viewSim, zero: zeroSim,
         step: STEP,
         knowledge: {
@@ -30620,7 +30727,7 @@
     const seq = fundingSequence(plan, day, opts);
     if (seq.some(c => c.flexibility !== 'optional' && c.date && c.date < day && (c.need ?? c.bounds?.floor) > 0)) return unknown('Unpaid past requirements remain protected until evidenced settlement.');
     const coverage = cardCoverageState(plan, day, opts);
-    if (coverage.estimateBasis === CARD_BILLS_SHORTFALL_ESTIMATE_BASIS) return unknown(coverage.estimateReason);
+    if (cardStrictEstimateBasis(coverage)) return unknown(coverage.estimateReason);
     // PA-4a-2b: an eligible matching-only card hold may still supply a private
     // ESTIMATED planning basis. Every other card hold returns here unchanged.
     const cardEstimate = coverage.status === 'unavailable' && cardMatchEstimateEligible(plan, coverage, opts);
@@ -30828,7 +30935,7 @@
     if (opening == null) return unavailable('The validated operating opening is unknown or outside supported cents.');
     const coverage = cardCoverageState(plan, day, opts);
     if (!['incumbent', 'ready'].includes(coverage.status)) return unavailable(coverage.reason);
-    if (coverage.estimateBasis === CARD_BILLS_SHORTFALL_ESTIMATE_BASIS) return unavailable(coverage.estimateReason);
+    if (cardStrictEstimateBasis(coverage)) return unavailable(coverage.estimateReason);
     const inventory = savingsInventory(plan, day);
     if (inventory.status !== 'ready' || plan.savingsPoolObservation?.asOf !== day
         || !Array.isArray(plan.savingsPoolObservation?.accounts)
@@ -32553,6 +32660,7 @@
     billOccurrenceAmount, categorySpendingTrends,
     visaPaymentReconciliation, visaPaymentPublication, CARD_PAYMENT_REASONS,
     CARD_ESTIMATE_REASONS, CARD_ESTIMATE_CAUSE, CARD_BILLS_SHORTFALL_ESTIMATE_BASIS, CARD_BILLS_SHORTFALL_ESTIMATE_REASON,
+    CARD_PURCHASE_TWIN_ESTIMATE_BASIS, CARD_STRICT_ESTIMATE_REASONS,
     cardCoverageEstimateBasis, LINKED_BILL_MISFIT_CHECKS };
   if (typeof module !== 'undefined' && module.exports) module.exports = Forecast;
   else root.Forecast = Forecast;

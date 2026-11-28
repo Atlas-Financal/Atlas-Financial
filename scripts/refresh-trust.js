@@ -15,6 +15,7 @@
  *   the smallest genuinely necessary owner question, if one exists
  */
 
+const Forecast = require('../public/forecast.js');
 const OA = require('./operating-answer.js');
 const O = require('./provider-observe.js');
 const C = require('./canonical-refresh.js');
@@ -382,7 +383,7 @@ function fromIncumbent(opts) {
     categoryRemainingClaim: limits.categoryRemainingClaim,
     exactFiguresAvailable: remainingClaim !== 'unavailable'
       && parts.cardPurchaseCoverage?.status !== 'unavailable'
-      && parts.cardEstimateBasis !== 'card-bills-backing-shortfall',
+      && !Object.hasOwn(Forecast.CARD_STRICT_ESTIMATE_REASONS, parts.cardEstimateBasis || ''),
     coverageLimits: coverageLimitsFrom(parts),
     unresolvedMaterial: parts.unresolvedMaterial,
     canonicalProposalWaiting: proposedCount > 0,
