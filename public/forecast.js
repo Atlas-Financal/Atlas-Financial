@@ -2474,7 +2474,7 @@
       // Grok Bot condition 3: whether the card-minimum owner counts this debit
       // is unknown, so the term is Unavailable, never summed as 0.
       if (cls.cardMinimumUnknown === true) return null;
-      const cents = savingsCents(Number(tx.amount), true);
+      const cents = savingsCents(cls.heldAmount ?? Number(tx.amount), true);
       if (cents == null) return null;
       if (!(cents > 0)) continue;
       out.cents += cents;
@@ -8513,7 +8513,7 @@
       || normalizeCategoryLabel(tx.kindHint) === 'card-payment') return true;
     return !!definiteNotedCard(tx);
   }
-  function unprovenTransferDebit(tx, cls, plan, classifyOpts, pairedToCard, countedByHelocMinimum) {
+  function unprovenTransferDebit(tx, cls, plan, classifyOpts, pairedToCard, remainingHelocHold) {
     if (!tx || !cls || transactionPendingState(tx) !== 'posted') return null;
     if (tx.accountRole !== 'household-cash'
       || HOUSEHOLD_CHEQUING_IDS.indexOf(householdCashLocationId(tx)) === -1) return null;
@@ -8529,7 +8529,10 @@
     const conflicted = cardPaymentDestinationConflict(tx);
     if (!generic && !conflicted) return null;
     if (cardPaymentOtherSideEvidence(tx)) return null;
-    if (countedByHelocMinimum(tx)) return null;
+    const heldAmount = remainingHelocHold(tx);
+    if (heldAmount != null) {
+      return heldAmount > 0 ? heldOutflowResult('heloc-payment-above-minimum', { heldAmount }) : null;
+    }
     if (txMatchesRepresentedBill(tx, classifyOpts)) return null;
     if (tx.cardMinimumOwned === true) return null;
     const nearDue = tx.nearDueBillCandidate;
@@ -8556,14 +8559,14 @@
   function heldOutflowReader(plan, packet, opts, asOf) {
     const classifyOpts = Object.assign({}, opts || {}, { packet, currentPeriodActuals: packet });
     let accepted = null;
-    const helocDebitsByPeriod = new Map();
-    const countedByHelocMinimum = tx => {
-      if (householdCashLocationId(tx) !== BILLS_ACCOUNT_ID || payingSidePayment(tx)?.cardId !== 'heloc') return false;
+    const helocHoldsByPeriod = new Map();
+    const remainingHelocHold = tx => {
+      if (householdCashLocationId(tx) !== BILLS_ACCOUNT_ID || payingSidePayment(tx)?.cardId !== 'heloc') return null;
       const observedAsOf = packet.observationAsOf;
-      if (!savingsDate(tx.date) || !savingsDate(observedAsOf) || tx.date > observedAsOf) return false;
+      if (!savingsDate(tx.date) || !savingsDate(observedAsOf) || tx.date > observedAsOf) return null;
       const cycle = spendingCycle(plan, tx.date);
-      if (!cycle) return false;
-      if (!helocDebitsByPeriod.has(cycle.start)) {
+      if (!cycle) return null;
+      if (!helocHoldsByPeriod.has(cycle.start)) {
         const billOpts = { ...classifyOpts, periodWindows: [{ ...cycle, id: cycle.start,
           role: cycle.end < observedAsOf ? 'lookback' : 'active' }] };
         // Read the same settlement that owns the Bills deduction. An accepted
@@ -8572,11 +8575,26 @@
         const billParts = stackBillPartContext(plan);
         const minima = calendarBillSections(plan, observedAsOf, billOpts).bills.filter(row =>
           stackBillPartOf(row, billParts)?.debtId === 'heloc');
-        const covered = minima.length === 1 && minima[0].minimumCoverage?.source === 'Forecast.periodPayerPayments';
+        const coverage = minima.length === 1 ? minima[0].minimumCoverage : null;
+        let countedCents = coverage?.source === 'Forecast.periodPayerPayments' ? savingsCents(coverage.covered) : null;
         const payerEvidence = billOpts.cardCoverageReuse.helocPaid?.get(cycle.start);
-        helocDebitsByPeriod.set(cycle.start, new Set(covered ? payerEvidence?.debits : []));
+        const holds = new Map();
+        if (countedCents > 0 && payerEvidence) {
+          // Apply the one minimum to qualified Bills debits in posting order,
+          // retaining each uncovered portion as cash already paid.
+          const billsDebits = payerEvidence.debits.filter(row => householdCashLocationId(row) === BILLS_ACCOUNT_ID);
+          billsDebits.sort((a, b) => a.date.localeCompare(b.date)
+            || String(a.coverageRef || a.id).localeCompare(String(b.coverageRef || b.id)));
+          for (const debit of billsDebits) {
+            const debitCents = cardMoneyCents(debit);
+            const counted = Math.min(debitCents, countedCents);
+            holds.set(debit, (debitCents - counted) / 100);
+            countedCents -= counted;
+          }
+        }
+        helocHoldsByPeriod.set(cycle.start, holds);
       }
-      return helocDebitsByPeriod.get(cycle.start).has(tx);
+      return helocHoldsByPeriod.get(cycle.start).get(tx);
     };
     const pairedToCard = tx => {
       if (!tx.coverageRef) return false;
@@ -8590,7 +8608,7 @@
     return (tx, cls) => {
       const base = cls || classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
       if (!base || base.kind === 'held-outflow') return base;
-      const held = unprovenTransferDebit(tx, base, plan, classifyOpts, pairedToCard, countedByHelocMinimum);
+      const held = unprovenTransferDebit(tx, base, plan, classifyOpts, pairedToCard, remainingHelocHold);
       return held || base;
     };
   }
@@ -9697,7 +9715,7 @@
         if (state === 'pending' && tx.accountRole === 'household-cash' && amt > 0) {
           out.pendingCash = roundCent(out.pendingCash + amt);
         }
-        out.excluded.heldOutflows = roundCent((out.excluded.heldOutflows || 0) + amt);
+        out.excluded.heldOutflows = roundCent((out.excluded.heldOutflows || 0) + (cls.heldAmount ?? amt));
         out.unclassified.count += 1;
         recordHeld(tx, cls);
         continue;
@@ -15584,7 +15602,9 @@
         if (!isFinite(amount) || !(amount > 0)) continue;
         const cls = heldOf(tx);
         if (cls.kind !== 'held-outflow') continue;
-        heldOutflowRows.push(reconTxFrom(tx, cls));
+        const row = reconTxFrom(tx, cls);
+        row.amount = cls.heldAmount ?? row.amount;
+        heldOutflowRows.push(row);
       }
     }
     // LEDGER A item 3: posted refunds the ledger does not link to a purchase.
