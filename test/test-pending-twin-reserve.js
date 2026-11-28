@@ -299,6 +299,81 @@ try {
   ];
   for (const [label, rows, opts] of hardCases) assertHardReplacement(scenario(rows, opts), label);
 
+  // ── One Budget treatment (Systems Review, #1691 7235131040, finding 1): the
+  // incumbent classifier must send both copies to the same household row by
+  // the same rule. A matching provider label is not enough. ──
+  const people = input => input.data.plan.budget.categories.push(
+    { id: 'shopping', label: 'Shopping', class: 'discretionary', plannedPayday: 100, confidence: 'confirmed' },
+    { id: 'dale-guilt-free', label: 'Dale guilt-free', class: 'discretionary', plannedPayday: 100, confidence: 'confirmed' },
+    { id: 'amanda-guilt-free', label: 'Amanda guilt-free', class: 'discretionary', plannedPayday: 100, confidence: 'confirmed' });
+  const shop = (postedNote, pendingNote) => [
+    purchase(100, { payee: 'Invented Shop', category_name: 'Shopping', notes: postedNote }),
+    purchase(100, { ...PENDING, payee: 'Invented Shop', category_name: 'Shopping', notes: pendingNote })];
+  const dogFood = input => input.data.plan.budget.categories.push({ id: 'pets', label: 'Pets', class: 'essential',
+    plannedPayday: 50, dogFoodLunchMoneyRecurringIds: ['9001'], dogFoodLunchMoneyCategoryIds: ['101'], confidence: 'confirmed' });
+  const market = (postedLinked, pendingLinked) => [
+    purchase(60, { payee: 'Invented Market', category_id: 101, category_name: 'Groceries', ...(postedLinked ? { recurring_id: 9001 } : {}) }),
+    purchase(60, { ...PENDING, payee: 'Invented Market', category_id: 101, category_name: 'Groceries', ...(pendingLinked ? { recurring_id: 9001 } : {}) })];
+  const row = (s, id) => s.active.householdBudget.find(item => item.id === id);
+  const assertWithheldBeforeAndNow = (s, label) => {
+    assertHardReplacement(s, label);
+    assert.equal(packetOf(s).forecast.status, 'unavailable', label + ': the assistant Forecast block stays withheld');
+  };
+  for (const [label, rows, editInput] of [
+    ['Shopping rows attributed to two people', shop('dale', 'amanda'), people],
+    ['the dog-food recurring link on the posted copy only', market(true, false), dogFood],
+    ['the dog-food recurring link on the pending copy only', market(false, true), dogFood],
+  ]) assertWithheldBeforeAndNow(scenario(rows, { editInput }), label);
+  {
+    const owner = scenario(shop('dale', 'dale'), { editInput: people });
+    assert.equal(owner.coverage.estimateBasis, TWIN, 'one owner, one row: admitted');
+    assert.equal(owner.coverage.reservedCash, 100 + 100);
+    assert.equal(row(owner, 'dale-guilt-free').spent, 100, 'the owner row counts the posted copy once');
+    assert.equal(row(owner, 'amanda-guilt-free')?.spent ?? 0, 0, 'nothing lands on the other person');
+    assertNoAdvice(owner, 'one owner');
+    const pets = scenario(market(true, true), { editInput: dogFood });
+    assert.equal(pets.coverage.estimateBasis, TWIN, 'both copies on the recurring link: admitted');
+    assert.equal(pets.coverage.reservedCash, 60 + 60);
+    assert.equal(row(pets, 'pets').spent, 60, 'pets counts the posted copy once');
+    assert.equal(row(pets, 'groceries').spent, 0, 'nothing lands on groceries');
+    assertNoAdvice(pets, 'one recurring row');
+  }
+
+  // ── The card's posted balance (finding 2): only today's accepted reading for
+  // this card earns the bound. A same-day opening stamped onto a refused,
+  // stale, missing or conflicting reading does not. ──
+  const sameDay = edit => input => { input.data.meta.asOf = input.data.plan.opening.asOf = input.asOf; edit?.(input); };
+  {
+    const fresh = scenario(twin(60), { editInput: sameDay() });
+    assert.equal(fresh.coverage.estimateBasis, TWIN, 'a fresh, unambiguous same-day CAD twin is admitted');
+    assert.equal(fresh.coverage.reservedCash, 60 + 60);
+    assert.equal(card(fresh).balance, 400 + 60, 'the accepted posted reading');
+    assert.equal(groceries(fresh).spent, 60, 'spend counted once');
+    assert.equal(packetOf(fresh).forecast.status, 'ok');
+    assertNoAdvice(fresh, 'fresh same day');
+  }
+  for (const [label, edit] of [
+    ['a stale card reading', input => {
+      const account = input.payload.accounts[3];
+      for (const key of ['updated_at', 'balance_last_update', 'balance_as_of', 'last_fetch']) account[key] = '2026-09-18T17:00:00Z';
+    }],
+    ['a missing card reading', input => { input.payload.accounts[3].balance = null; }],
+    ['two conflicting card readings', input => {
+      input.accountMap.mappings.push({ providerAccountId: '3007', canonical: { collection: 'debts', id: 'travelvisa' }, atlasRole: 'revolving-credit' });
+      input.payload.accounts.push({ ...input.payload.accounts[3], id: 3007, name: 'Invented second feed', balance: 520 });
+    }],
+  ]) {
+    const s = scenario(twin(60), { editInput: sameDay(edit) });
+    assert.equal(card(s).balanceAsOf, s.input.asOf, label + ': the retained opening is stamped today');
+    assert.equal(card(s).balance, 400, label + ': and still holds the earlier balance');
+    assertWithheldBeforeAndNow(s, label);
+  }
+  {
+    // A reading for another amount is not this card's current posted balance.
+    const s = scenario(twin(60), { editData(data) { card({ data }).balance = 455; } });
+    assertWithheldBeforeAndNow(s, 'a balance that differs from the accepted reading');
+  }
+
   // Many-to-one and one-to-many copies are never one bounded twin: whatever
   // the existing rules decide for them, this admission adds nothing.
   for (const [label, rows] of [

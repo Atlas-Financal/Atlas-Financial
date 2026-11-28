@@ -2397,7 +2397,7 @@
     const charges = packet.transactions.filter(tx => tx && isRevolvingCardAccount(tx)
       && savingsItemMember(tx, plan, { packet }) && savingsCents(Number(tx.amount), true) > 0);
     if (!charges.length) return false;
-    const recon = reconcileCardPurchases(packet.transactions, { plan, asOf, packet, debts: opts && opts.debts, observedCash: opts?.observedCash });
+    const recon = reconcileCardPurchases(packet.transactions, { plan, asOf, packet, debts: opts && opts.debts, observedCash: opts?.observedCash, cardLiveOverlay: opts?.cardLiveOverlay });
     return charges.some(tx => {
       const remaining = tx.coverageRef ? recon?.annotations?.get(tx.coverageRef)?.remaining : null;
       return savingsCents(remaining, true) !== 0;
@@ -2416,7 +2416,7 @@
     const through = savingsDate(cycle.end) && cycle.end < asOf ? cycle.end : asOf;
     const duplicateIds = pendingPostedDuplicateIdSet(packet);
     const recon = plan?.cardPurchaseCoverage?.rule === CARD_COVERAGE_AGGREGATE_RULE
-      ? reconcileCardPurchases(packet.transactions, { plan, asOf, packet, debts: opts && opts.debts, observedCash: opts?.observedCash }) : null;
+      ? reconcileCardPurchases(packet.transactions, { plan, asOf, packet, debts: opts && opts.debts, observedCash: opts?.observedCash, cardLiveOverlay: opts?.cardLiveOverlay }) : null;
     // Savings audit (PR 2): a linked refund this cycle returned cash the
     // close had deducted, exactly as the item ledger nets it. Net per item,
     // floored at zero: a refund never makes an item add cash beyond its own
@@ -2727,7 +2727,7 @@
             && row.date === event.date && row.transactionId))) return events;
     const transactions = Array.isArray(packet.transactions) ? packet.transactions : [];
     const coverage = reconcileCardPurchases(transactions, {
-      plan, asOf: start, packet, debts: opts?.debts, observedCash: opts?.observedCash,
+      plan, asOf: start, packet, debts: opts?.debts, observedCash: opts?.observedCash, cardLiveOverlay: opts?.cardLiveOverlay,
     });
     if (coverage.publication.status !== 'ready'
         || cardMinimumState(plan, start, opts).status === 'unavailable') return events;
@@ -15493,7 +15493,7 @@
     // Resolve coverage against the complete ledger, before selecting a category
     // or cycle. Older/ambiguous liabilities still govern the trust of each row.
     const cardCoverage = useActuals && packet
-      ? reconcileCardPurchases(packet.transactions, { plan, asOf, packet, debts: opts.debts, observedCash: opts?.observedCash }) : null;
+      ? reconcileCardPurchases(packet.transactions, { plan, asOf, packet, debts: opts.debts, observedCash: opts?.observedCash, cardLiveOverlay: opts?.cardLiveOverlay }) : null;
     const reconById = new Map();
     const confirmationRecon = [];
     const otherCardCharges = new Set();
@@ -16615,7 +16615,7 @@
     const eligibleCardRefs = new Set(supporting.filter(({ tx, amount }) => amount > 0 && isRevolvingCardAccount(tx))
       .map(({ tx }) => tx.coverageRef));
     const recon = reconcileCardPurchases(transactions, {
-      plan, asOf: day, packet: packet || {}, debts: opts.debts, observedCash: opts.observedCash,
+      plan, asOf: day, packet: packet || {}, debts: opts.debts, observedCash: opts.observedCash, cardLiveOverlay: opts.cardLiveOverlay,
     });
     let weeklyFunding = 0, directFunding = 0, cardFunding = 0, pendingBillsHousehold = 0, categoryCardCash = 0;
     let weeklyCardOutside = 0;
@@ -18131,17 +18131,31 @@
       const pairs = new Map();
       pendingPostedDuplicateIdSet(packet, null, pairs);
       if (pairs.get(String(posted.id)) !== String(pending.id) || pairs.get(String(pending.id)) !== String(posted.id)) return false;
-      // One Budget treatment: household spending in one category, not an item.
+      // One Budget treatment: the incumbent classifier sends both copies to the
+      // same household row by the same rule (one owner, one category, not an
+      // item or a confirmation), whatever their provider labels say.
       const [a, b] = txs.map(tx => classifyCurrentPeriodTransaction(tx, plan, { packet }));
-      if (a.householdSpending !== true || b.householdSpending !== true || a.kind !== b.kind || a.kind === 'savings-item'
+      if (a.householdSpending !== true || b.householdSpending !== true || a.kind !== 'spend' || b.kind !== 'spend'
+        || a.needsConfirmation === true || b.needsConfirmation === true
+        || !a.categoryId || a.categoryId !== b.categoryId || !a.atlasRow || a.atlasRow !== b.atlasRow
+        || a.includeReason !== b.includeReason
         || normalizeCategoryLabel(posted.categoryLabel) !== normalizeCategoryLabel(pending.categoryLabel)) return false;
       // Both copies wholly unpaid: no payment, refund or allocation touched either.
       if (rows.some(row => row.accountId !== account || savingsCents(row.amount) !== cents || savingsCents(row.covered) !== 0
         || savingsCents(row.refunded) !== 0 || savingsCents(row.remaining) !== cents)) return false;
-      // The card's posted balance is a current reading.
+      // The card's posted balance is today's accepted provider reading: the one
+      // live overlay row for this card's balance (the Credit line's own date
+      // evidence), dated today and equal to the balance in use. A same-day
+      // opening stamped onto a refused, stale, missing or conflicting reading
+      // has no such row. Pending exposure is a separate fact and proves nothing here.
       const debt = debtRows.filter(row => row.id === account);
-      return debt.length === 1 && Number.isFinite(debt[0].balance) && debt[0].balanceAsOfUnknown !== true
-        && debt[0].unknown !== true && financialDate(debt[0].balanceAsOf) === asOf;
+      const live = opts.cardLiveOverlay;
+      const readings = live?.applied === true && Array.isArray(live.overlays)
+        ? live.overlays.filter(row => row?.locator === 'debts:' + account && row.field === 'balance') : [];
+      const balance = debt.length === 1 ? savingsCents(debt[0].balance, true) : null;
+      return balance != null && debt[0].balanceAsOfUnknown !== true && debt[0].unknown !== true
+        && financialDate(debt[0].balanceAsOf) === asOf && readings.length === 1
+        && financialDate(readings[0].evidenceDate) === asOf && savingsCents(readings[0].proposedValue, true) === balance;
     }
     const belowReserve = billsBalance != null && billsBalance < knownReserve;
     const verifiedShortfall = aggregate && belowReserve && !issues.length
@@ -18861,7 +18875,7 @@
     if (!coverage || coverage.status !== 'ready') return 0;
     if (!(savingsCents(coverage.reservedCash, true) > 0)) return 0;
     const packet = currentPeriodActualsPacket(opts) || {};
-    const recon = reconcileCardPurchases(packet.transactions, { plan, asOf, packet, debts: opts && opts.debts, observedCash: opts?.observedCash });
+    const recon = reconcileCardPurchases(packet.transactions, { plan, asOf, packet, debts: opts && opts.debts, observedCash: opts?.observedCash, cardLiveOverlay: opts?.cardLiveOverlay });
     if (!recon || !recon.publication || recon.publication.status !== 'ready') return null;
     const txByRef = new Map(), txIds = new Set();
     for (const tx of Array.isArray(packet.transactions) ? packet.transactions : []) {
@@ -18913,14 +18927,15 @@
   // publication inside this synchronous recommend, keyed by every input to
   // this call. Each consumer still owns its copy, including the private link
   // from a To-confirm row to the transaction that also appears under Held.
-  function recommendationCardPublication(plan, asOf, packet, debts, observedCash) {
+  function recommendationCardPublication(plan, asOf, packet, debts, observedCash, cardLiveOverlay) {
     const scope = recommendationReads?.ledger;
     const txs = packet.transactions;
-    if (!scope || !Array.isArray(txs)) return visaPaymentReconciliation(txs, { plan, asOf, packet, debts, observedCash });
+    if (!scope || !Array.isArray(txs)) return visaPaymentReconciliation(txs, { plan, asOf, packet, debts, observedCash, cardLiveOverlay });
     if (!scope.publication || scope.plan !== plan || scope.asOf !== asOf || scope.packet !== packet
-        || scope.txs !== txs || scope.debts !== debts || scope.observedCash !== observedCash) {
-      const publication = visaPaymentReconciliation(txs, { plan, asOf, packet, debts, observedCash });
-      Object.assign(scope, { plan, asOf, packet, txs, debts, observedCash, publication });
+        || scope.txs !== txs || scope.debts !== debts || scope.observedCash !== observedCash
+        || scope.cardLiveOverlay !== cardLiveOverlay) {
+      const publication = visaPaymentReconciliation(txs, { plan, asOf, packet, debts, observedCash, cardLiveOverlay });
+      Object.assign(scope, { plan, asOf, packet, txs, debts, observedCash, cardLiveOverlay, publication });
     }
     const copy = structuredClone(scope.publication);
     for (const [i, row] of (scope.publication.toConfirm || []).entries()) {
@@ -18930,7 +18945,7 @@
   }
   function cardCoverageState(plan, asOf, opts) {
     const packet = currentPeriodActualsPacket(opts) || {};
-    const coverage = recommendationCardPublication(plan, asOf, packet, opts?.debts, opts?.observedCash);
+    const coverage = recommendationCardPublication(plan, asOf, packet, opts?.debts, opts?.observedCash, opts?.cardLiveOverlay);
     const minimums = cardMinimumState(plan, asOf, opts);
     // Existing operating-cash gates also withhold permission when minimum
     // funding is unknown. Purchase reconciliation itself is left untouched.
@@ -18941,7 +18956,7 @@
   // One payday cent search (maxFeasiblePaydayRemoval) probes simulateModel
   // many times with options that differ only in disabled / plannedFlows /
   // injections. cardCoverageState reads none of those: it reads plan, asOf,
-  // opts.currentPeriodActuals, opts.observedCash, opts.debts and opts.representedEvents. The
+  // opts.currentPeriodActuals, opts.observedCash, opts.cardLiveOverlay, opts.debts and opts.representedEvents. The
   // search hands its probes a holder bound to exactly those inputs, so card
   // coverage is computed once per search. Any input that is not the identical
   // object/value falls through to a fresh computation. The holder lives only
@@ -18949,14 +18964,14 @@
   function cardCoverageHolderMatches(reuse, plan, asOf, opts) {
     return !!reuse && reuse.plan === plan && reuse.asOf === asOf
       && reuse.currentPeriodActuals === opts.currentPeriodActuals
-      && reuse.observedCash === opts.observedCash && reuse.debts === opts.debts
+      && reuse.observedCash === opts.observedCash && reuse.cardLiveOverlay === opts.cardLiveOverlay && reuse.debts === opts.debts
       && reuse.representedEvents === opts.representedEvents;
   }
   // The caller's matching holder, else a fresh one bound to these inputs.
   function cardCoverageHolderFor(plan, asOf, opts) {
     if (cardCoverageHolderMatches(opts.cardCoverageReuse, plan, asOf, opts)) return opts.cardCoverageReuse;
     return { plan, asOf, currentPeriodActuals: opts.currentPeriodActuals, debts: opts.debts,
-      observedCash: opts.observedCash, representedEvents: opts.representedEvents, computed: false, value: null };
+      observedCash: opts.observedCash, cardLiveOverlay: opts.cardLiveOverlay, representedEvents: opts.representedEvents, computed: false, value: null };
   }
   function probeCardCoverage(plan, asOf, opts) {
     const reuse = opts.cardCoverageReuse;
@@ -21811,6 +21826,7 @@
       currentPeriodActuals: masterOpts.currentPeriodActuals,
       debts: masterOpts.debts,
       observedCash: masterOpts.observedCash,
+      cardLiveOverlay: masterOpts.cardLiveOverlay,
       representedEvents: masterOpts.representedEvents,
       computed: false, value: null,
     };
