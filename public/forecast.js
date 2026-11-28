@@ -2360,27 +2360,39 @@
   // One membership reading per (packet, plan): the publication at the
   // packet's own observation date, so every classifier caller agrees.
   const savingsItemMembershipCache = new WeakMap();
-  function savingsItemMembership(plan, packet) {
+  function savingsItemMembership(plan, packet, settlementOnly = false) {
     if (!packet || typeof packet !== 'object' || !packet.savingsLinks || !plan || typeof plan !== 'object') return null;
     let byPlan = savingsItemMembershipCache.get(packet);
     if (!byPlan) { byPlan = new WeakMap(); savingsItemMembershipCache.set(packet, byPlan); }
-    if (byPlan.has(plan)) return byPlan.get(plan);
-    const links = savingsDate(packet.observationAsOf) ? savingsLinkPublication(plan, packet.observationAsOf, packet) : null;
-    const members = new Map();
-    for (const item of links?.status === 'available' ? links.evidence : []) {
-      if (item.state === 'unresolved' || !savingsLedgerCommitmentId(plan, item.occurrenceKey)) continue;
-      members.set(item.transactionRef, { occurrenceKey: item.occurrenceKey, direction: item.direction, date: item.date });
+    if (!byPlan.has(plan)) {
+      const links = savingsDate(packet.observationAsOf) ? savingsLinkPublication(plan, packet.observationAsOf, packet) : null;
+      const settlement = new Map();
+      for (const item of links?.status === 'available' ? links.evidence : []) {
+        if (item.state === 'unresolved' || !savingsLedgerCommitmentId(plan, item.occurrenceKey)) continue;
+        settlement.set(item.transactionRef, { occurrenceKey: item.occurrenceKey, direction: item.direction, date: item.date });
+      }
+      // The Savings tally supplies these rows after validating the exact
+      // configured tag, its target, posting and window. They may determine
+      // spending membership without supplying any Savings payment evidence.
+      const tagged = savingsLinkTarget.taggedEvidence?.(plan, packet.observationAsOf, packet);
+      const spending = new Map(settlement);
+      for (const item of tagged?.evidence || []) {
+        if (item.state !== 'posted' && item.state !== 'pending') continue;
+        spending.set(item.transactionRef, { occurrenceKey: item.occurrenceKey,
+          direction: item.direction, date: item.date, tagged: true });
+      }
+      byPlan.set(plan, { settlement, spending });
     }
-    byPlan.set(plan, members);
-    return members;
+    const membership = byPlan.get(plan);
+    return settlementOnly ? membership.settlement : membership.spending;
   }
-  function savingsItemMember(tx, plan, opts) {
+  function savingsItemMember(tx, plan, opts, settlementOnly = false) {
     const packet = opts && (opts.packet || opts.currentPeriodActuals);
     // A stamped payer receipt is that card payment, including when the current note conflicts.
     // It is not also a savings-item charge.
     if (tx && tx.provedPayerReceipt) return null;
     if (pendingHoldReleaseLeg(tx, packet)) return null;
-    const member = tx && tx.id != null ? savingsItemMembership(plan, packet)?.get(String(tx.id)) : null;
+    const member = tx && tx.id != null ? savingsItemMembership(plan, packet, settlementOnly)?.get(String(tx.id)) : null;
     return member && member.date === tx.date ? member : null;
   }
   // A4b: the snapshot close's item term. Item charges this cycle that left
@@ -2392,10 +2404,10 @@
   // them. Unknown cents make the term (and the close) unknown.
   function savingsItemUnpaidCardCharge(plan, asOf, opts) {
     const packet = currentPeriodActualsPacket(opts);
-    const members = savingsItemMembership(plan, packet);
+    const members = savingsItemMembership(plan, packet, true);
     if (!members || !members.size) return false;
     const charges = packet.transactions.filter(tx => tx && isRevolvingCardAccount(tx)
-      && savingsItemMember(tx, plan, { packet }) && savingsCents(Number(tx.amount), true) > 0);
+      && savingsItemMember(tx, plan, { packet }, true) && savingsCents(Number(tx.amount), true) > 0);
     if (!charges.length) return false;
     const recon = reconcileCardPurchases(packet.transactions, { plan, asOf, packet, debts: opts && opts.debts });
     return charges.some(tx => {
@@ -2407,7 +2419,7 @@
   // already reduced the Savings pool once; the Bills close does not deduct it
   // again. Only the card ledger's qualified coverage says so; unknown coverage
   // keeps the gross (conservative) deduction.
-  function savingsItemCycleSpend(plan, asOf, opts, cycle) {
+  function savingsItemCycleSpend(plan, asOf, opts, cycle, taggedOnly = false) {
     const packet = currentPeriodActualsPacket(opts);
     const out = { cents: 0, refs: new Set(), savingsFundedCents: 0 };
     if (!packet || !Array.isArray(packet.transactions) || !cycle || !savingsDate(cycle.start)) return out;
@@ -2424,9 +2436,9 @@
     const netByItem = new Map();
     for (const tx of packet.transactions) {
       const member = tx ? savingsItemMember(tx, plan, { packet }) : null;
-      if (!member || tx.accountRole === 'household-reserve') continue;
+      if (!member || (taggedOnly && !member.tagged) || tx.accountRole === 'household-reserve') continue;
       if (tx.date < cycle.start || tx.date > through || skipSplitParent(tx, packet)
-          || isPossibleReplacementPending(tx, duplicateIds)) continue;
+          || (!member.tagged && isPossibleReplacementPending(tx, duplicateIds))) continue;
       const cents = savingsCents(Number(tx.amount), true);
       if (cents == null) return null;
       if (cents === 0) continue;
@@ -18690,9 +18702,12 @@
     const through = savingsDate(cycle.end) && cycle.end < asOf ? cycle.end : asOf;
     // One pending-replacement predicate with savingsItemCycleSpend (note 6).
     const duplicateIds = pendingPostedDuplicateIdSet(packet);
-    const recon = packet.transactions.filter(tx => tx && isRevolvingCardAccount(tx) && savingsItemMember(tx, plan, { packet })
-      && tx.date >= cycle.start && tx.date <= through && !skipSplitParent(tx, packet)
-      && !isPossibleReplacementPending(tx, duplicateIds) && savingsCents(Number(tx.amount), true) > 0)
+    const recon = packet.transactions.filter(tx => {
+      if (!tx || !isRevolvingCardAccount(tx) || tx.date < cycle.start || tx.date > through
+          || skipSplitParent(tx, packet) || !(savingsCents(Number(tx.amount), true) > 0)) return false;
+      const member = savingsItemMember(tx, plan, { packet });
+      return member && (member.tagged || !isPossibleReplacementPending(tx, duplicateIds));
+    })
       .map(tx => ({ id: tx.id, amount: Number(tx.amount), pending: tx.pending === true }));
     if (!recon.length) return budget;
     const cents = recon.reduce((sum, r) => sum + savingsCents(r.amount, true), 0);
@@ -19482,14 +19497,14 @@
       // never as a household cost. Atlas P2 on 4d90a156: a completed
       // (lookback) period's actuals excluded the same item spending, so its
       // historical remainder keeps the deduction too, on its own cycle.
-      // The term needs this period's actuals ready (spentReady). Under lost
-      // coverage a linked charge is in neither this term nor the hold (it
-      // sits in no category); the close and next opening are then withheld,
-      // not understated, because a linked charge needs a Savings pool and the
-      // pool's S1 seed is null without complete coverage
-      // (test-savings-item-lost-coverage).
-      const itemSpend = (role === 'active' || lookback) && !planUnavailable && budget.spentReady === true
-        ? savingsItemCycleSpend(plan, asOf, opts, budget.spendingCycle) : { cents: 0, refs: new Set() };
+      // The legacy settlement path requires actuals ready and its Savings
+      // pool withholds the carry under lost coverage. Exact tag spending can
+      // qualify without that pool, so known rows must still enter the
+      // estimated close under lost coverage, like known Household spending.
+      const itemSpend = (role === 'active' || lookback) && !planUnavailable
+        && (budget.spentReady === true || budget.coverageLost === true)
+        ? savingsItemCycleSpend(plan, asOf, opts, budget.spendingCycle, budget.spentReady !== true)
+        : { cents: 0, refs: new Set() };
       // Rank 18: held outflows, on the item term's cycle. A held row's twin
       // was Other spending, which the lost-coverage hold counts from the
       // known rows (as it counts any known category row). So the held term is deducted
@@ -29460,7 +29475,7 @@
   // balance date withholds the goal allocation; it is never a zero.
   function savingsReportedItemLiabilities(plan, day, opts, reported, withheld) {
     const packet = currentPeriodActualsPacket(opts), transactions = packet?.transactions;
-    const members = savingsItemMembership(plan, packet);
+    const members = savingsItemMembership(plan, packet, true);
     const rows = [];
     if (!members || !members.size || !Array.isArray(transactions)) return { rows, reason: null };
     const hold = { rows: null, reason: withheld
@@ -29469,7 +29484,7 @@
     const cutoffOf = id => reported.balanceDates.find(row => row.accountId === id)?.date;
     const charges = new Map(), refunds = new Map(), cardRefs = new Set();
     for (const tx of transactions) {
-      if (!tx || !savingsItemMember(tx, plan, { packet })) continue;
+      if (!tx || !savingsItemMember(tx, plan, { packet }, true)) continue;
       const cents = savingsCents(tx.amount, true);
       if (cents == null) return hold;
       if (isRevolvingCardAccount(tx)) { if (cents > 0 && tx.coverageRef) cardRefs.add(tx.coverageRef); continue; }
