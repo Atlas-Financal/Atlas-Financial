@@ -20,11 +20,12 @@ fs.readFileSync = function (file, ...args) {
   return read.call(this, file, ...args);
 };
 
-const { date, draw, monthDays, world } = require('./household');
+const { date, draw, monthDays } = require('./household');
 const { build, generate, habits } = require('./habits');
 const { faults } = require('./transport');
 const { inspect, checks, known } = require('./oracle');
-const { replay, display } = require('./replay');
+const { replay, digest } = require('./replay');
+const { evaluate, observationReader } = require('./witness');
 const { tokensFor, subset, shrink } = require('./shrink');
 const { workedControls } = require('./worked');
 const { inventory } = require('./inventory');
@@ -88,37 +89,6 @@ function signature(f) {
   return [f.cause, f.figure, f.habit, effect].join('|');
 }
 const cost = (c) => tokensFor(c.events, c.day).length;
-function visibleRepro(seed, day, events, fault) {
-  const input = world(seed, day, events);
-  const selectedIds = new Set(events.flatMap((e) => e.rows.map((r) => r.id)));
-  if (faults[fault]?.row || faults[fault]?.between)
-    selectedIds.add(faults[fault]?.target?.(day) ?? 410000 + day);
-  const rows = input.payload.transactions
-    .filter((r) => selectedIds.has(r.id))
-    .map((r) => ({
-      id: r.id,
-      date: r.date,
-      account: r.plaid_account_id,
-      amount: r.amount,
-      category: r.category_id,
-      payee: r.payee,
-      ...(r.is_pending ? { pending: true } : {}),
-      ...(r.notes ? { notes: r.notes } : {}),
-      ...(r.tag_ids?.length ? { tagIds: r.tag_ids } : {}),
-    }));
-  const readableFault = fault
-    ? {
-        name: fault,
-        day: date(day),
-        ...(faults[fault].account ? { account: faults[fault].account } : {}),
-        ...(faults[fault].row || faults[fault].between
-          ? { target: faults[fault]?.target?.(day) ?? 410000 + day }
-          : {}),
-      }
-    : undefined;
-  return { rows, fault: readableFault };
-}
-
 async function run(opts) {
   if (opts.mode === 'list')
     return Object.fromEntries(
@@ -162,7 +132,7 @@ async function run(opts) {
     }
   }
   const result = {
-    schema: 1,
+    schema: 2,
     mode: modes,
     seeds,
     days: modes === 'known-six' ? 0 : days,
@@ -174,7 +144,7 @@ async function run(opts) {
   if (modes === 'campaign')
     result.inventory = await inventory(seeds[0], (c, view) => {
       const output = inspect({ ...c, view });
-      collect(c, output);
+      collect({ ...c, firstDay: c.day, baselineDay: c.day }, output);
     });
   for (const seed of seeds) {
     const bases = new Map();
@@ -188,7 +158,16 @@ async function run(opts) {
       const baseline = (await base(day)).view;
       assert.ok(baseline.qualified && numericBaseline(baseline), 'known-six control must publish');
       const view = (await replay(seed, day, events)).view;
-      const c = { seed, day, events, panel: name, baseline, knownOnly: true };
+      const c = {
+        seed,
+        day,
+        firstDay: day,
+        baselineDay: day,
+        events,
+        panel: name,
+        baseline,
+        knownOnly: true,
+      };
       const out = inspect({ ...c, view });
       // A changed result needs a current control and an exact historical
       // witness before the baseline can be reclassified as repaired.
@@ -198,6 +177,22 @@ async function run(opts) {
       );
       collect(c, out);
     }
+    const historical = {
+      seed,
+      day: 5,
+      firstDay: 3,
+      baselineDay: 4,
+      panel: 'retained-pending-topup',
+      events: [build(seed, 'topup-pending', 3)],
+      fault: 'missing-balance',
+      knownOnly: true,
+    };
+    const retained = await evaluate(historical, historical.events);
+    assert.ok(
+      retained.failures.some((f) => f.cause === 'topup'),
+      'missing retained prior-row witness'
+    );
+    collect(historical, retained);
     if (modes === 'known-six') continue;
     const journal = generate(seed, days, opts.rates);
     for (const e of journal) {
@@ -209,6 +204,8 @@ async function run(opts) {
         seed,
         day,
         events: [e],
+        firstDay: day,
+        baselineDay: day,
         panel: 'sampled/' + e.habit,
         baseline: (await base(day)).view,
         knownOnly: true,
@@ -223,23 +220,17 @@ async function run(opts) {
       if (day > 0) {
         stats.dailyReads++;
         if (clean.view.qualified) stats.qualifiedDays++;
-        const c = { seed, day, events };
-        collect(c, inspect({ ...c, view: clean.view }));
-        let pairPrior, pairControl;
+        const c = { seed, day, events, firstDay: 0 };
+        collect(c, inspect({ ...c, view: clean.view, prior: yesterday.view }));
         for (const [name, f] of Object.entries(faults)) {
           const sampled = draw(seed, name, day, 'fault') / 2 ** 32 < (opts.rates[name] ?? f.rate);
           // Fixed coverage of each single fault on a separate clean timeline,
           // in addition to stochastic exposures. Each fork starts at yesterday.
           const rotation = Object.keys(faults)[(day - 1) % Object.keys(faults).length];
           if (!sampled && (name !== rotation || opts.rates[name] === 0)) continue;
-          if (!pairPrior) {
-            const raw = { ...yesterday.raw };
-            pairPrior = { raw, view: display(raw, null) };
-            pairControl = display({ ...clean.raw }, raw);
-          }
-          const v = (await replay(seed, day, events, name, pairPrior.raw)).view;
-          const pair = { ...c, fault: name };
-          collect(pair, inspect({ ...pair, view: v, clean: pairControl, prior: pairPrior.view }));
+          const v = (await replay(seed, day, events, name, yesterday.raw)).view;
+          const pair = { ...c, fault: name, panel: sampled ? 'timeline' : 'rotation' };
+          collect(pair, inspect({ ...pair, view: v, clean: clean.view, prior: yesterday.view }));
           stats.pairedFaults++;
           increment(stats.faults, name);
           if (yesterday?.raw.qualified) stats.yesterdayControls++;
@@ -250,9 +241,9 @@ async function run(opts) {
     for (const name of Object.keys(faults)) {
       const day = 5,
         prior = await base(4),
-        clean = await base(day);
+        clean = await replay(seed, day, [], null, prior.raw);
       const v = (await replay(seed, day, [], name, prior.raw)).view;
-      const c = { seed, day, events: [], fault: name, panel: 'qualified-fault' };
+      const c = { seed, day, firstDay: 4, events: [], fault: name, panel: 'qualified-fault' };
       collect(c, inspect({ ...c, view: v, clean: clean.view, prior: prior.view }));
       stats.pairedFaults++;
       stats.yesterdayControls++;
@@ -265,25 +256,7 @@ async function run(opts) {
   }
   const proofs = [];
   const sharedRuns = new Map();
-  // Several faults can challenge the same healthy reading. Reuse that
-  // identical two-day control during reduction; final proofs are uncached.
-  const pairs = new Map();
-  async function controlPair(seed, day, events, force) {
-    const key = JSON.stringify([
-      seed,
-      day,
-      events.map((e) => [e.habit, e.start, e.rows.map((r) => [r.id, r.sync, r.pending])]),
-    ]);
-    if (!force && pairs.has(key)) return pairs.get(key);
-    const prior = await replay(seed, day - 1, events);
-    const clean = await replay(seed, day, events, null, prior.raw);
-    const pair = { prior, clean };
-    if (!force) {
-      if (pairs.size >= 48) pairs.delete(pairs.keys().next().value);
-      pairs.set(key, pair);
-    }
-    return pair;
-  }
+  const read = observationReader();
   for (const [key, { context: c, failure }] of candidates) {
     const cache = new Map();
     const all = tokensFor(c.events, c.day);
@@ -291,17 +264,31 @@ async function run(opts) {
       const key = tokens.join(',');
       if (!force && cache.has(key)) return cache.get(key);
       const events = subset(c.events, tokens);
-      const runId = [c.seed, c.day, c.fault || '', c.panel || 'timeline', key].join(':');
+      const runId = JSON.stringify([
+        c.seed,
+        c.firstDay,
+        c.day,
+        c.fault,
+        c.priorFaults,
+        c.baselineDay,
+        c.knownOnly,
+        c.panel,
+        c.events.map((e) => [e.habit, e.start]),
+        key,
+      ]);
       if (!force && sharedRuns.has(runId))
         return sharedRuns.get(runId).find((f) => signature(f) === signature(failure));
-      const { prior, clean } = c.fault ? await controlPair(c.seed, c.day, events, force) : {};
-      const v = (await replay(c.seed, c.day, events, c.fault, prior?.raw)).view;
-      const foundAll = inspect({ ...c, events, view: v, clean: clean?.view, prior: prior?.view }).failures;
+      const evaluated = await evaluate(c, events, force ? undefined : read, force);
+      const foundAll = evaluated.failures;
       if (!force) sharedRuns.set(runId, foundAll);
       const found = foundAll.find((f) => signature(f) === signature(failure));
       cache.set(key, found || false);
-      return found;
+      return force && found
+        ? { finding: found, observations: evaluated.observations, rows: evaluated.rows }
+        : found;
     }
+    const original = await test(all);
+    assert.deepEqual(original, failure, 'complete original recipe must replay its recorded outcome: ' + key);
     let start = all;
     const related = all.filter((t) => c.events[Number(t.split('/')[0])].habit === failure.habit);
     if (await test([])) start = [];
@@ -329,9 +316,16 @@ async function run(opts) {
         { cause: err }
       );
     });
-    const survivors = subset(c.events, kept);
+
     proofs.push({
-      ...proof,
+      ...proof.finding,
+      reads: proof.observations,
+      rows: proof.rows,
+      firstDay: c.firstDay,
+      ...(c.baselineDay != null ? { baselineDay: c.baselineDay } : {}),
+      ...(c.priorFaults ? { priorFaults: c.priorFaults } : {}),
+      knownOnly: Boolean(c.knownOnly),
+      ...(c.fault ? { fault: { name: c.fault, day: date(c.day) } } : {}),
       seed: c.seed,
       day: date(c.day),
       panel: c.panel || 'timeline',
@@ -346,7 +340,6 @@ async function run(opts) {
           selected: kept.filter((t) => Number(t.split('/')[0]) === i).map((t) => t.split('/')[1]),
         }))
         .filter((e) => e.selected.length),
-      ...visibleRepro(c.seed, c.day, survivors, c.fault),
     });
   }
   const groups = new Map();
@@ -386,27 +379,24 @@ async function run(opts) {
   result.consensus = ranked.filter((r) => known.includes(r.cause));
   result.additional = ranked.filter((r) => !known.includes(r.cause));
   assert.equal(result.consensus.length, 6, 'partial known-six coverage');
+  result.reportId = digest(result);
   return result;
 }
 function family(cause) {
-  if (
-    (cause.startsWith('isolation/') && !cause.endsWith('unrelated-goal') && !cause.endsWith('thin-card')) ||
-    cause === 'refresh/account-behind' ||
-    cause === 'refresh/missing-balance'
-  )
-    return 'whole-refresh-fallback';
-  if (cause.startsWith('last-known/retained')) return 'retained-figure-trust';
+  if (cause.startsWith('admission/')) return 'invalid-refresh-admission';
+  if (cause.startsWith('retention/')) return 'retained-cohort-mismatch';
   if (/^purchase\/(pending-|fuel-preauth|cash-pending|savings-pending)/.test(cause))
     return 'pending-replacement-ownership';
-  if (/^purchase\/(category-|paypal-transfer|studio-groceries|manual-row)/.test(cause))
-    return 'spending-excluded-by-account-or-ledger-label';
+  if (cause.startsWith('classification/')) return 'ledger-classification';
   if (/^purchase\/savings-/.test(cause) || cause === 'savings/goal-tally')
     return 'savings-spending-attribution';
   return cause;
 }
 async function replayReport(file) {
   const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
-  assert.equal(saved.schema, 1);
+  assert.equal(saved.schema, 2, 'schema 2 history-bound report required');
+  const { reportId, ...contents } = saved;
+  assert.equal(reportId, digest(contents), 'report identity mismatch');
   assert.deepEqual(
     saved.consensus.map((g) => g.cause).sort(),
     [...known].sort(),
@@ -421,25 +411,16 @@ async function replayReport(file) {
           op.selected.map((n) => '0/' + n)
         )
       );
-      const day = require('./household').offset(proof.day),
-        fault = proof.fault?.name;
-      const prior = fault ? await replay(proof.seed, day - 1, events) : null;
-      const clean = fault ? await replay(proof.seed, day, events, null, prior.raw) : null;
-      const view = (await replay(proof.seed, day, events, fault, prior?.raw)).view;
-      const baseline =
-        known.includes(proof.cause) || proof.panel.startsWith('inventory/')
-          ? (await replay(proof.seed, day, [])).view
-          : null;
-      const output = inspect({
-        seed: proof.seed,
-        day,
-        events,
-        view,
-        fault,
-        clean: clean?.view,
-        prior: prior?.view,
-        baseline,
-      });
+      const day = require('./household').offset(proof.day);
+      assert.ok(Number.isInteger(proof.firstDay) && proof.firstDay >= 0 && proof.firstDay <= day);
+      const c = { ...proof, day, fault: proof.fault?.name };
+      const output = await evaluate(c, events, undefined, true);
+      assert.deepEqual(output.observations, proof.reads, 'historical input or qualification mismatch');
+      assert.deepEqual(
+        output.rows,
+        proof.rows,
+        'serialized witness row versions differ from the actual reads'
+      );
       const found = output.failures.find((f) => signature(f) === signature(proof));
       assert.ok(found, 'lost witness ' + signature(proof));
       assert.deepEqual([found.expected, found.actual], [proof.expected, proof.actual]);
@@ -464,4 +445,4 @@ if (require.main === module)
     console.error('HARNESS OR COVERAGE FAILURE', err.stack);
     process.exitCode = 2;
   });
-module.exports = { run, options, panel };
+module.exports = { run, options, panel, replayReport };

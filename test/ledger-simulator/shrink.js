@@ -37,11 +37,7 @@ function subset(events, tokens) {
 }
 function tokensFor(events, day) {
   return events.flatMap((e, i) =>
-    e.start > day
-      ? []
-      : !e.rows.length
-        ? [i + '/config']
-        : e.rows.flatMap((r, j) => (r.sync <= day ? [i + '/' + j] : []))
+    e.start > day ? [] : !e.rows.length ? [i + '/config'] : e.rows.map((_, j) => i + '/' + j)
   );
 }
 // Delta debugging followed by individual deletions and an uncached final replay.

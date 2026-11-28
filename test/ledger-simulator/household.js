@@ -196,13 +196,13 @@ function world(seed, day, events) {
     plannedPayday: 41.11,
     confidence: 'confirmed',
   });
-  for (const key of ['studio', 'card', 'second', 'line']) {
+  for (const key of ['studio', 'card', 'second', 'line', 'manual']) {
     const role = {
       studio: 'household-external',
       card: 'revolving-credit',
       second: 'revolving-credit',
       line: 'heloc',
-      pocket: 'sim-pocket',
+      manual: 'revolving-credit',
     }[key];
     w.accounts.push({
       id: account[key],
@@ -307,7 +307,11 @@ function world(seed, day, events) {
   }));
   w.planPatch = (plan) => {
     plan.windowDays = 29;
-    plan.cardPurchaseCoverage = openingCoverage(date(0));
+    plan.cardPurchaseCoverage = {
+      ...openingCoverage(date(0)),
+      rule: 'aggregate-per-card-per-pay-period',
+      payDownOnly: [account.manual],
+    };
     plan.startingCash.breakdown = plan.startingCash.breakdown.filter((a) =>
       ['chequing-a', 'chequing-b', 'savings', account.pocket].includes(a.id)
     );
@@ -324,11 +328,28 @@ function world(seed, day, events) {
   data.revolvingExtra = [{ id: 'invented-overdraft', cash: account.weekly, limit: 1900, pending: 0 }];
   const accountMap = H.accountMapOf(w);
   for (const m of accountMap.mappings) if (m.atlasRole === 'household-external') delete m.canonical;
+  const manual = w.debts.find((d) => d.id === account.manual);
+  payload.manual_accounts = [
+    {
+      id: providerId('manual'),
+      name: manual.label,
+      type: 'credit',
+      currency: 'cad',
+      balance: String(manual.balance),
+      balance_last_update: manual.evidenceDate + 'T12:00:00Z',
+    },
+  ];
+  payload.plaid_accounts = payload.plaid_accounts.filter((a) => a.id !== providerId('manual'));
+  for (const tx of payload.transactions)
+    if (tx.plaid_account_id === providerId('manual')) {
+      tx.manual_account_id = tx.plaid_account_id;
+      delete tx.plaid_account_id;
+    }
   for (const a of payload.plaid_accounts) a.last_fetch = asOf + 'T17:00:00Z';
   payload.transactions = payload.transactions.filter((tx) => tx.is_pending || tx.date >= w.windowStart);
   let previousWeekly = opening.weekly;
   for (let d = 0; d < day; d++) previousWeekly -= anchor(d);
-  for (const event of events)
+  for (const event of edits)
     for (const entry of event.entries) {
       if (entry.key === 'weekly' && entry.day < day) previousWeekly -= entry.cents;
     }

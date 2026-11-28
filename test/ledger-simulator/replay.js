@@ -1,6 +1,8 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const { createHash } = require('node:crypto');
+const digest = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const Live = require('../../scripts/live-plan');
 const Observer = require('../../scripts/provider-observe');
 const Memory = require('../../scripts/server-observation-memory');
@@ -15,8 +17,7 @@ function activity(data) {
 }
 const context = 'invented-ledger-simulator';
 
-async function observation(seed, day, events, fault) {
-  const input = world(seed, day, events);
+async function observation(seed, day, events, fault, input = world(seed, day, events)) {
   // Transport / fixture failures escape. Only exceptions from the application
   // refresh itself are product observations.
   input.payload = await fetchPayload(input.payload, day, fault, input.previousWeekly);
@@ -47,7 +48,15 @@ async function observation(seed, day, events, fault) {
     );
     join = acquisition.join;
   }
-  return { day, data, qualified, join, exception, payload: input.payload };
+  return { day, data, qualified, join, exception, fault, payload: input.payload, inputDigest: digest(input) };
+}
+function remember(today, prior) {
+  const history = prior?.history || [];
+  const live = history.filter((r) => Math.floor(r.day / 14) === Math.floor(today.day / 14));
+  const last = history.at(-1);
+  if (last && !live.includes(last)) live.unshift(last);
+  if (today.qualified) live.push(today);
+  return { ...today, history: live };
 }
 function display(today, prior) {
   // Each fork gets a new server memory slot. Feed it the preceding qualified
@@ -57,10 +66,7 @@ function display(today, prior) {
   const previous = history.at(-1);
   const stamp = today.payload.fetchedAt;
   const memory = Memory.create();
-  const live = history.filter((r) => Math.floor(r.day / 14) === Math.floor(today.day / 14));
-  if (previous && !live.includes(previous)) live.unshift(previous);
-  if (today.qualified) live.push({ ...today });
-  today.history = live;
+  const live = today.history;
   let data = today.data,
     source = today;
   if (previous) {
@@ -170,10 +176,19 @@ function display(today, prior) {
     if (item.amount > 0 && item.actionRequired === true)
       moves.push({ kind: 'optional', cents: cents(item.amount) });
   const sourceDay = source.day;
+  const withheldPurchases = goalLedger.items
+    .filter((i) => i.spent?.cents == null)
+    .flatMap((i) =>
+      i.evidence
+        .filter((e) => e.direction === 'charge')
+        .map((e) => ({ id: ids.get(e.transactionRef), goal: i.goalKey, reasons: i.reasons }))
+    );
   return {
     qualified: today.qualified,
     sourceDay,
     retained: source !== today,
+    publishedAsOf: data.meta.asOf,
+    retainedReceipt: data.liveOverlay.retainedRefresh || null,
     start: v?.start,
     end: v?.end,
     exception: today.exception,
@@ -194,11 +209,16 @@ function display(today, prior) {
       goalKiteSpent: goalLedger.items.find((i) => i.goalKey === 'commitment:kite')?.spent?.cents ?? null,
       goalLoomSpent: goalLedger.items.find((i) => i.goalKey === 'commitment:loom')?.spent?.cents ?? null,
       cardPaid: cents(card?.paidBack?.amount),
+      cardMinimum: cents(card?.minimum?.amount),
+      cardTarget: cents(card?.target?.amount),
+      cardRemainder: cents(card?.stillToPayBack?.amount),
       cardSpent: cents(card?.spent?.amount),
       linePaid: cents(line?.paidBack?.amount),
       otherIncome: cents(s?.income?.other?.amount),
     },
     buys: purchases,
+    withheldPurchases,
+    coverageIssues: (advice.cardPurchaseCoverage?.issues || []).map((i) => i.code),
     budgets,
     bills,
     spendingRows,
@@ -210,9 +230,14 @@ function display(today, prior) {
       billLoad: v?.periodBillLoadTrust,
       billsEnd: tile?.trust,
       cardPaid: card?.paidBack?.trust,
+      cardTarget: card?.target?.trust,
+      cardRemainder: card?.stillToPayBack?.trust,
       cardSpent: card?.spent?.trust,
       linePaid: line?.paidBack?.trust,
     },
+    contradictoryPayment: (credit?.unconfirmedPayments || []).some(
+      (p) => p.amount < 0 || p.reason === 'card-payment-destination-conflict'
+    ),
     cardReasons: card?.paidBack?.reasons || [],
     cardTrust: card?.spent?.trust,
     cardObservedAt: card?.activityObservedAt || null,
@@ -220,6 +245,7 @@ function display(today, prior) {
       id: i.goalKey,
       spent: i.spent?.cents ?? null,
       net: i.net?.cents ?? null,
+      reasons: i.reasons,
     })),
     heldRows: (v?.heldOutflowsToConfirm?.recon || []).map(row),
     held: cents(v?.heldOutflowsToConfirm?.total) ?? 0,
@@ -235,7 +261,19 @@ function display(today, prior) {
   };
 }
 async function replay(seed, day, events, fault, prior) {
-  const raw = await observation(seed, day, events, fault);
-  return { raw, view: display(raw, prior) };
+  return publish(await observation(seed, day, events, fault), prior);
 }
-module.exports = { observation, display, replay, cents };
+function publish(observed, prior) {
+  const raw = remember(observed, prior);
+  const view = display(raw, prior);
+  if (observed.fault === 'thin-payer' && observed.qualified && prior) {
+    const cold = display(remember(observed, null), null);
+    view.payerGap = {
+      amounts: cold.amounts,
+      reasons: cold.cardReasons,
+      unconfirmed: cold.contradictoryPayment,
+    };
+  }
+  return { raw, view };
+}
+module.exports = { observation, remember, publish, replay, cents, digest };

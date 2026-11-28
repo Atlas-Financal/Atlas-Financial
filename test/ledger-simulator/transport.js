@@ -28,7 +28,7 @@ const faults = {
   'thin-card': {
     rate: 0.04,
     account: 'card',
-    fields: ['cardSpent', 'cardPaid'],
+    fields: ['cardSpent', 'cardPaid', 'cardTarget', 'cardRemainder'],
     edit(p) {
       delete p.plaid_accounts.find((a) => a.id === providerId('card')).last_fetch;
     },
@@ -57,10 +57,11 @@ const faults = {
   },
   'thin-payer': {
     rate: 0.012,
-    account: 'bills',
-    fields: ['cardPaid', 'linePaid'],
+    account: 'cash and reserve payers',
+    fields: ['cardPaid', 'cardRemainder', 'linePaid'],
     edit(p) {
-      delete p.plaid_accounts.find((a) => a.id === providerId('bills')).last_fetch;
+      const payerIds = ['bills', 'weekly', 'pool', 'reserve', 'pocket'].map(providerId);
+      for (const a of p.plaid_accounts) if (payerIds.includes(a.id)) delete a.last_fetch;
     },
   },
   'malformed-statement': {
@@ -84,10 +85,24 @@ const faults = {
 // Route the production reader's loopback GETs in-process. No request is delegated.
 // An overlapping page boundary delivers the target twice. Page 1 precedes the
 // edit. Page 2 reads the new value from the same in-memory record.
+function targetFor(source, day, name) {
+  if (name === 'edit-between-pages' || name === 'stable-pages') {
+    const bills = source.transactions.find(
+      (r) =>
+        r.date === date(day) &&
+        r.plaid_account_id === providerId('bills') &&
+        !r.is_pending &&
+        r.category_id === ids.Groceries &&
+        Number(r.amount) > 0
+    );
+    if (bills) return bills.id;
+  }
+  return faults[name]?.target?.(day) ?? 410000 + day;
+}
 async function fetchPayload(source, day, faultName, previousWeekly) {
   const p = structuredClone(source),
     f = faults[faultName];
-  const targetId = f?.target?.(day) ?? 410000 + day;
+  const targetId = targetFor(source, day, faultName);
   const target = p.transactions.find((t) => t.id === targetId);
   if (f?.row || f?.between) assert.ok(target, 'fault must reach the designated posted row');
   f?.edit?.(p, day, previousWeekly);
@@ -122,7 +137,7 @@ async function fetchPayload(source, day, faultName, previousWeekly) {
       case 'plaid_accounts':
         return { plaid_accounts: p.plaid_accounts };
       case 'manual_accounts':
-        return { manual_accounts: [] };
+        return { manual_accounts: p.manual_accounts };
       case 'categories':
         return { categories: p.categories };
       case 'tags':
@@ -177,4 +192,4 @@ async function fetchPayload(source, day, faultName, previousWeekly) {
     http.request = original;
   }
 }
-module.exports = { faults, fetchPayload };
+module.exports = { faults, fetchPayload, targetFor };
