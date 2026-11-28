@@ -158,6 +158,7 @@ function operatingLimits(data, opts) {
         || null,
       coverage: limits.coverage || null,
       cardPurchaseCoverage: limits.cardPurchaseCoverage || null,
+      cardEstimateBasis: permission.estimateBasis || null,
     };
   } catch (err) {
     return {
@@ -357,6 +358,7 @@ function fromIncumbent(opts) {
     remainingClaim,
     categoryRemainingClaim: limits.categoryRemainingClaim,
     cardPurchaseCoverage: limits.cardPurchaseCoverage,
+    cardEstimateBasis: limits.cardEstimateBasis,
     coverage: limits.coverage,
   };
   parts.unresolvedMaterial = unresolvedFrom(parts, data);
@@ -379,7 +381,8 @@ function fromIncumbent(opts) {
     remainingClaim,
     categoryRemainingClaim: limits.categoryRemainingClaim,
     exactFiguresAvailable: remainingClaim !== 'unavailable'
-      && parts.cardPurchaseCoverage?.status !== 'unavailable',
+      && parts.cardPurchaseCoverage?.status !== 'unavailable'
+      && parts.cardEstimateBasis !== 'card-bills-backing-shortfall',
     coverageLimits: coverageLimitsFrom(parts),
     unresolvedMaterial: parts.unresolvedMaterial,
     canonicalProposalWaiting: proposedCount > 0,

@@ -264,7 +264,9 @@ function cardCoverageEstimate(advice) {
   const coverage = advice && advice.cardPurchaseCoverage;
   const basis = Forecast.cardCoverageEstimateBasis(coverage);
   if (!basis) return null;
-  return { basis, reason: Forecast.CARD_ESTIMATE_REASONS[basis],
+  const reason = basis === Forecast.CARD_BILLS_SHORTFALL_ESTIMATE_BASIS
+    ? Forecast.CARD_BILLS_SHORTFALL_ESTIMATE_REASON : Forecast.CARD_ESTIMATE_REASONS[basis];
+  return { basis, reason,
     toConfirmCount: Array.isArray(coverage.toConfirm) ? coverage.toConfirm.length : 0 };
 }
 // A published section under the estimate: a graded tag (or none) becomes
@@ -275,13 +277,14 @@ function tagCardEstimate(section, estimate) {
   return { ...section, trust, cardCoverageEstimate: estimate };
 }
 // Projections that walk forward at the weekly cap: withheld under the estimate.
-function withheldForCardEstimate(source, estimate) {
-  return { status: 'unavailable', source, reason: 'Projection waits until the card payment is confirmed. ' + estimate.reason,
-    cardCoverageEstimate: estimate };
+function withheldForCardEstimate(source, estimate, reason) {
+  return { status: 'unavailable', source, reason, cardCoverageEstimate: estimate };
 }
 function applyCardEstimate(packet, advice) {
   const estimate = cardCoverageEstimate(advice);
   if (!estimate) return packet;
+  const billsShortfall = estimate.basis === Forecast.CARD_BILLS_SHORTFALL_ESTIMATE_BASIS;
+  const projectionReason = billsShortfall ? estimate.reason : 'Projection waits until the card payment is confirmed. ' + estimate.reason;
   const current = packet.current || {};
   for (const key of ['spendableHouseholdCash', 'nextSignificantObligations']) {
     if (current[key]) current[key] = tagCardEstimate(current[key], estimate);
@@ -294,13 +297,14 @@ function applyCardEstimate(packet, advice) {
     }
     if (forecast.horizon && forecast.horizon.status !== 'unavailable') {
       forecast.horizon = { ...forecast.horizon, minBalance: null, minDate: null,
-        minReason: 'The projected low point waits until the card payment is confirmed.', cardCoverageEstimate: estimate };
+        minReason: billsShortfall ? estimate.reason : 'The projected low point waits until the card payment is confirmed.',
+        cardCoverageEstimate: estimate };
     }
-    if (forecast.facilityCrossings) forecast.facilityCrossings = withheldForCardEstimate('Forecast.projectDebts', estimate);
+    if (forecast.facilityCrossings) forecast.facilityCrossings = withheldForCardEstimate('Forecast.projectDebts', estimate, projectionReason);
     if (forecast.payPeriodTotals) forecast.payPeriodTotals = tagPayPeriodTotalsEstimate(forecast.payPeriodTotals, estimate);
     packet.forecast = { ...forecast, trust: 'estimated', cardCoverageEstimate: estimate };
   }
-  if (packet.planning) packet.planning.trajectory = withheldForCardEstimate('Forecast.baselineTrajectory', estimate);
+  if (packet.planning) packet.planning.trajectory = withheldForCardEstimate('Forecast.baselineTrajectory', estimate, projectionReason);
   return packet;
 }
 

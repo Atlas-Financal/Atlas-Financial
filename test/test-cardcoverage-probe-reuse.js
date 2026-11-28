@@ -236,7 +236,7 @@ check('a reuse holder serves only its exact inputs; any other input is computed 
   assert.strictEqual(typeof probe, 'function', 'probeCardCoverage present');
   const i = clone(BASE);
   const holder = { plan: i.plan, asOf: i.asOf, currentPeriodActuals: i.opts.currentPeriodActuals, debts: i.opts.debts,
-    representedEvents: i.opts.representedEvents, computed: false, value: null };
+    observedCash: i.opts.observedCash, representedEvents: i.opts.representedEvents, computed: false, value: null };
   const optsFor = o => Object.assign({}, o, { cardCoverageReuse: holder });
   const direct = (plan, asOf, opts) => { const o = Object.assign({}, opts); delete o.cardCoverageReuse; return ser(probe(plan, asOf, o)); };
   withReuse.counts.cardCoverageState = 0;
@@ -250,6 +250,8 @@ check('a reuse holder serves only its exact inputs; any other input is computed 
     'other actuals object': [i.plan, i.asOf, Object.assign({}, i.opts, { currentPeriodActuals: clone(i.opts.currentPeriodActuals) })],
     'actuals absent': [i.plan, i.asOf, Object.assign({}, i.opts, { currentPeriodActuals: null })],
     'other debts object': [i.plan, i.asOf, Object.assign({}, i.opts, { debts: clone(i.opts.debts) })],
+    'other observed cash object (deep-equal)': [i.plan, i.asOf, Object.assign({}, i.opts, { observedCash: clone(i.opts.observedCash) })],
+    'observed cash absent': [i.plan, i.asOf, Object.assign({}, i.opts, { observedCash: undefined })],
     'representedEvents supplied': [i.plan, i.asOf, Object.assign({}, i.opts, { representedEvents: [] })],
   };
   for (const [name, [plan, asOf, opts]] of Object.entries(cases)) {
