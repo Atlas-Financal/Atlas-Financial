@@ -39,7 +39,7 @@ function cashWorld(transactions, { links = [link()], pool = true, window } = {})
   return result.data;
 }
 
-function read(data, qualifiedAmounts) {
+function read(data, qualifiedAmounts, unresolvedAmounts = []) {
   const { plan } = data;
   const asOf = F.budgetAsOf(data);
   const opts = F.budgetRecommendInputs(data);
@@ -53,11 +53,12 @@ function read(data, qualifiedAmounts) {
   if (!source) F.savingsLinkTarget.taggedEvidence = (selectedPlan, selectedAsOf, selectedPacket) => {
     if (selectedPacket !== packet || selectedAsOf !== asOf) return null;
     assert.ok(selectedPlan);
-    return { links: [], evidence: qualifiedAmounts.map(amount => {
+    return { links: [], evidence: [...qualifiedAmounts, ...unresolvedAmounts].map(amount => {
       const tx = packet.transactions.find(row => row.amount === amount);
-      assert.ok(tx, 'the invented qualifying row survived the live overlay');
-      return { transactionRef: tx.id, occurrenceKey: 'trip@' + date, direction: amount > 0 ? 'charge' : 'refund',
-        date: tx.date, state: tx.pending ? 'pending' : 'posted', linkRefs: ['link-1'] };
+      assert.ok(tx, 'the invented row survived the live overlay');
+      const unresolved = unresolvedAmounts.includes(amount);
+      return { transactionRef: tx.id, occurrenceKey: unresolved ? null : 'trip@' + date, direction: amount > 0 ? 'charge' : 'refund',
+        date: tx.date, state: unresolved ? 'unresolved' : (tx.pending ? 'pending' : 'posted'), linkRefs: ['link-1'] };
     }) };
   };
   try {
@@ -116,10 +117,10 @@ const cost = result => result.pub.rows.find(row => row.key === 'commitment:trip'
 
 {
   const tx = purchase({ tagIds: [201, 202] });
-  const conflict = read(cashWorld([tx], { links: [link(), link('gift', 202)] }), []);
+  const conflict = read(cashWorld([tx], { links: [link(), link('gift', 202)] }), [], [100]);
   const missing = read(cashWorld([tx], { links: null }), []);
   for (const result of [conflict, missing]) {
-    assert.equal(budgetRow(result, 'other-spending').spent, 100, 'an unresolved or absent exact link leaves the purchase in Budget');
+    assert.equal(budgetRow(result, 'other-spending')?.spent, 100, 'an unresolved or absent exact link leaves the purchase in Budget');
     assert.equal(result.period.plannedPeriodCloseTerms.savingsItemSpending, undefined);
   }
 }
