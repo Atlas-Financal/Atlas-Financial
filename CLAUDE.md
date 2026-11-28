@@ -16,8 +16,8 @@ scaffolding. The rule numbers are kept so existing references (for example
 
 - **Roles**: who builds, reviews and merges, including the backup-merger
   clause and, in "Review routing and claims", the 10-minute Merge fallback.
-  Builder model selection follows OD-065. Codex stays paused; resuming it is
-  Dale's call. Astra builds through its mailbox (OD-035).
+  Builder model selection follows OD-065. Astra builds through its mailbox
+  (OD-035).
 - **Rules 8–10**: the PR is the record and Slack is for "needs you" and
   "done"; the weekly plain-words owner report; and repository visibility
   (owner-reserved stop 4).
@@ -61,8 +61,9 @@ scaffolding. The rule numbers are kept so existing references (for example
      With no eligible merger, the PR waits.
   3. *A model assignment never lifts a standing limit.* Nobody reviews or
      merges their own build; Atlas never merges; Astra never reviews of
-     record or merges; Muse does not merge a PR it reviewed; Codex is
-     paused. Dale's example (Claude builds, ChatGPT reviews, Grok merges)
+     record or merges; Muse does not merge a PR it reviewed; Codex remains
+     paused for review-of-record and merge assignments. Dale's example
+     (Claude builds, ChatGPT reviews, Grok merges)
      names models the lead may choose within these limits. It grants no
      role to the Grok Bot app and expands no agent's authority.
   4. *Unchanged:* the review contract, findings format, Merge gate, private
@@ -93,7 +94,8 @@ scaffolding. The rule numbers are kept so existing references (for example
   eligible existing session before starting a new one, and makes no silent
   model swap or duplicate builder. #1611 stays the source of truth, and
   the mailbox timer stays as the backup.
-- **Codex:** paused; resuming it is Dale's call.
+- **Codex:** the lead may assign it to builds under OD-065. See OD-063 for
+  review and merge eligibility.
 - Nobody reviews or merges their own build. Atlas never merges.
 - **Backup merger:** under the full Merge gate, a Claude Code session may
   merge a PR when Muse reviewed that PR (OD-027) or under the 10-minute Merge
