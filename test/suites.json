@@ -508,6 +508,7 @@
   ["early income settled once: identity-linked and child-benefit early receipts are not re-added by the walk; ambiguity withheld","test-early-income-settlement.js"],
   ["Other Income payday waterfall","test-other-income.js"],
   ["proven household-internal cash movement","test-household-internal-movement.js"],
+  ["a posted own-account transfer with a previously proved destination counts as neither household spend nor income before or after its receipt","test-own-account-transfers.js"],
   ["leftover vs Current Balance operating-cash explanation","test-leftover-operating-cash-explanation.js"],
   ["leftover vs BILLS ACCOUNT cash explanation","test-leftover-bills-cash-explanation.js"],
   ["configured purpose-reserve transfer recognition","test-purpose-reserve-transfers.js"],
