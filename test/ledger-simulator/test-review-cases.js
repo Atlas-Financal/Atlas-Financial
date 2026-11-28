@@ -74,6 +74,25 @@ async function main() {
     [older.prior.view.sourceDay, older.current.view.sourceDay, older.current.view.cardObservedAt],
     [4, 4, date(3) + 'T18:00:00.000Z']
   );
+  for (const day of [14, 15]) {
+    const crossing = await evaluate(
+      {
+        seed,
+        firstDay: 12,
+        day,
+        priorFaults: { 13: 'thin-card', 14: 'missing-balance' },
+        fault: 'missing-balance',
+      },
+      []
+    );
+    assert.ok(crossing.clean.view.qualified);
+    assert.equal(crossing.clean.view.cardObservedAt, null);
+    assert.ok(crossing.current.view.retained);
+    assert.equal(crossing.current.view.sourceDay, 13);
+    assert.equal(crossing.current.view.cardObservedAt, date(12) + 'T18:00:00.000Z');
+    assert.deepEqual(crossing.current.view.amounts, crossing.prior.view.amounts);
+    assert.ok(!crossing.failures.some((f) => f.cause === 'retention/missing-balance'));
+  }
   const flags = {
     mode: 'advisory',
     seed,

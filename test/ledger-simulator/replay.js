@@ -52,8 +52,10 @@ async function observation(seed, day, events, fault, input = world(seed, day, ev
 }
 function remember(today, prior) {
   const history = prior?.history || [];
-  const live = history.filter((r) => Math.floor(r.day / 14) === Math.floor(today.day / 14));
   const last = history.at(-1);
+  // A refused refresh still displays the last qualified period's cohort.
+  const periodDay = today.qualified ? today.day : (last?.day ?? today.day);
+  const live = history.filter((r) => Math.floor(r.day / 14) === Math.floor(periodDay / 14));
   if (last && !live.includes(last)) live.unshift(last);
   if (today.qualified) live.push(today);
   return { ...today, history: live };
